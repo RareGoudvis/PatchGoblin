@@ -123,6 +123,11 @@ Writes: `PATCH /cal/items/{id}` (writes **do** send `schoolyear`; `groups` are o
 
 ### Gotchas that have bitten before
 
+- **List `title` is not the stored title** (since ~2026-10). For an item with a fiche, `/cal/items`
+  returns the computed `title_lessons` (`"* <fiche subject> (1)"`) in `title`; `/cal/items/{id}`
+  returns the real `title` plus `title_lessons`. Questi's own UI shows the decorated one and no
+  title PATCH changes that. Hydrate takes `title` from the detail — never commit the list title.
+
 - `current_schoolyear` from `/schools` is an **object**, never `String()` it.
 - Own fiche fetches need the user's personal `default_tagId`; a real category tag uses
   `user_tagId` instead. Tag 8 is only valid with `shared_userId` (else error `1203`).
@@ -167,11 +172,15 @@ Full-day items must not read `state.settings`: with no start time they all share
 receives a fiche, so `descFor` goes on writing `"Zie themafiche."` — but the grid cell and the
 print band show the *fiche* title, not that literal.
 
-**Descriptions are published.** The teacher's class website renders the calendar description, so a
-WO/Godsdienst **lesuur** writes the week's themafiche *title* (via `themaFicheTitleFor`), falling
-back to the vak name when there is no themafiche that week. Only the whole-week **bar** keeps the
-literal `"Zie themafiche."`. A lesuur's `themaFiche` comes from its **vak tag** (`isThemaVak`), and
-such a lesuur may still receive its own fiche — `isTargetable` no longer excludes it.
+**Descriptions are published.** Enderklas (the teacher's class website) shows the calendar
+**title** as the lesson and the **description** as the vak (and colours by it). So the description
+is ALWAYS the vak name — a WO/Godsdienst lesuur included. A fiche-less WO/Godsdienst lesuur instead
+gets the week's themafiche name as its **title** (`applyThemaLesuurTitles`, run on load, each paint
+and in print), replacing only a `"Lesuur N"` placeholder, a title it set itself (`s.autoThemaTitle`)
+or last version's themafiche name — never a typed title; no themafiche → back to `origTitle`.
+`"Zie themafiche."` remains the whole-week **bar's** description, and on screen/paper only for a
+thema lesuur still on its placeholder (`themaShowsLiteral`). A lesuur's `themaFiche` comes from its
+**vak tag** (`isThemaVak`, never the title), and such a lesuur may still receive its own fiche.
 
 Layout: the 64px label column is **empty by design**. It once held the row label, and because grid
 rows are auto-height a wrapped lesson title there stretched the whole row. The thema name now sits
@@ -186,10 +195,26 @@ week), require a week-shaped range, skip our own reads (marked `qwp=1` by `apiIt
 check the distance from today. `resolveOpenWeek()` is the single answer used by both the planner
 and print, and the status line says which rule fired.
 
-**Vak mismatch.** The cell sub-label is the lesuur's own vak from `state.settings`, not the fiche's.
-`resolveFicheVakken` fills `_ficheVakCache` **after** the grid paints and repaints, and
-`vakMismatch` flags only a disagreement between two KNOWN vakken. Methode fiches answer `1235` on
-`/cal/lessons/{id}`, so they are cached as unknown without a request and never flagged.
+**Vak follows the fiche.** The description is published — Enderklas shows it as the vak — so a
+lesuur with a fiche gets the fiche's OWN vak. On assign: `syncFicheVakken` → `applyFicheVakken`. On
+load: `applyStoredVakken` (also run each paint, for lesuren WITH or WITHOUT a fiche): manual
+override `state.slotVak[itemId]` (any Vak pick in a lesuur's popup; cleared by `assignFiche`) →
+fiche vak from `_ficheVakCache` → top tag equal to the stored description (what we wrote, so a
+one-week WO/Godsdienst swap survives reloads, other devices and print) → settings. A mismatching stored vak
+becomes a **description-only** change in review, and the status line says how many. This is only
+safe because a commit never re-POSTs an unchanged fiche and hydrate takes the stored title from the
+detail (v1.1.11 had neither and rewrote every opened week's titles). Methode fiches answer `1235` on
+`/cal/lessons/{id}`, so their vak is unknown: they keep the stored/settings vak, never flagged.
+
+**Commit never re-POSTs an unchanged fiche, and never adopts Questi's title.** The attachment POST
+retitles the item `"* <fiche> (1)"`; `doCommit` PATCHes our plain title afterwards, and
+`buildCommitPlan` only sends `fiche` when it differs from `origFicheContentId` (else `keepsFiche`,
+plain PATCH). "Titels opschonen" (`cleanDecoratedTitles`) stages the repair for already-decorated items, bars included.
+"Vakken herstellen" (`resetVakkenToDefault`) is the escape hatch for that stored-description rule:
+for the loaded week(s) it drops `state.slotVak` and sets every lesuur back to fiche vak / Instellingen,
+marking `s.vakReset` so `applyStoredVakken` leaves it alone until reload. A lesuur that loses its
+thema vak gets its `"Lesuur N"` placeholder back (`placeholderTitleFor`: position among the same
+calendar's recurring lesuren that day) instead of keeping another vak's themafiche name.
 
 **Lesfiche-manager.** Edits are *staged* into `mgr.pending` and only written through the
 "Wijzigingen controleren" gate. Tag catalog CRUD writes immediately. Bulk delete is guarded by a

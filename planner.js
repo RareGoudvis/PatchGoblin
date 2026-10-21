@@ -76,7 +76,7 @@
   // ---------- Storage ----------
   var STORE_KEY = "qwp_state_v6";
   function mkPanel(vak, sort) { return { source: "self", sortDir: sort || "az", filterVak: vak || null, filterTagId: null, hideUsed: false, gradeFilter: null }; }
-  var state = { colleagues: [], settings: {}, weeks: 1, panelCount: 2, pickerView: "list", splitRatio: 0.58, sideCollapsed: null, workingCalendarId: null, manualSchoolId: null, manualSchoolyear: null, manualOwnTagId: null, themaVak: {}, saveThrottleMs: 250, panels: [mkPanel(null, "az"), mkPanel(null, "az"), mkPanel(null, "az")] };
+  var state = { colleagues: [], settings: {}, weeks: 1, panelCount: 2, pickerView: "list", splitRatio: 0.58, sideCollapsed: null, workingCalendarId: null, manualSchoolId: null, manualSchoolyear: null, manualOwnTagId: null, themaVak: {}, slotVak: {}, saveThrottleMs: 250, panels: [mkPanel(null, "az"), mkPanel(null, "az"), mkPanel(null, "az")] };
   function loadState() {
     return new Promise(function (res) {
       try {
@@ -97,6 +97,7 @@
     if (s.manualSchoolyear != null) state.manualSchoolyear = s.manualSchoolyear;
     if (s.manualOwnTagId != null) state.manualOwnTagId = s.manualOwnTagId;
     if (s.themaVak) state.themaVak = s.themaVak;   // thema identity → vak, chosen by hand
+    if (s.slotVak) state.slotVak = s.slotVak;      // lesuur itemId → vak, chosen by hand over its fiche
     if (s.panelCount) state.panelCount = s.panelCount;
     if (s.pickerView) state.pickerView = s.pickerView;
     if (s.splitRatio) state.splitRatio = s.splitRatio;
@@ -803,6 +804,19 @@
     if (tagId == null) delete state.themaVak[id]; else state.themaVak[id] = tagId;
     saveState();
   }
+  // A lesuur's vak follows its fiche, unless the teacher picked another Vak in the popup AFTER the
+  // fiche was placed. Keyed by itemId — calendar writes are single-occurrence, so the id is stable.
+  function slotVakOverride(s) {
+    var v = s && s.itemId != null ? (state.slotVak || {})[s.itemId] : null;
+    return v != null ? v : null;
+  }
+  function setSlotVakOverride(s, tagId) {
+    if (!s || s.itemId == null) return;
+    if (!state.slotVak) state.slotVak = {};
+    var had = s.itemId in state.slotVak;
+    if (tagId == null) { if (!had) return; delete state.slotVak[s.itemId]; } else state.slotVak[s.itemId] = tagId;
+    saveState();
+  }
   // Stamp themaKey/themaTagId on a full-day slot. Idempotent; safe to call again after a reload.
   // Priority: the recurring-series id (survives ANY rename) → tag resolved from origTitle
   // (prefix, containment, alias) → the normalised title itself.
@@ -843,7 +857,8 @@
     for (var i = 0; i < (slots || []).length; i++) {
       var s2 = slots[i]; if (s2.themaKey !== key) continue;
       if (s2.themaTagId != null) { var tt = (anyTagTitle(s2.themaTagId) || "").trim(); if (tt) return tt; }
-      return (stripThemaPrefix(s2.origTitle) || s2.origTitle || "").trim() || "Thema";
+      var ot = stripQuestiDecoration(s2.origTitle);
+      return (stripThemaPrefix(ot) || ot || "").trim() || "Thema";
     }
     return "Thema";
   }
@@ -861,28 +876,118 @@
     plain.sort(function (a, b) { return a.localeCompare(b, "nl"); });
     return tagged.concat(plain);
   }
-  // Commit rule (for the external reader): item title = fiche title (set on assign /
-  // by the attachment POST); item description = the top-level vak (subject) name.
+  // Commit rule (for the external reader): item title = plain fiche title (set on assign; Questi's
+  // "* … (1)" attach title is never adopted); item description = the top-level vak (subject) name.
   // The week's themafiche title for a lesuur's vak, without its "<Thema> — " prefix.
-  function themaFicheTitleFor(slot) {
+  // `slots` defaults to the planner week; print passes its own pv.slots.
+  function themaFicheTitleFor(slot, slots) {
     if (!slot || slot.isFullday) return "";
     var top = topTagIdOf(slot.vak); if (top == null) return "";
-    var hit = view.slots.filter(function (x) {
+    var hit = (slots || view.slots).filter(function (x) {
       return x.isFullday && x.weekIdx === slot.weekIdx && x.idCalendar !== "cal_holidays" &&
         x.themaTagId != null && String(x.themaTagId) === String(top) && x.ficheTitle;
     })[0];
     return hit ? (stripThemaPrefix(hit.ficheTitle) || "").trim() : "";
   }
+  // "Zie themafiche." is shown ONLY on a thema lesuur without its own fiche, in a week that really
+  // has a themafiche for its vak. A band shows its fiche or its own title; a lesuur with its own
+  // fiche shows that fiche; with no themafiche that week the literal would point at nothing.
+  // Shared by grid, print and review so the three can never disagree again.
+  function themaShowsLiteral(s, slots) {
+    if (!s || isThemaSlot(s) || !s.themaFiche) return false;
+    if (s.ficheContentId && s.ficheTitle) return false;
+    // Normally applyThemaLesuurTitles already put the themafiche name in the title; the literal
+    // is only left for a lesuur still showing its "Lesuur N" placeholder (e.g. not editable).
+    if (!isLesuurPlaceholder(s.title)) return false;
+    return !!themaFicheTitleFor(s, slots);
+  }
+  // A fiche-less WO/Godsdienst lesuur TITLE = the week's themafiche name; its description stays the
+  // vak (Enderklas reads the vak from the description, the lesson from the title). Only a
+  // "Lesuur N" placeholder, a title we set ourselves, or last version's themafiche name is replaced
+  // — never a title the teacher typed. No themafiche any more → our title goes back to origTitle.
+  // Idempotent; returns how many titles changed.
+  function applyThemaLesuurTitles(slots) {
+    var n = 0, all = slots || [];
+    function clean(t) { return stripQuestiDecoration(stripThemaPrefix(t || "") || t || "").trim(); }
+    // Any themafiche name in that week (current or as loaded): a title equal to one was written by us.
+    function themaNamesOf(weekIdx) {
+      var names = {};
+      all.forEach(function (x) {
+        if (!x.isFullday || x.weekIdx !== weekIdx || x.idCalendar === "cal_holidays") return;
+        [x.ficheTitle, x.origFicheTitle].forEach(function (t) { var c = clean(t); if (c) names[c] = true; });
+      });
+      return names;
+    }
+    all.forEach(function (s) {
+      if (!s || s.isFullday || s.isGym || s.ficheContentId || !s.isEditable || s.idCalendar === "cal_holidays") return;
+      if (!s.themaFiche) return;
+      var top = topTagIdOf(s.vak);
+      var bar = top == null ? null : all.filter(function (x) {
+        return x.isFullday && x.weekIdx === s.weekIdx && x.idCalendar !== "cal_holidays" &&
+          x.themaTagId != null && String(x.themaTagId) === String(top) && x.ficheTitle;
+      })[0];
+      var tf = bar ? clean(bar.ficheTitle) : "";
+      var ours = s.autoThemaTitle || isLesuurPlaceholder(s.title) || !!themaNamesOf(s.weekIdx)[String(s.title || "").trim()];
+      if (tf) {
+        if (ours && s.title !== tf) { s.title = tf; n++; }
+        if (ours) s.autoThemaTitle = true;
+      } else if (ours && !isLesuurPlaceholder(s.title)) {
+        // No themafiche for this vak (any more): give back the placeholder, never another vak's name.
+        var back = (s.origTitle && !themaNamesOf(s.weekIdx)[clean(s.origTitle)]) ? s.origTitle : placeholderTitleFor(s, all);
+        if (back && s.title !== back) { s.title = back; n++; }
+        s.autoThemaTitle = false;
+      }
+    });
+    return n;
+  }
+  // Rebuild "Lesuur N" for a lesuur whose stored title was overwritten: N = its position among the
+  // recurring lesuren of the same calendar that day (Questi's own numbering). "" if it can't tell.
+  function placeholderTitleFor(s, slots) {
+    if (!s.repeatId) return "";
+    var day = (slots || []).filter(function (x) {
+      return !x.isFullday && x.weekIdx === s.weekIdx && x.dayIdx === s.dayIdx &&
+        x.idCalendar === s.idCalendar && x.repeatId && x.time;
+    }).map(function (x) { return x.time; });
+    var uniq = day.filter(function (t, i) { return day.indexOf(t) === i; }).sort();
+    var i = uniq.indexOf(s.time);
+    return i > -1 ? ("Lesuur " + (i + 1)) : "";
+  }
+  // Instellingen win again for the loaded week(s): drop every hand-picked vak and the vak read back
+  // from stored descriptions. A lesuur with a fiche gets the fiche's vak (when known), any other the
+  // timeslot setting. Staged like any edit — the review shows each description/title change.
+  function resetVakkenToDefault() {
+    var cand = view.slots.filter(function (s) {
+      return s.isEditable && !s.isFullday && !s.isGym && s.idCalendar !== "cal_holidays";
+    });
+    if (!cand.length) { setStatus("Geen lesuren in de geladen week."); return; }
+    pushUndo("vakken herstellen");
+    var touched = false;
+    cand.forEach(function (s) {
+      if (state.slotVak && s.itemId in state.slotVak) { delete state.slotVak[s.itemId]; touched = true; }
+      s.vakReset = true;
+      var fv = s.ficheContentId ? _ficheVakCache[s.ficheContentId] : null;
+      var target = fv != null ? fv : (state.settings[slotKeyStd(s.dayIdx, s.time)] || "");
+      if (target === "" || target == null) return;
+      s.vak = target;
+      s.themaFiche = isThemaVak(s.vak);
+    });
+    if (touched) saveState();
+    renderTimetable();
+    var n = cand.filter(computeDirty).length;
+    setStatus(n ? (n + " lesuur/lesuren aangepast naar de standaard (fiche of Instellingen) — controleer bij Wijzigingen.") : "Alle lesuren volgen al de standaard.");
+  }
+  // Questi's week list decorates titles of items with a fiche as "* <fiche> (n)". Display-only strip.
+  var DECORATED_RE = /^\*\s*(.+?)\s*\(\d+\)\s*$/;
+  function stripQuestiDecoration(t) {
+    var m = String(t == null ? "" : t).match(DECORATED_RE);
+    return m ? m[1] : String(t == null ? "" : t);
+  }
   function descFor(slot) {
     if (slot.isGym) return null;
     // A whole-week bar keeps the literal; it already names its fiche in its title.
     if (slot.isFullday && slot.themaFiche) return "Zie themafiche.";
-    // A lesuur that refers to the themafiche NAMES it — this description is published to the
-    // class website, where "Zie themafiche." means nothing. No themafiche that week → vak name.
-    if (slot.themaFiche && !slot.ficheContentId) {
-      var tf = themaFicheTitleFor(slot);
-      if (tf) return tf;
-    }
+    // A thema lesuur's description is its vak like any other: Enderklas reads the vak from here.
+    // The themafiche's NAME goes into the title instead (applyThemaLesuurTitles).
     // Description = the LIVE top-level tag ("vak") the fiche was filtered/picked under. No
     // title-guessing: downstream tooling reads this to disambiguate same-titled fiches
     // (e.g. "Thema 5 - Les …"), so it must be the real tag, never a heuristic from the title.
@@ -919,6 +1024,13 @@
     var dt = new Date(s.replace(" ", "T")); if (isNaN(dt.getTime())) return false;
     var b = schoolYearBounds();
     return dt >= b.start && dt <= b.end;
+  }
+  // "gebruikt 12/10" chip for picker rows; full date on hover. Only reached when usedThisYear
+  // already validated the date, so the slice is safe.
+  function usedChip(f) {
+    if (!usedThisYear(f)) return null;
+    var iso = String(f.last_used_date).slice(0, 10);
+    return h("span", { class: "qwp-used", title: "Laatst gebruikt op " + iso.split("-").reverse().join("/"), text: "gebruikt " + ddmm(iso, 0) });
   }
 
   // ---------- Hydrate ----------
@@ -963,6 +1075,10 @@
           return fetchItemDetail(s.itemId).then(function (d) {
             if (!d) return;
             s.origDescription = d.description || ""; s.description = s.origDescription;
+            // Since ~2026-10 the LIST endpoint reports a computed `title_lessons` ("* <fiche> (1)") in
+            // `title` for any item with a fiche; the detail keeps the real stored title. Use that, or
+            // the next commit would write the decoration into the stored title.
+            if (typeof d.title === "string" && d.title) { s.origTitle = d.title; s.title = d.title; }
             var att = ficheAttachment(d.attachments);
             if (att && att.content) { s.origFicheContentId = att.content.id; s.ficheContentId = att.content.id; s.origFicheTitle = att.content.subject || ""; s.ficheTitle = s.origFicheTitle; }
             // The authoritative group id lives here (list groups are always empty); keep it.
@@ -1018,10 +1134,12 @@
         old: { title: s.origTitle, desc: s.origDescription, fiche: s.origFicheTitle || "(geen)" },
         neu: { title: s.title, desc: toHtmlDesc(nd), fiche: (s.isGym ? "(geen — gym)" : (s.ficheTitle || "(geen)")) },
         patchBody: body, range: range,
-        // Needed by doCommit: Questi's attachment response overwrites the title with its own
-        // decorated fiche title, which would drop the "<Thema> — " prefix we just built.
         themaTagId: (isThemaSlot(s) && s.themaTagId != null) ? s.themaTagId : null,
-        fiche: (!s.isGym && s.ficheContentId) ? { contentId: s.ficheContentId, groups: grps, isMethod: !!s.ficheIsMethod } : null
+        // Only re-POST the attachment when the fiche actually CHANGED. A description- or title-only
+        // edit is a plain PATCH: omitting `attachments` keeps the existing one. Re-POSTing an
+        // unchanged fiche once rewrote every old lesuur's title to Questi's "* … (1)".
+        fiche: (hasFiche && String(s.ficheContentId) !== String(s.origFicheContentId || "")) ? { contentId: s.ficheContentId, groups: grps, isMethod: !!s.ficheIsMethod } : null,
+        keepsFiche: hasFiche && String(s.ficheContentId) === String(s.origFicheContentId || "")
       };
     });
   }
@@ -1097,6 +1215,8 @@
         h("div", { class: "qwp-side-lbl", text: "Opties" }),
         h("button", { class: "qwp-side-btn", onclick: openInstellingen, text: "Instellingen" }),
         h("button", { class: "qwp-side-btn", onclick: openCopyPrevWeek, text: "Kopieer vorige week" }),
+        h("button", { class: "qwp-side-btn", onclick: cleanDecoratedTitles, title: "Zet titels als '* Les 3 (1)' terug naar de gewone fichetitel (in de geladen week)", text: "Titels opschonen" }),
+        h("button", { class: "qwp-side-btn", onclick: resetVakkenToDefault, title: "Vergeet handmatig gekozen vakken in de geladen week: lesuren met een fiche krijgen het vak van de fiche, andere het vak uit Instellingen", text: "Vakken herstellen" }),
         h("button", { class: "qwp-side-btn", onclick: function () { if (window.__QWP_METHODES) window.__QWP_METHODES.open(); }, title: "Welke lessen van een methode zijn al gegeven?", text: "Methodevoortgang" })
       ]),
       h("div", { class: "qwp-side-grp" }, [
@@ -1303,10 +1423,9 @@
   // built by buildFicheColors) → the slot's settings/vak top-tag colour → neutral.
   function printCellParts(pv, s) {
     if (!s) return null;
-    var thema = s.themaFiche || isThemaSlot(s);
-    // A whole-week thema BAND must print the fiche it carries — "Zie themafiche." is the item
-    // description, useless on paper. Only a normal lesuur marked as thema falls back to it.
-    var main = (thema && !(isThemaSlot(s) && s.ficheTitle)) ? "Zie themafiche."
+    // A thema band or lesuur prints the fiche it carries — "Zie themafiche." is the item
+    // description, useless on paper. Only a fiche-less thema slot falls back to it.
+    var main = themaShowsLiteral(s, pv && pv.slots) ? "Zie themafiche."
       : (stripThemaPrefix(s.ficheTitle || "") || (isLesuurPlaceholder(s.title) ? "" : stripThemaPrefix(s.title || "")));
     var top = topTagIdOf(s.vak);
     var vak = top != null ? ((anyTagTitle(top) || "").trim()) : "";
@@ -1614,6 +1733,58 @@
     if (sv == null || String(sv) === String(fv)) return null;
     return { ficheVak: (anyTagTitle(fv) || "").trim(), slotVak: (anyTagTitle(sv) || "").trim() };
   }
+  // LOAD rule for a lesuur whose fiche (or lack of one) is unchanged since load: manual override →
+  // the fiche's OWN vak (once _ficheVakCache knows it) → the top tag whose title equals the stored
+  // description → settings. The stored description is what WE wrote, so a vak chosen by hand for one
+  // lesuur (WO and Godsdienst swapped that week) survives a reload, on another device and in print —
+  // instead of snapping back to the timeslot setting. A lesuur whose stored vak disagrees with its
+  // fiche becomes a description-only change, shown in review. Safe only because a commit no longer
+  // re-POSTs an unchanged fiche nor writes the list title. Returns the count changed.
+  function applyStoredVakken(slots) {
+    var tops = null, n = 0;
+    (slots || []).forEach(function (s2) {
+      if (!s2 || s2.isFullday || s2.isGym || s2.idCalendar === "cal_holidays") return;
+      if (s2.vakReset) return;   // "Vakken herstellen" chose the default on purpose this session
+      if (String(s2.ficheContentId || "") !== String(s2.origFicheContentId || "")) return;   // changed in the planner
+      var target = slotVakOverride(s2);
+      if (target == null && s2.ficheContentId) target = _ficheVakCache[s2.ficheContentId];
+      if (target == null) {
+        var d = stripHtml(s2.origDescription).toLowerCase(); if (!d) return;
+        if (!tops) tops = topTagsForOwner(ownTagsList(), ctx.ownerId) || [];
+        var hit = tops.filter(function (t) { return (t.title || "").trim().toLowerCase() === d; })[0];
+        if (!hit) return;
+        target = hit.id;
+      }
+      var cur = topTagIdOf(s2.vak), want = topTagIdOf(target);
+      if (cur != null && want != null && String(cur) === String(want)) return;
+      s2.vak = target;
+      s2.themaFiche = isThemaVak(s2.vak);
+      n++;
+    });
+    return n;
+  }
+  // ASSIGN rule: a fiche just placed in the planner takes its OWN vak (from _ficheVakCache), or the
+  // teacher's manual override. Unknown fiche vak (methode, unreadable colleague fiche) → left as is.
+  // Only ever called on slots the teacher just filled (syncFicheVakken) — never on load.
+  function applyFicheVakken(slots) {
+    var n = 0;
+    (slots || []).forEach(function (s2) {
+      if (!s2 || s2.isFullday || s2.isGym || !s2.ficheContentId || s2.idCalendar === "cal_holidays") return;
+      var ov = slotVakOverride(s2);
+      var target = ov != null ? ov : _ficheVakCache[s2.ficheContentId];
+      if (target == null) return;
+      var cur = topTagIdOf(s2.vak), want = topTagIdOf(target);
+      if (cur != null && want != null && String(cur) === String(want)) return;   // keeps a subtag
+      s2.vak = target;
+      s2.themaFiche = isThemaVak(s2.vak);
+      n++;
+    });
+    return n;
+  }
+  // After placing fiche(s): learn their vak and relabel a beat later, without waiting for a reload.
+  function syncFicheVakken(slots) {
+    resolveFicheVakken(slots, function () { if (applyFicheVakken(slots)) renderTimetable(); });
+  }
   function ficheEditTags(id) {
     return jget(API + "/lessons/" + id + "?" + qs({ schoolId: ctx.schoolId, return_format: "edit" }))
       .then(function (j) { var r = (j && j.result) || j; return (r && r.tags) || []; }).catch(function () { return []; });
@@ -1675,7 +1846,7 @@
       var pv = { slots: slots, weekStart: startISO, weeks: weeks, timeRows: r.timeRows, rowMeta: r.rowMeta, presence: r.presence, ficheColor: {} };
       // Resolve fiche colours AND fiche vakken — print must show the same mismatch warnings the
       // grid does, and it renders once with no chance to repaint later.
-      return resolveFicheVakken(pv.slots).then(function () { return buildFicheColors(pv); });
+      return resolveFicheVakken(pv.slots).then(function () { applyStoredVakken(pv.slots); applyThemaLesuurTitles(pv.slots); return buildFicheColors(pv); });
     });
   }
   // Ensure context + tag lists are available for a headless print (trimmed loadEverything).
@@ -1854,6 +2025,9 @@
 
   function renderTimetable() {
     var wrap = elId("qwp-ttwrap"); if (!wrap) return; wrap.innerHTML = "";
+    // Re-run each paint: boot fetches tags and the week in parallel (same reason as ensureThemaKeys).
+    applyStoredVakken(view.slots);
+    applyThemaLesuurTitles(view.slots);   // follows a themafiche placed/changed on a bar this session
     computeTimeRows();
     renderRange();
 
@@ -1984,11 +2158,11 @@
     if (targetable) cls += " slot-empty";
     if (targetable && isTarget(s.itemId)) cls += " target";
 
-    // Same rule as print: a thema BAND shows the fiche it carries; only a fiche-less one falls
+    // Same rule as print: a thema slot shows the fiche it carries; only a fiche-less one falls
     // back to the description literal.
     var fiche = s.isGym ? "Enkel titel (gym)"
       : (isThemaSlot(s) && s.ficheTitle) ? stripThemaPrefix(s.ficheTitle)
-      : thema ? "Zie themafiche."
+      : themaShowsLiteral(s) ? "Zie themafiche."
       : (s.ficheTitle || (s.origFicheTitle ? ("was: " + s.origFicheTitle) : "Klik of sleep om te kiezen"));
     // No status pills — color conveys state (see sidebar legend). s.vak = live tag id.
     var vakLbl = s.vak ? ((tagTitle("self", s.vak) || "").trim()) : "";
@@ -2024,6 +2198,7 @@
             pushUndo("lesuur verplaatsen"); moveOrSwap(src, s);
           } else {
             pushUndo("fiche slepen"); assignFiche(s, { id: dd.id, subject: dd.subject || dd.title, isMethod: dd.isMethod }); if (dd.tagId != null) s.vak = dd.tagId;
+            syncFicheVakken([s]);
           }
           renderTimetable();
         } catch (err) {}
@@ -2040,7 +2215,7 @@
           text: "≠ " + (mism.ficheVak || "?")
         }) : null
       ]) : null,
-      h("div", { class: "qwp-cell-title", text: (themaBand ? (stripThemaPrefix(s.title) || s.title) : s.title) || "(leeg)" }),
+      h("div", { class: "qwp-cell-title", text: (themaBand ? stripQuestiDecoration(stripThemaPrefix(s.title) || s.title) : s.title) || "(leeg)" }),
       h("div", { class: "qwp-cell-fiche", text: fiche })
     ]);
     // Filled (non-thema) slots are draggable → move/swap onto another slot.
@@ -2060,16 +2235,17 @@
   // stay "Zie themafiche." (brief.md). Clearing it made descFor write the vak tag name instead,
   // and since neither re-detection rule fires afterwards the flag never came back.
   function isThemaSlot(s) { return !!(s && s.isFullday && s.themaKey); }
-  function assignFiche(slot, f) { var t = f.subject || f.title || ""; slot.ficheContentId = f.id; slot.ficheTitle = t; slot.ficheIsMethod = !!(f.__method || f.isMethod); if (t) slot.title = t; slot.isGym = false; slot.themaFiche = isThemaSlot(slot); }
+  // A newly placed fiche brings its own vak, so any earlier manual vak override no longer applies.
+  function assignFiche(slot, f) { setSlotVakOverride(slot, null); slot.autoThemaTitle = false; var t = f.subject || f.title || ""; slot.ficheContentId = f.id; slot.ficheTitle = t; slot.ficheIsMethod = !!(f.__method || f.isMethod); if (t) slot.title = t; slot.isGym = false; slot.themaFiche = isThemaSlot(slot); }
   // Move / swap a fiche between two slots (drag one filled cell onto another) — the
   // title (and methode-flag) travels with the fiche.
   function slotPayload(s) { return { title: s.title, ficheContentId: s.ficheContentId, ficheTitle: s.ficheTitle, ficheIsMethod: s.ficheIsMethod, isGym: s.isGym, vak: s.vak }; }
   function applySlotPayload(s, p) { s.title = p.title; s.ficheContentId = p.ficheContentId; s.ficheTitle = p.ficheTitle; s.ficheIsMethod = p.ficheIsMethod; s.isGym = p.isGym; s.themaFiche = isThemaSlot(s); s.vak = p.vak; }
   // Restoring a thema slot: its vak is the thema tag, never state.settings — full-day items all
   // share the settings key "<day>|" (no start time), so WO and Godsdienst would collide there.
-  function clearSlotContent(s) { s.title = s.origTitle; s.ficheContentId = null; s.ficheTitle = ""; s.ficheIsMethod = false; s.isGym = false; s.themaFiche = isThemaSlot(s) || isThemaTitle(s.origTitle); s.vak = isThemaSlot(s) ? (s.themaTagId || "") : (state.settings[slotKeyStd(s.dayIdx, s.time)] || ""); }
+  function clearSlotContent(s) { setSlotVakOverride(s, null); s.autoThemaTitle = false; s.title = s.origTitle; s.ficheContentId = null; s.ficheTitle = ""; s.ficheIsMethod = false; s.isGym = false; s.vak = isThemaSlot(s) ? (s.themaTagId || "") : (state.settings[slotKeyStd(s.dayIdx, s.time)] || ""); s.themaFiche = isThemaSlot(s) || (!s.isFullday && isThemaVak(s.vak)); }
   // Fully empty a slot: drop the fiche AND wipe title/description (commit writes it blank).
-  function emptySlot(s) { s.title = ""; s.description = ""; s.ficheContentId = null; s.ficheTitle = ""; s.ficheIsMethod = false; s.isGym = false; s.themaFiche = false; s.vak = ""; }
+  function emptySlot(s) { setSlotVakOverride(s, null); s.title = ""; s.description = ""; s.ficheContentId = null; s.ficheTitle = ""; s.ficheIsMethod = false; s.isGym = false; s.themaFiche = false; s.vak = ""; }
   function moveOrSwap(src, dst) {
     var a = slotPayload(src), b = slotPayload(dst);
     var dstFilled = !!(dst.ficheContentId || dst.isGym);
@@ -2113,7 +2289,7 @@
       var nv = titleInp.value;
       if (nv === (s.title || "")) return;
       if (!titleDirty) { pushUndo("titel"); titleDirty = true; }
-      s.title = nv;
+      s.title = nv; s.autoThemaTitle = false;   // typed by the teacher → never auto-replaced
       refreshLoRow();
       renderTimetable();
     }
@@ -2161,12 +2337,13 @@
         results.appendChild(h("div", {
           class: "qwp-result", onclick: function () {
             pushUndo("fiche toewijzen"); assignFiche(s, f); s.vak = (curTagId != null ? curTagId : (s.vak || ""));
+            syncFicheVakken([s]);
             searchInp.value = f.subject || "";
             // assignFiche rewrote the title — keep the visible field truthful.
             titleInp.value = s.title || ""; titleOrig = s.title || ""; titleDirty = false; refreshTitleNote();
             renderTimetable(); setStatus("Toegewezen: " + (f.subject || ""));
           }
-        }, [h("span", { class: "qwp-result-t", text: f.subject || "(zonder titel)" }), usedThisYear(f) ? h("span", { class: "qwp-used", text: "gebruikt" }) : null]));
+        }, [h("span", { class: "qwp-result-t", text: f.subject || "(zonder titel)" }), usedChip(f)]));
       });
       if (!items.length) results.appendChild(h("div", { class: "qwp-result", text: noVak ? "Geen fiches gevonden." : "Geen fiches in dit vak." }));
     }
@@ -2190,6 +2367,9 @@
         renderTimetable();
       } else {
         s.themaFiche = isThemaVak(curTagId);
+        // A deliberate vak for THIS lesuur (e.g. WO and Godsdienst swapped this week): keep it across
+        // reloads, with or without a fiche. Placing a fiche afterwards clears it (assignFiche).
+        setSlotVakOverride(s, curTagId);
         // Tagging a lesuur as Lichamelijke opvoeding titles it — it needs no fiche, so the title
         // IS the lesson. Defaults to the first of LO_TITLES; the buttons switch to Zwemmen.
       }
@@ -2329,8 +2509,10 @@
     if (!s || !isTargetable(s)) { setStatus("Sleep de fiche op een leeg lesuur (of open eerst een lesuur)."); return; }
     pushUndo("fiche toewijzen (zoek)");
     assignFiche(s, { id: f.id, subject: f.subject, isMethod: !!f.__method });
-    // Keep the slot's existing/preset vak — global search has no reliable tag (no title-guess).
+    // Global search has no reliable tag (no title-guess): keep the preset vak until the fiche's own
+    // tags have been read, then follow those.
     renderTimetable(); setStatus("Toegewezen: " + (f.subject || ""));
+    syncFicheVakken([s]);
   }
 
   function buildPicker(pi) {
@@ -2478,7 +2660,7 @@
         chk,
         h("span", { class: "qwp-pfiche-t", text: f.subject || "(zonder titel)" }),
         (f.__method || view.methodFicheIds[String(f.id)]) ? h("span", { class: "qwp-mbadge", text: "methode" }) : null,
-        usedThisYear(f) ? h("span", { class: "qwp-used", text: "gebruikt" }) : null
+        usedChip(f)
       ]);
       chk.onchange = function () { if (chk.checked) { p.picked[f.id] = pickData; } else { delete p.picked[f.id]; } row.classList.toggle("picked", chk.checked); updatePickCount(pi); };
       list.appendChild(row);
@@ -2617,6 +2799,7 @@
           assignFiche(s, { id: a.pick.id, subject: a.pick.subject, isMethod: a.pick.isMethod }); if (a.pick.tagId != null) s.vak = a.pick.tagId; done++;
         });
         view.panels[pi].picked = {}; clearTargets(); modal.remove(); renderTimetable(); renderPickList(pi); updatePickCount(pi);
+        syncFicheVakken(snapshot.map(function (o) { return slotById(o.itemId); }).filter(Boolean));
         setStatus(done + " les(sen) in het rooster gezet (nog niet weggeschreven).");
         showToast(done + " les(sen) toegevoegd.", "Ongedaan maken", function () {
           snapshot.forEach(function (o) { var s = slotById(o.itemId); if (s) { s.title = o.title; s.ficheContentId = o.ficheContentId; s.ficheTitle = o.ficheTitle; s.ficheIsMethod = o.ficheIsMethod; s.isGym = o.isGym; s.themaFiche = o.themaFiche; s.vak = o.vak; } });
@@ -2860,7 +3043,10 @@
         var d = (res.json && res.json.result) || res.json; shared.detail = d;
         if (!d) return { status: STAT.FAIL, expected: "detail-object", found: "leeg", next: "detail-endpoint gewijzigd." };
         var att = ficheAttachment(d.attachments);
-        var info = "description:" + (has(d, "description") ? "ja" : "nee") + ", attachments:" + ((d.attachments || []).length);
+        var info = "description:" + (has(d, "description") ? "ja" : "nee") + ", attachments:" + ((d.attachments || []).length) +
+          ", title_lessons:" + (has(d, "title_lessons") ? "ja" : "nee");
+        // The planner reads the stored title from the DETAIL; the list `title` is display-only.
+        if (typeof d.title !== "string") return { status: STAT.FAIL, expected: "detail.title (opgeslagen titel)", found: "ontbreekt", next: "Hydrate leest de echte titel uit de detail-call — controleer het veld." };
         if (att && !(att.content && att.content.id != null)) return { status: STAT.FAIL, expected: "attachments[0].content.id", found: "content.id ontbreekt", next: "attach-linking id-mapping controleren." };
         return { expected: "description + attachments[].content.id", found: info };
       });
@@ -3087,6 +3273,23 @@
       return s.dayIdx === dayIdx && (s.time || (s.starttime ? String(s.starttime).slice(0, 5) : "")) === time;
     }).sort(function (a, b) { return a.weekIdx - b.weekIdx; })[0] || null;
   }
+  // Questi retitles an item "* <fiche> (1)" when a fiche is attached. Undo that for the loaded
+  // week(s) — only where the stripped text IS the fiche title, so a hand-typed title is never
+  // touched. Staged like any edit: nothing is written until the review gate.
+  // Whole-week bars too: their stored title may carry our "<Thema> — " prefix in front of the
+  // decoration; the commit re-applies that prefix for a tagged bar (themaCommitTitle).
+  function cleanDecoratedTitles() {
+    var hits = view.slots.filter(function (s) {
+      if (!s.isEditable || s.isGym || !s.ficheContentId || !s.ficheTitle || s.idCalendar === "cal_holidays") return false;
+      var m = String(stripThemaPrefix(s.title || "") || s.title || "").match(DECORATED_RE);
+      return !!m && m[1].trim() === String(stripThemaPrefix(s.ficheTitle) || s.ficheTitle).trim();
+    });
+    if (!hits.length) { setStatus("Geen '* … (1)'-titels in de geladen week."); return; }
+    pushUndo("titels opschonen");
+    hits.forEach(function (s) { s.title = String(stripThemaPrefix(s.ficheTitle) || s.ficheTitle).trim(); });
+    renderTimetable();
+    setStatus(hits.length + " titel(s) opgeschoond — controleer bij Wijzigingen en schrijf weg.");
+  }
   function openCopyPrevWeek() {
     if (!view.weekStart) { setStatus("Geen week geladen."); return; }
     var old = elId("qwp-modal"); if (old) old.remove();
@@ -3159,6 +3362,7 @@
                 });
                 modal.remove(); renderTimetable();
                 setStatus(chosen.length + " les(sen) overgenomen uit vorige week (nog niet weggeschreven).");
+                syncFicheVakken(chosen.map(function (r) { return r.target; }));
               }
             })
           ])
@@ -3252,7 +3456,7 @@
     var title = mode === "old" ? s.origTitle : s.title;
     var fiche;
     if (mode === "old") fiche = s.origFicheTitle || (stripHtml(s.origDescription) === "Zie themafiche." ? "Zie themafiche." : "");
-    else fiche = s.isGym ? "(gym)" : ((s.themaFiche || isThemaSlot(s)) ? "Zie themafiche." : (s.ficheTitle || ""));
+    else fiche = s.isGym ? "(gym)" : (themaShowsLiteral(s) ? "Zie themafiche." : stripThemaPrefix(s.ficheTitle || ""));
     var overwrote = mode === "new" && s.origFicheContentId && s.ficheContentId && String(s.origFicheContentId) !== String(s.ficheContentId);
     return h("div", { class: "qwp-rv-cellbody" }, [
       h("div", { class: "qwp-cell-title", text: (overwrote ? "⚠ " : "") + (title || "(leeg)") }),
@@ -3361,17 +3565,11 @@
         fails.push({ label: p.label, error: "geen groep gevonden — vernieuw context" });
         updateCommitOverlay(ok + fails.length, plan.length); setTimeout(next, 0); return;
       }
-      // POST the fiche first (it sets the item title to Questi's decorated fiche title),
-      // THEN PATCH to add description=vak — reusing that decorated title so we don't clobber
-      // it with our plain one. (No-fiche rows carry attachments:[] to detach.)
+      // POST the fiche first (Questi then retitles the item "* <fiche> (1)"), THEN PATCH title +
+      // description=vak. The PATCH deliberately writes OUR plain title (or the thema-prefixed one)
+      // and never adopts Questi's decorated response title. (No-fiche rows carry attachments:[].)
       (p.fiche ? ((p.fiche.isMethod || view.methodFicheIds[String(p.fiche.contentId)]) ? postMethodAttachment(p.itemId, p.fiche.contentId, p.fiche.groups) : postAttachment(p.itemId, p.fiche.contentId, p.fiche.groups)) : Promise.resolve(null))
-        .then(function (res) {
-          var t = res && res.result && res.result.title;
-          // Re-apply the thema prefix to Questi's decorated title — taking it raw here is what
-          // would make the whole durable-identity fix a no-op.
-          if (t) p.patchBody.title = (p.themaTagId != null) ? themaTitleFor(p.themaTagId, t) : t;
-          return patchItem(p.itemId, p.patchBody, p.range);
-        })
+        .then(function () { return patchItem(p.itemId, p.patchBody, p.range); })
         .then(function () { ok++; })
         // Continue on error. A gateway timeout (504 …) usually still lands → re-read + verify
         // instead of hard-failing; only a mismatch is reported as uncertain.
@@ -3391,8 +3589,10 @@
       .then(function (d) {
         if (!d) return false;
         var has = !!d.has_attachments;
+        var titleOk = String(d.title || "") === String(p.patchBody.title || "");
         if (p.fiche) return has;                                   // fiche link → attachment present
-        return !has && String(d.title || "") === String(p.patchBody.title || ""); // clear → no attachment + title matches
+        if (p.keepsFiche) return has && titleOk;                   // unchanged fiche → still attached + PATCH landed
+        return !has && titleOk;                                    // clear → no attachment + title matches
       }).catch(function () { return false; });
   }
 
@@ -3422,13 +3622,20 @@
   function reloadWeek() {
     var wr = currentWeekRange(); view.weekStart = wr.start;
     setStatus("Rooster laden…");
-    return hydrateRange(wr.start, wr.end).then(function (slots) { view.slots = slots; reloadSlotVakLabels(); });
+    return hydrateRange(wr.start, wr.end).then(function (slots) { view.slots = slots; reloadSlotVakLabels(); applyStoredVakken(view.slots); });
   }
   function reloadAndRender() {
     return reloadWeek().then(function () {
-      renderTimetable(); setStatus("Rooster geladen.");
+      renderTimetable();
+      var nt = view.slots.filter(function (s2) { return s2.autoThemaTitle && computeDirty(s2); }).length;
+      setStatus(nt ? (nt + " WO/Godsdienst-lesuur/lesuren krijgen de themafiche als titel en het vak als beschrijving — controleer bij Wijzigingen.") : "Rooster geladen.");
       // Then, without blocking the paint, find out which fiches disagree with their lesuur's vak.
-      resolveFicheVakken(view.slots, function (changed) { if (changed) renderTimetable(); });
+      resolveFicheVakken(view.slots, function (changed) {
+        var n = applyStoredVakken(view.slots);
+        if (changed || n) renderTimetable();
+        var dirty = view.slots.filter(function (s2) { return s2.ficheContentId && computeDirty(s2); }).length;
+        if (n && dirty) setStatus(dirty + " lesuur/lesuren krijgen het vak van hun fiche als beschrijving — controleer bij Wijzigingen. Enkel de beschrijving wordt aangepast.");
+      });
     });
   }
 

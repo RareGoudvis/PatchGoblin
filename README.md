@@ -326,7 +326,7 @@ fiches appear in the owner selectors, filter panels, and global search (badged *
   `POST /cal/items/{id}/attachments` 400s with `1235 - no access to lesson`. Instead:
   `POST /cal/items/{id}/attachments/methodlesson?schoolId&schoolyear` with body
   `{ schoolId, visible_parents, visible_students, students:[], groups:[<raw ids>], id:<methodeFicheId> }`
-  — **same shape minus `typeId`**. Response carries the decorated title (reuse it for the item PATCH).
+  — **same shape minus `typeId`**. Response carries Questi's decorated title `"* <fiche> (1)"` — **do not** reuse it; the item PATCH writes the plain fiche title.
 - Implementation: a chosen methode becomes a colleague entry `{ id:"method:<KEY>", isMethod:true,
   methodKey, isCluster }`; `fetchFiches`/`fetchFichesByTag` short-circuit method owners to the
   methods endpoint, stamping each fiche `__method` + recording its id in `view.methodFicheIds` so
