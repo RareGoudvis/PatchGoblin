@@ -1648,16 +1648,137 @@
     { key: "ken", label: "ken", ico: '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 3.2c2-.6 4.2-.4 6.2.9 2-1.3 4.2-1.5 6.2-.9v9.4c-2-.6-4.2-.4-6.2.9-2-1.3-4.2-1.5-6.2-.9z"/><path d="M8 4.1v9.4"/></svg>' },
     { key: "kan", label: "kan", ico: '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.2 2.2a3.2 3.2 0 0 0-3.9 4.1L2 10.6a1.4 1.4 0 0 0 2 2l4.3-4.3a3.2 3.2 0 0 0 4.1-3.9l-2 2-1.8-.4-.4-1.8z"/></svg>' }
   ];
-  // Three write lines. `text` ({weet, ken, kan}) is optional: blank lines today; later the goals can
-  // come from the lesfiche and print here.
-  // The lines share whatever height the title leaves (flex), so a wrapped title shortens them a bit
-  // instead of being cut off, and every card keeps the same outer height.
-  function goalsLinesHtml(text) {
-    text = text || {};
-    return '<div class="gl">' + GOALS_KINDS.map(function (k) {
-      return '<div class="gl-row"><span class="gl-ico">' + k.ico + '</span>' +
-        (text[k.key] ? '<span class="gl-txt">' + esc(text[k.key]) + "</span>" : "") + "</div>";
-    }).join("") + "</div>";
+  // Typed goals, saved in this browser under qwp_goals_v1: { "f:<fiche id>" | "i:<item id>": {weet, ken, kan} }.
+  // Keyed by the fiche, so a reused fiche brings its goals along; a fiche-less lesuur keys on its item.
+  // Editing a fiche in Questi mints a new id (see CLAUDE.md), so its goals stay with the old version.
+  // Later the goals are meant to live in the lesfiche itself; this local store is the stopgap.
+  var GOALS_STORE_KEY = "qwp_goals_v1", _goals = {}, _goalsSaveT = null;
+  storeGet(GOALS_STORE_KEY).then(function (v) { _goals = v || {}; });
+  function goalsKeyFor(s) {
+    if (!s) return "";
+    if (s.ficheContentId) return "f:" + s.ficheContentId;
+    return s.itemId ? "i:" + s.itemId : "";
+  }
+  // A card always has 3 ruled lines. A kind can be hidden per fiche (rec.hide), and its lines go to the
+  // kinds still shown — the extra one to whichever has the most typed text (tie → first). At least one
+  // kind always stays visible. Returns { weet: n, ken: n, kan: n }, 0 = hidden.
+  function goalsAlloc(rec) {
+    rec = rec || {};
+    var hide = rec.hide || {}, out = {};
+    var vis = GOALS_KINDS.filter(function (k) { return !hide[k.key]; });
+    if (!vis.length) vis = GOALS_KINDS.slice();
+    var base = Math.floor(3 / vis.length), extra = 3 - base * vis.length;
+    GOALS_KINDS.forEach(function (k) { out[k.key] = 0; });
+    vis.forEach(function (k) { out[k.key] = base; });
+    vis.slice().sort(function (x, y) { return String(rec[y.key] || "").length - String(rec[x.key] || "").length; })
+      .slice(0, extra).forEach(function (k) { out[k.key]++; });
+    return out;
+  }
+  // Screen-only buttons that bring a hidden kind back.
+  function goalsRestoreHtml(rec) {
+    var hide = (rec && rec.hide) || {};
+    return GOALS_KINDS.filter(function (k) { return hide[k.key]; }).map(function (k) {
+      return '<span class="gl-restore-b" data-restore="' + k.key + '" title="' + esc(k.label) + ' terug tonen">+' + k.ico + "</span>";
+    }).join("");
+  }
+  // The write lines, prefilled with any typed goals for `gk`; editable in the preview (wireGoalsEditor).
+  // The block shares whatever height the title leaves (flex), so a wrapped title shortens the lines a
+  // bit instead of being cut off, and every card keeps the same outer height. Line pitch = a third of
+  // that block (container query units), so 1, 2 or 3 lines per kind all sit on the same ruling.
+  function goalsLinesHtml(gk) {
+    var rec = (gk && _goals[gk]) || {}, al = goalsAlloc(rec);
+    return '<div class="gl"' + (gk ? ' data-gk="' + esc(gk) + '"' : "") + ">" + GOALS_KINDS.map(function (k) {
+      return '<div class="gl-row gl-n' + al[k.key] + '" data-kind="' + k.key + '">' +
+        '<span class="gl-ico"' + (gk ? ' title="' + esc(k.label) + ' verbergen"' : "") + ">" + k.ico + "</span>" +
+        (gk ? '<div class="gl-txt" contenteditable="true" spellcheck="false" data-kind="' + k.key + '">' + esc(rec[k.key] || "") + "</div>" : "") +
+        "</div>";
+    }).join("") + (gk ? '<div class="gl-restore">' + goalsRestoreHtml(rec) + "</div>" : "") + "</div>";
+  }
+  // Live editing inside the preview iframe (same-origin, so listeners attach from here — an inline
+  // <script> would be blocked by Questi's CSP). Click a line and type; Enter/Escape leave it, Tab moves
+  // on. Click an icon to hide that kind for this fiche; the "+" buttons top right bring it back. The
+  // same fiche twice in one week shares its goals, so its other cards follow along. Text that no longer
+  // fits its lines is flagged on screen (red edge), never silently cut.
+  function wireGoalsEditor(doc) {
+    if (!doc || !doc.body) return;
+    function isTxt(t) { return t && t.classList && t.classList.contains("gl-txt"); }
+    function blockOf(el) { return el && el.closest ? el.closest(".gl") : null; }
+    function flush() { clearTimeout(_goalsSaveT); _goalsSaveT = null; storeSet(GOALS_STORE_KEY, _goals); }
+    function later() { clearTimeout(_goalsSaveT); _goalsSaveT = setTimeout(flush, 300); }
+    function markOver(t) { t.classList.toggle("gl-over", t.scrollHeight > t.clientHeight + 1); }
+    function twins(gk) {
+      var all = doc.querySelectorAll(".gl[data-gk]"), out = [];
+      for (var i = 0; i < all.length; i++) if (all[i].getAttribute("data-gk") === gk) out.push(all[i]);
+      return out;
+    }
+    function store(gk, rec) {
+      var keep = GOALS_KINDS.some(function (k) { return rec[k.key]; }) || (rec.hide && Object.keys(rec.hide).length);
+      if (keep) _goals[gk] = rec; else delete _goals[gk];
+    }
+    // Re-apply line allocation + restore buttons (and, on twin cards, the text) to every card of `gk`.
+    function relayout(gk, except) {
+      var rec = _goals[gk] || {}, al = goalsAlloc(rec);
+      twins(gk).forEach(function (gl) {
+        GOALS_KINDS.forEach(function (k) {
+          var row = gl.querySelector('.gl-row[data-kind="' + k.key + '"]'); if (!row) return;
+          row.className = "gl-row gl-n" + al[k.key];
+          var t = row.querySelector(".gl-txt");
+          if (t && t !== except && t.textContent !== (rec[k.key] || "")) t.textContent = rec[k.key] || "";
+          if (t) markOver(t);
+        });
+        var rs = gl.querySelector(".gl-restore"); if (rs) rs.innerHTML = goalsRestoreHtml(rec);
+      });
+    }
+    function save(el) {
+      var gl = blockOf(el), gk = gl && gl.getAttribute("data-gk"), kind = el.getAttribute("data-kind");
+      if (!gk || !kind) return;
+      var v = (el.textContent || "").replace(/\s+/g, " ").trim();
+      var rec = _goals[gk] || {};
+      if (v) rec[kind] = v; else delete rec[kind];
+      store(gk, rec);
+      relayout(gk, el);
+      later();
+    }
+    function setHidden(gk, kind, on) {
+      var rec = _goals[gk] || {}, hide = rec.hide || {};
+      if (on) {
+        var shown = GOALS_KINDS.filter(function (k) { return !hide[k.key] && k.key !== kind; });
+        if (!shown.length) return;   // the last visible kind stays
+        hide[kind] = true;
+      } else delete hide[kind];
+      if (Object.keys(hide).length) rec.hide = hide; else delete rec.hide;
+      store(gk, rec);
+      relayout(gk, null);
+      flush();
+    }
+    doc.addEventListener("input", function (e) { if (isTxt(e.target)) save(e.target); });
+    doc.addEventListener("focusout", function (e) { if (isTxt(e.target)) { save(e.target); flush(); } });
+    doc.addEventListener("keydown", function (e) {
+      if (isTxt(e.target) && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); e.target.blur(); }
+    });
+    // Paste as plain text on one line — no formatting or line breaks inside the write lines.
+    doc.addEventListener("paste", function (e) {
+      if (!isTxt(e.target)) return;
+      e.preventDefault();
+      var txt = ((e.clipboardData && e.clipboardData.getData("text/plain")) || "").replace(/\s+/g, " ");
+      doc.execCommand("insertText", false, txt);
+    });
+    doc.addEventListener("mousedown", function (e) {
+      var tg = e.target && e.target.closest ? e.target : null; if (!tg) return;
+      var gl = blockOf(tg), gk = gl && gl.getAttribute("data-gk"); if (!gk) return;
+      var rb = tg.closest(".gl-restore-b");
+      if (rb) { e.preventDefault(); setHidden(gk, rb.getAttribute("data-restore"), false); return; }
+      var row = tg.closest(".gl-row"); if (!row) return;
+      if (tg.closest(".gl-ico")) { e.preventDefault(); setHidden(gk, row.getAttribute("data-kind"), true); return; }
+      if (tg.closest(".gl-txt")) return;
+      // Clicking anywhere else on a line edits it, with the caret at the end.
+      var t = row.querySelector(".gl-txt"); if (!t) return;
+      e.preventDefault(); t.focus();
+      var sel = doc.getSelection && doc.getSelection();
+      if (sel) { var r = doc.createRange(); r.selectNodeContents(t); r.collapse(false); sel.removeAllRanges(); sel.addRange(r); }
+    });
+    var txts = doc.querySelectorAll(".gl-txt");
+    for (var i = 0; i < txts.length; i++) markOver(txts[i]);
   }
   function goalsDayHeadHtml(pv, offset) {
     var d = addDays(pv.weekStart, offset); if (!d) return '<th class="gday"></th>';
@@ -1745,7 +1866,7 @@
       (mm ? '<span class="gc-mm">≠ ' + esc(mm.ficheVak || "?") + "</span>" : "") +
       '<span class="gc-time">' + esc(time) + "</span></div>";
     var st = p.color ? (' style="border-color:' + esc(p.color) + '"') : "";
-    return '<td class="gc gfilled"' + st + '><div class="gc-in" style="height:' + innerH + 'px">' + top + goalsLinesHtml() + "</div></td>";
+    return '<td class="gc gfilled"' + st + '><div class="gc-in" style="height:' + innerH + 'px">' + top + goalsLinesHtml(goalsKeyFor(s)) + "</div></td>";
   }
   function printGoalsWeekHtml(pv, weekIdx, exWeek, opts) {
     exWeek = exWeek || { cells: {}, inject: {} };
@@ -1815,10 +1936,16 @@
     '.gc-x { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; display: flex; gap: 3px; }' +
     '.gc-mm { flex: none; font-size: 9px; font-weight: 700; color: #b3261e; }' +
     '.gc-time { flex: none; font-size: 9.5px; font-weight: 700; color: #93a0a7; }' +
-    '.gl { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }' +
-    '.gl-row { flex: 1 1 0; display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid #d3dbe0; overflow: hidden; }' +
-    '.gl-ico { flex: none; width: 14px; color: #9aa5ab; padding-bottom: 2px; line-height: 0; }' +
-    '.gl-txt { flex: 1 1 auto; min-width: 0; padding-bottom: 1px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+    // One ruled line = a third of the .gl block (cqh); the rule sits just under each line of text.
+    '.gl { flex: 1 1 auto; min-height: 0; position: relative; container-type: size; }' +
+    '.gl-row { position: relative; overflow: hidden; background: repeating-linear-gradient(to bottom, transparent 0 calc(100cqh / 6 + 6px), #d3dbe0 calc(100cqh / 6 + 6px) calc(100cqh / 6 + 7px), transparent calc(100cqh / 6 + 7px) calc(100cqh / 3)); }' +
+    '.gl-n0 { display: none; }' +
+    '.gl-n1 { height: calc(100cqh / 3); }' +
+    '.gl-n2 { height: calc(100cqh * 2 / 3); }' +
+    '.gl-n3 { height: 100cqh; }' +
+    '.gl-ico { position: absolute; left: 0; top: calc(100cqh / 6 - 7px); width: 14px; color: #9aa5ab; line-height: 0; }' +
+    '.gl-txt { height: 100%; margin-left: 18px; font-size: 10.5px; line-height: calc(100cqh / 3); color: #1e2a33; overflow: hidden; overflow-wrap: anywhere; outline: none; cursor: text; }' +
+    '.gl-restore { display: none; }' +
     'td.gxcell { background: repeating-linear-gradient(135deg,#fffaf0,#fffaf0 8px,#fff6e6 8px,#fff6e6 16px); border: 1px dashed #e7cf94; padding: 2px 6px; white-space: nowrap; }' +
     'td.gx-empty { background: transparent; border: none; }' +
     'td.gxcell .gc-time { color: #b7891a; margin-right: 4px; }' +
@@ -1844,6 +1971,16 @@
     '  .psheet-scale { zoom: var(--ss, 1); margin: 0 auto 18px; width: 1076px; }' +
     // fitPrintDoc's --ss zoom assumes the 1040×712 sheet; this page is 1076×746, so shrink 5% more.
     '  .gsheet { border-radius: 12px; box-shadow: 0 4px 22px rgba(20,40,60,.16); zoom: .95; }' +
+    '  .gl-row { cursor: text; }' +
+    '  .gl-row:hover .gl-txt { background: rgba(47,109,107,.05); }' +
+    '  .gl-row:focus-within .gl-txt { background: rgba(47,109,107,.10); }' +
+    '  .gl-ico { cursor: pointer; }' +
+    '  .gl-ico:hover { color: #b3261e; }' +
+    '  .gl-txt.gl-over { box-shadow: inset -3px 0 0 #b3261e; }' +
+    '  .gl-restore { display: flex; gap: 3px; position: absolute; right: 0; top: -15px; }' +
+    '  .gl-restore-b { display: inline-flex; align-items: center; font-size: 9px; font-weight: 700; color: #7a868d; background: #eef2f4; border-radius: 999px; padding: 0 4px; cursor: pointer; line-height: 13px; }' +
+    '  .gl-restore-b:hover { color: #2f6d6b; background: #dcebea; }' +
+    '  .gl-restore-b svg { width: 9px; height: 9px; }' +
     '}';
   function printGoalsDocHtml(pv, extraByWeek, opts) {
     extraByWeek = extraByWeek || {};
@@ -2128,6 +2265,7 @@
     function renderPreview() {
       var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document); if (!doc) return;
       doc.open(); doc.write(goalsChk.checked ? printGoalsDocHtml(curPv, curExtras, opts()) : printDocHtml(curPv, curExtras, opts())); doc.close();
+      if (goalsChk.checked) wireGoalsEditor(doc);
       // scale-to-fit after layout settles (two frames), so each week is exactly one page
       requestAnimationFrame(function () { requestAnimationFrame(fitFrame); });
     }
@@ -2161,7 +2299,7 @@
       h("div", { class: "qpp-side-lbl", text: "Blad" }),
       h("label", { class: "qpp-check" }, [metaChk, h("span", { text: "Weeknr. + afdrukdatum" })]),
       h("label", { class: "qpp-check" }, [goalsChk, h("span", { text: "Lesdoelen (WEET/KEN/KAN)" })]),
-      h("div", { class: "qpp-hint", text: "Lesdoelen: elk lesuur krijgt 3 schrijflijnen (weet / ken / kan). Weeknr., thema's en vakkenlegende staan in het vrije woensdagnamiddagvak (of in een balk bovenaan als dat niet vrij is). Een getypte opmerking komt daar ook; het lege notitieblok niet." }),
+      h("div", { class: "qpp-hint", text: "Lesdoelen: elk lesuur krijgt 3 schrijflijnen (weet / ken / kan). Klik in het voorbeeld op een lijn om een doel te typen (Enter = klaar, Tab = volgende lijn). Doelen horen bij de lesfiche en worden in deze browser bewaard — niet in Questi, dus niet op een andere computer. Thema's en vakkenlegende staan in het vrije woensdagnamiddagvak (of in een balk bovenaan als dat niet vrij is). Een getypte opmerking komt daar ook; het lege notitieblok niet." }),
       h("div", { class: "qpp-side-lbl", text: "Opmerking / notities" }),
       h("label", { class: "qpp-check" }, [chk, h("span", { text: "Notitieblok toevoegen" })]),
       ta
