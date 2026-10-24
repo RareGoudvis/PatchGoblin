@@ -101,6 +101,9 @@ storeGet, storeSet`.
 | `qwp_state_v6` | planner | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), weeks, panels, split ratio, manual overrides |
 | `qwp_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
+| `qwp_goals_v1` | planner (print) | typed lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` |
+| `qwp_print_v1` | planner (print) | print window choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool }` |
+| `qwp_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
 Generic `storeGet(key)` / `storeSet(key, val)` live in `planner.js` and are shared — use them
 rather than a fourth copy of the pattern.
@@ -228,6 +231,21 @@ school year. Two sources — a Questi vendor library, or your own fiches picked 
 ones; rows are sorted by block rank so a thema is never split. Only the teacher's decisions
 persist; titles and dates are re-fetched live every open. Note Questi rolls `schoolyear` in summer,
 so between the roll and 1 September nothing counts as given — hence the explicit year picker.
+
+**Lesdoelen print.** The print window's "Versie" choice: Gewoon (the original layout, untouched) or
+Lesdoelen 1 A4 / 2 A4 (`printGoalsDocHtml`). Equal-height cards with WEET/KEN/KAN write lines
+(3 per card on 1 A4, 8 on 2 A4, both ≈7mm; titles fixed at 2 lines — front = first half of the lesuren, back = rest + week info); the
+free Wednesday afternoon holds thema names and the vak legend. Goals are typed straight into the
+preview iframe (`wireGoalsEditor`, listeners attached from the content script — Questi's CSP blocks
+inline scripts) and stored locally per fiche id, so they do NOT survive a fiche edit (new id) or reach
+another computer; moving them into the lesfiche is the planned follow-up. Kinds hide per fiche, all
+three included (LO, zwemmen); visible kinds split the block evenly (`goalsLayout`). Line pitch uses
+container-query units (`cqh`) on `.gl`, so it follows whatever height a wrapped title leaves.
+Other agendas ("Andere agenda's meeprinten", e.g. the zorgjuf's) never enter the Lesdoelen grid: they
+are listed in the Wednesday box and their start time shows under the card's own time. A click on a
+list row hides it — by `id_repeat` when it recurs, so in every week — and hidden items never print.
+`fetchPrintExtras` returns the raw `items` per week for this, next to the `cells`/`inject` the plain
+layout uses.
 
 **Gym / LO.** `s.isGym` means "title only, no fiche": `descFor` returns null (empty description),
 the commit sends `attachments: []`, and the slot is excluded from targeting. The trigger is the
