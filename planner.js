@@ -1650,10 +1650,12 @@
   ];
   // Three write lines. `text` ({weet, ken, kan}) is optional: blank lines today; later the goals can
   // come from the lesfiche and print here.
-  function goalsLinesHtml(lineH, text) {
+  // The lines share whatever height the title leaves (flex), so a wrapped title shortens them a bit
+  // instead of being cut off, and every card keeps the same outer height.
+  function goalsLinesHtml(text) {
     text = text || {};
     return '<div class="gl">' + GOALS_KINDS.map(function (k) {
-      return '<div class="gl-row" style="height:' + lineH + 'px"><span class="gl-ico">' + k.ico + '</span>' +
+      return '<div class="gl-row"><span class="gl-ico">' + k.ico + '</span>' +
         (text[k.key] ? '<span class="gl-txt">' + esc(text[k.key]) + "</span>" : "") + "</div>";
     }).join("") + "</div>";
   }
@@ -1690,7 +1692,7 @@
     }
     return run.length ? run : null;
   }
-  // Info block lines (box or band): week/date, thema(s), icon key, typed note, legend.
+  // Info block (box or band): week/date, thema name(s) in their vak colour, typed note, legend.
   function goalsInfoParts(pv, weekIdx, opts) {
     var parts = { meta: "", themas: [], note: "", legend: goalsLegend(pv, weekIdx) };
     if (opts.showMeta) parts.meta = "Week <b>" + esc(isoWeekNo(isoDate(addDays(pv.weekStart, weekIdx * 7)))) + "</b> · afgedrukt <b>" + esc(todayDDMMYYYY()) + "</b>";
@@ -1699,44 +1701,41 @@
       var p = s ? printCellParts(pv, s) : null;
       var txt = p ? (p.main || p.vak || "") : "";
       if (!txt || isLesuurPlaceholder(txt)) return;
-      var lbl = themaLabel(key, pv.slots);
-      parts.themas.push({ lbl: normTitle(lbl) === normTitle(txt) ? "" : lbl, txt: txt });
+      parts.themas.push({ txt: txt, color: p.color || "" });
     });
     if (opts.showNotes) parts.note = (opts.comment || "").trim();
     return parts;
   }
-  function goalsIconKeyHtml() {
-    return '<div class="gi-key">' + GOALS_KINDS.map(function (k) { return "<span>" + k.ico + " " + esc(k.label) + "</span>"; }).join("") + "</div>";
+  function goalsThemaHtml(t, tag) {
+    return "<" + tag + ' class="gi-th"' + (t.color ? (' style="color:' + esc(t.color) + '"') : "") + ">" + esc(t.txt) + "</" + tag + ">";
   }
   function goalsLegendHtml(legend) {
     return legend.map(function (v) { return '<span class="gi-vak"><i style="background:' + esc(v.color) + '"></i>' + esc(v.name) + "</span>"; }).join("");
   }
-  // Wednesday box: type size follows the line count so 13 vakken + 2 themas still fit.
+  // Wednesday box: type size follows the line count so 13 vakken + 2 themas still fit. A thema name
+  // may wrap, so it is budgeted at 2 lines. The legend sits at the bottom.
   function goalsBoxHtml(parts, boxH, rowspan) {
     var noteLines = parts.note ? parts.note.split("\n").reduce(function (n, l) { return n + Math.max(1, Math.ceil(l.length / 34)); }, 0) : 0;
-    var lines = (parts.meta ? 1 : 0) + parts.themas.length + 1 + noteLines + parts.legend.length;
+    var lines = (parts.meta ? 1 : 0) + parts.themas.length * 2 + noteLines + parts.legend.length + 1;
     var lh = Math.max(7, Math.min(13, Math.floor((boxH - 24) / Math.max(1, lines))));
     var fs = Math.round(lh * 0.78 * 10) / 10;
     var html = (parts.meta ? '<div class="gi-meta">' + parts.meta + "</div>" : "") +
-      parts.themas.map(function (t) {
-        return '<div class="gi-th">' + (t.lbl ? '<span class="gi-k">' + esc(t.lbl) + "</span>" : "") + "<b>" + esc(t.txt) + "</b></div>";
-      }).join("") +
-      goalsIconKeyHtml() +
+      parts.themas.map(function (t) { return goalsThemaHtml(t, "div"); }).join("") +
       (parts.note ? '<div class="gi-note">' + esc(parts.note) + "</div>" : "") +
-      '<div class="gi-legend">' + goalsLegendHtml(parts.legend) + "</div>";
-    return '<td class="gc gbox" rowspan="' + rowspan + '" style="font-size:' + fs + "px;line-height:" + lh + 'px">' + html + "</td>";
+      (parts.legend.length ? '<div class="gi-legend">' + goalsLegendHtml(parts.legend) + "</div>" : "");
+    // inner height = box minus border (3) and padding (14)
+    return '<td class="gc gbox" rowspan="' + rowspan + '" style="font-size:' + fs + "px;line-height:" + lh + 'px"><div class="gbox-in" style="height:' + (boxH - 17) + 'px">' + html + "</div></td>";
   }
   // Fallback when Wednesday afternoon is not free: the same info as one band above the grid.
   function goalsBandHtml(parts) {
     var bits = [];
     if (parts.meta) bits.push('<span class="gi-meta">' + parts.meta + "</span>");
-    parts.themas.forEach(function (t) { bits.push('<span class="gi-th">' + (t.lbl ? '<span class="gi-k">' + esc(t.lbl) + "</span>" : "") + "<b>" + esc(t.txt) + "</b></span>"); });
-    bits.push(goalsIconKeyHtml());
+    parts.themas.forEach(function (t) { bits.push(goalsThemaHtml(t, "span")); });
     if (parts.note) bits.push('<span class="gi-note">' + esc(parts.note) + "</span>");
     bits.push(goalsLegendHtml(parts.legend));
     return '<tr class="gbandrow" style="height:' + GOALS_BAND_H + 'px"><td class="gc gband" colspan="5">' + bits.join("") + "</td></tr>";
   }
-  function goalsCellHtml(pv, s, chips, time, lineH) {
+  function goalsCellHtml(pv, s, chips, time, innerH) {
     var p = printCellParts(pv, s);
     if (!p) return '<td class="gc gempty">' + (chips ? '<div class="gc-top"><span class="gc-x">' + chips + "</span></div>" : "") + "</td>";
     // The vak label is gone from the card, so the fiche-vs-vak mismatch needs its own mark.
@@ -1746,7 +1745,7 @@
       (mm ? '<span class="gc-mm">≠ ' + esc(mm.ficheVak || "?") + "</span>" : "") +
       '<span class="gc-time">' + esc(time) + "</span></div>";
     var st = p.color ? (' style="border-color:' + esc(p.color) + '"') : "";
-    return '<td class="gc gfilled"' + st + ">" + top + goalsLinesHtml(lineH) + "</td>";
+    return '<td class="gc gfilled"' + st + '><div class="gc-in" style="height:' + innerH + 'px">' + top + goalsLinesHtml() + "</div></td>";
   }
   function printGoalsWeekHtml(pv, weekIdx, exWeek, opts) {
     exWeek = exWeek || { cells: {}, inject: {} };
@@ -1774,7 +1773,7 @@
       if (boxH < GOALS_BOX_MIN) wed = null;
     }
     if (!wed) rowH = rowHFor(true);
-    var lineH = Math.max(10, Math.floor((rowH - 23) / 3));   // card chrome: border 3 + padding 5 + title 14 + 1
+    var innerH = rowH - 8;   // card chrome: border 3 + padding 5
     var rows = wed ? "" : goalsBandHtml(parts);
     er.rows.forEach(function (t) {
       var isInj = er.injected[t];
@@ -1788,7 +1787,7 @@
           var x = (er.inj[t] && er.inj[t].days[dd]) || "";
           rows += x ? ('<td class="gc gxcell"><span class="gc-time">' + esc(t) + "</span>" + x + "</td>") : '<td class="gc gxcell gx-empty"></td>';
         } else {
-          rows += goalsCellHtml(pv, pvSlotAt(pv, weekIdx, dd, t), cells[dd + "|" + t] || "", t, lineH);
+          rows += goalsCellHtml(pv, pvSlotAt(pv, weekIdx, dd, t), cells[dd + "|" + t] || "", t, innerH);
         }
       }
       rows += "</tr>";
@@ -1810,12 +1809,14 @@
     'td.gc { border-radius: 8px; vertical-align: top; padding: 3px 8px 2px 9px; overflow: hidden; }' +
     'td.gempty { background: #fafbfb; border: 1px dashed #e3e9ec; }' +
     'td.gfilled { background: #fff; border: 1.5px solid #cfd8dd; }' +
-    '.gc-top { display: flex; align-items: center; gap: 6px; height: 14px; line-height: 14px; white-space: nowrap; }' +
-    '.gc-title { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }' +
+    '.gc-in { display: flex; flex-direction: column; overflow: hidden; }' +
+    '.gc-top { flex: none; display: flex; align-items: flex-start; gap: 6px; line-height: 14px; }' +
+    '.gc-title { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }' +
     '.gc-x { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; display: flex; gap: 3px; }' +
     '.gc-mm { flex: none; font-size: 9px; font-weight: 700; color: #b3261e; }' +
     '.gc-time { flex: none; font-size: 9.5px; font-weight: 700; color: #93a0a7; }' +
-    '.gl-row { display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid #d3dbe0; overflow: hidden; }' +
+    '.gl { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }' +
+    '.gl-row { flex: 1 1 0; display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid #d3dbe0; overflow: hidden; }' +
     '.gl-ico { flex: none; width: 14px; color: #9aa5ab; padding-bottom: 2px; line-height: 0; }' +
     '.gl-txt { flex: 1 1 auto; min-width: 0; padding-bottom: 1px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
     'td.gxcell { background: repeating-linear-gradient(135deg,#fffaf0,#fffaf0 8px,#fff6e6 8px,#fff6e6 16px); border: 1px dashed #e7cf94; padding: 2px 6px; white-space: nowrap; }' +
@@ -1829,12 +1830,9 @@
     'td.gband > * { display: inline-flex; margin-right: 12px; vertical-align: middle; }' +
     '.gi-meta { color: #8a8660; margin-bottom: 2px; }' +
     '.gi-meta b { color: #5a5836; }' +
-    '.gi-th { display: flex; gap: 5px; align-items: baseline; white-space: nowrap; overflow: hidden; }' +
-    '.gi-th b { overflow: hidden; text-overflow: ellipsis; min-width: 0; }' +
-    '.gi-k { flex: none; font-weight: 800; text-transform: uppercase; font-size: .8em; letter-spacing: .08em; opacity: .7; }' +
-    '.gi-key { display: flex; gap: 10px; font-weight: 600; margin: 3px 0; padding-bottom: 3px; border-bottom: 1px solid #e6e3c8; }' +
-    'td.gband .gi-key { border: none; margin: 0 12px 0 0; padding: 0; }' +
-    '.gi-key span { display: inline-flex; align-items: center; gap: 3px; }' +
+    '.gbox-in { display: flex; flex-direction: column; overflow: hidden; }' +
+    '.gi-th { font-weight: 700; margin-bottom: 3px; }' +
+    '.gi-legend { margin-top: auto; padding-top: 4px; border-top: 1px solid #e6e3c8; }' +
     '.gi-note { white-space: pre-wrap; font-style: italic; margin-bottom: 3px; }' +
     '.gi-vak { display: flex; align-items: center; gap: 4px; font-weight: 600; color: #3c4a52; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
     'td.gband .gi-vak { display: inline-flex; margin-right: 8px; }' +
@@ -1844,7 +1842,8 @@
     '@media screen {' +
     '  body { background: #e6eaec; padding: 20px; }' +
     '  .psheet-scale { zoom: var(--ss, 1); margin: 0 auto 18px; width: 1076px; }' +
-    '  .gsheet { border-radius: 12px; box-shadow: 0 4px 22px rgba(20,40,60,.16); }' +
+    // fitPrintDoc's --ss zoom assumes the 1040×712 sheet; this page is 1076×746, so shrink 5% more.
+    '  .gsheet { border-radius: 12px; box-shadow: 0 4px 22px rgba(20,40,60,.16); zoom: .95; }' +
     '}';
   function printGoalsDocHtml(pv, extraByWeek, opts) {
     extraByWeek = extraByWeek || {};
