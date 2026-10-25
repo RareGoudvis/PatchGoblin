@@ -411,7 +411,11 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-pfiche-t { font-size:13px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qwp-pfiche-sub { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted); }
 .qwp-pfiche-date { flex:0 0 auto; font-size:12px; font-weight:600; color:var(--accent); white-space:nowrap; }
-.qwp-pfiche.d-used .qwp-pfiche-t, .qwp-pfiche.d-used .qwp-pfiche-date { color:var(--muted); }
+.qwp-pfiche.d-used { background:#fafbfc; border-color:transparent; }
+.qwp-pfiche.d-used .qwp-pfiche-t { color:#9aa6ad; font-weight:500; }
+.qwp-pfiche.d-used .qwp-pfiche-date { color:#9aa6ad; font-weight:500; }
+.qwp-pfiche.d-used .qwp-pfiche-sq { opacity:.35; }
+.qwp-pfiche.d-used:hover { background:#f3f5f7; border-color:var(--line); }
 .qwp-pfiche.d-plan .qwp-pfiche-date { color:var(--ink); text-decoration:underline; text-decoration-color:var(--uq-cyan); text-decoration-thickness:3px; text-underline-offset:2px; }
 .qwp-selbar { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid var(--line); background:var(--uq-blue-tint); }
 .qwp-pick-count { font-size:12px; font-weight:600; color:var(--ink); }
@@ -463,7 +467,9 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk { flex:0 0 auto; background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px 12px; }
 .qwp-wk .qwp-tt { gap:5px 6px; }
 .qwp-tt-wklbl { align-self:end; font-size:13px; font-weight:700; color:var(--accent); }
-.qwp-wk .qwp-tt-dayhd { justify-content:flex-start; background:none; border:none; padding:0 0 2px; font-size:11.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+.qwp-wk .qwp-tt-dayhd { justify-content:center; background:none; border:none; padding:0 0 2px; font-size:12.5px; font-weight:700; color:var(--muted); container-type:inline-size; white-space:nowrap; overflow:hidden; }
+.qwp-dh-short { display:none; }
+@container (max-width: 150px) { .qwp-dh-long { display:none; } .qwp-dh-short { display:inline; } }
 .qwp-wk .qwp-tt-dayhd.today { color:var(--ink); box-shadow:inset 0 -2px 0 var(--uq-blue); }
 .qwp-wk .qwp-tt-timelbl { justify-content:flex-start; padding:4px 0 0; font-size:12px; font-weight:600; color:var(--muted); }
 .qwp-wk .qwp-tt-break { min-height:12px; }
@@ -495,11 +501,11 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk .qwp-cell.empty { flex-direction:row; align-items:center; justify-content:center; background:transparent; border:1px dashed var(--line); }
 
 /* Thema band: striped strip spanning the week. */
-.qwp-wk .qwp-cell.thema-span { position:relative; flex-direction:row; align-items:center; gap:8px; min-height:0; padding:4px 10px; border:1px solid var(--band-line); border-radius:6px; background:repeating-linear-gradient(135deg, #fffaf0, #fffaf0 8px, #fff6e6 8px, #fff6e6 16px); font-size:12px; }
+.qwp-wk .qwp-cell.thema-span { position:relative; flex-direction:row; align-items:stretch; gap:10px; min-height:0; padding:0 10px 0 0; border:1px solid var(--line); border-radius:6px; background:#fff; overflow:hidden; font-size:12px; }
+.qwp-wk .qwp-cell.thema-span > .qwp-band-t, .qwp-wk .qwp-cell.thema-span > .qwp-cell-mark, .qwp-wk .qwp-cell.thema-span > .qwp-thema-untagged { align-self:center; }
 .qwp-wk .qwp-cell.thema-span.empty { justify-content:flex-start; opacity:.65; }
 .qwp-wk .qwp-cell.thema-span.dirty { border:2px solid var(--uq-blue); }
-.qwp-band-dot { flex:0 0 auto; width:9px; height:9px; border-radius:50%; background:var(--band-line); }
-.qwp-band-vak { flex:0 0 auto; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--thema); }
+.qwp-band-vak { flex:0 0 auto; display:flex; align-items:center; padding:5px 10px; background:#eef1f3; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink); }
 .qwp-band-t { flex:1 1 auto; min-width:0; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qwp-cell.thema-span .qwp-cell-mark { font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink); box-shadow:inset 0 -2px 0 var(--uq-blue); }
 .qwp-wk .qwp-thema-untagged { margin-left:0; }

@@ -1093,6 +1093,9 @@
   // vak, stored description matches no tag) keeps its stored description: "don't know" must never
   // wipe what is there. Gym (null) still clears on purpose.
   function descHtml(s) {
+    // A whole-week bar only gets "Zie themafiche." when it gets a (different) fiche — an untouched
+    // bar, e.g. a new week's "Godsdienst" without a themafiche yet, keeps what is stored.
+    if (s.isFullday && (s.ficheContentId || null) === (s.origFicheContentId || null)) return s.origDescription || "";
     if (s.descKeep && s.descKeep.vak === s.vak && (s.title || "") === (s.origTitle || "") && (s.ficheContentId || null) === (s.origFicheContentId || null)) return s.origDescription || "";
     var d = descFor(s);
     if (d === "" && !s.isFullday) return s.origDescription || "";
@@ -3291,7 +3294,11 @@
     var today = isoDate(new Date());
     for (var d = 0; d < 5; d++) {
       var dt = addDays(view.weekStart, w * 7 + d);
-      grid.appendChild(h("div", { class: "qwp-tt-dayhd" + (dt && isoDate(dt) === today ? " today" : ""), title: fullDateLabel(w * 7 + d), text: DAY_SHORT[d] + (dt ? " " + dt.getDate() + "/" + (dt.getMonth() + 1) : "") }));
+      // "Maandag 26 oktober"; a narrow column switches to "ma 26 okt" (container query in CSS).
+      grid.appendChild(h("div", { class: "qwp-tt-dayhd" + (dt && isoDate(dt) === today ? " today" : ""), title: fullDateLabel(w * 7 + d) }, [
+        h("span", { class: "qwp-dh-long", text: DAY_NAMES[d] + (dt ? " " + dt.getDate() + " " + MONTH_NL[dt.getMonth()] : "") }),
+        h("span", { class: "qwp-dh-short", text: DAY_SHORT[d].toLowerCase() + (dt ? " " + dt.getDate() + " " + MONTH_NL_SHORT[dt.getMonth()] : "") })
+      ]));
     }
     // Theme rows: one per whole-week item present in the loaded weeks, labelled by its live tag.
     keys.forEach(function (key) { appendThemaRow(grid, themaLabel(key, view.slots), key, w); });
@@ -3538,10 +3545,11 @@
 
     var kids;
     if (themaBand) {
-      var dot = h("span", { class: "qwp-band-dot" }); if (color) dot.style.background = color;
+      // Same reading order as a lesuur: the vak in its own colour first, the fiche name after it on white.
+      var vakEl = h("span", { class: "qwp-band-vak", text: vakLbl || "thema" });
+      if (color) { vakEl.style.background = color; vakEl.style.color = goalsInkOn(color); }
       kids = [
-        dot,
-        h("span", { class: "qwp-band-vak", text: vakLbl }),
+        vakEl,
         themaUntagged ? h("span", { class: "qwp-thema-untagged", title: "Klik deze balk en kies een Vak om de rij te benoemen.", text: "geen vaktag" }) : null,
         h("span", { class: "qwp-band-t", text: stripQuestiDecoration(stripThemaPrefix(shownTitle) || shownTitle) || "(leeg)" }),
         mark
