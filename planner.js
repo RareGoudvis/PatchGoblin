@@ -4358,6 +4358,11 @@
   // Exposed so the in-page toolbar "Lesfiches" chip (content.js) can open the manager
   // even when the planner overlay was never opened — it detects context on demand.
   window.__QWP_OPEN_LESSONS = openLessonsManager;
+  // Staged-but-unwritten changes, for the badge on the toolbar launcher (content.js). Same filter as
+  // buildCommitPlan, without building the plan; 0 until a week is loaded.
+  window.__QWP_PENDING_COUNT = function () {
+    return (view.slots || []).filter(function (s) { return s.isEditable && s.idCalendar !== "cal_holidays" && computeDirty(s); }).length;
+  };
 
   function reconcilePanelSources() {
     var valid = [String(myId())].concat(state.colleagues.map(function (c) { return String(c.id); }));
