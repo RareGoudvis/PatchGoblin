@@ -575,7 +575,10 @@
     var k = unionKey(ownerId, parentTagId);
     if (view.ficheCache[k]) return Promise.resolve(view.ficheCache[k]);
     var ids = [parentTagId].concat(childIds || []);
-    return Promise.all(ids.map(function (id) { return ensureFiches(ownerId, id); })).then(function (lists) {
+    var lists = [];
+    return mapLimit(ids.map(function (id, i) { return i; }), 4, function (i) {
+      return ensureFiches(ownerId, ids[i]).then(function (arr) { lists[i] = arr; });
+    }).then(function () {
       var seen = {}, merged = [];
       lists.forEach(function (arr) { (arr || []).forEach(function (f) { if (f && !seen[f.id]) { seen[f.id] = true; merged.push(f); } }); });
       view.ficheCache[k] = merged; return merged;
@@ -2354,12 +2357,13 @@
     });
     var ids = Object.keys(todo);
     if (!ids.length) { if (done) done(false); return Promise.resolve(false); }
-    return Promise.all(ids.map(function (id) {
+    // At most 4 reads in flight — a full week is ~30 fiches, never fire them all at once.
+    return mapLimit(ids, 4, function (id) {
       return ficheEditTags(id)
         .then(function (tags) { _ficheVakCache[id] = vakFromTagList(tags); })
         // A colleague fiche we may not read is "unknown", never a mismatch.
         .catch(function () { _ficheVakCache[id] = null; });
-    })).then(function () { if (done) done(true); return true; });
+    }).then(function () { if (done) done(true); return true; });
   }
   // null = cannot say (unknown fiche vak, or no vak set on the slot). Only a definite
   // disagreement between two KNOWN vakken counts — no crying wolf.
@@ -2423,9 +2427,15 @@
   function syncFicheVakken(slots) {
     resolveFicheVakken(slots, function () { if (applyFicheVakken(slots)) renderTimetable(); });
   }
+  // Memoised per fiche id: an id is one immutable version, and the vak check and the print colours
+  // both ask for the same fiches — one read each, not two. Failures are not remembered.
+  var _ficheTagsP = {};
   function ficheEditTags(id) {
-    return jget(API + "/lessons/" + id + "?" + qs({ schoolId: ctx.schoolId, return_format: "edit" }))
-      .then(function (j) { var r = (j && j.result) || j; return (r && r.tags) || []; }).catch(function () { return []; });
+    if (_ficheTagsP[id]) return _ficheTagsP[id];
+    var p = jget(API + "/lessons/" + id + "?" + qs({ schoolId: ctx.schoolId, return_format: "edit" }))
+      .then(function (j) { var r = (j && j.result) || j; return (r && r.tags) || []; });
+    _ficheTagsP[id] = p;
+    return p.catch(function () { delete _ficheTagsP[id]; return []; });
   }
   function colorFromTagList(tags) {
     for (var i = 0; i < tags.length; i++) {
@@ -2444,9 +2454,9 @@
     function collect() { var m = {}; Object.keys(idset).forEach(function (id) { m[id] = _ficheColorCache[id] || ""; }); pv.ficheColor = m; return pv; }
     var todo = Object.keys(idset).filter(function (id) { return !(id in _ficheColorCache); });
     if (!todo.length) return Promise.resolve(collect());
-    return Promise.all(todo.map(function (id) {
+    return mapLimit(todo, 4, function (id) {
       return ficheEditTags(id).then(function (tags) { _ficheColorCache[id] = colorFromTagList(tags); });
-    })).then(collect);
+    }).then(collect);
   }
 
   // ---- Headless print plumbing (no planner overlay needed) ----
@@ -4536,6 +4546,7 @@
     fetchMethods: fetchMethods, fetchMethodLessons: fetchMethodLessons,
     fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet,
     // Lesdoelen in the fiche (lessons.js goals mode, print)
-    ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread
+    ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread,
+    mapLimit: mapLimit
   };
 })();

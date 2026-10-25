@@ -65,7 +65,7 @@
     tagFilter: null, unionParent: null, expandedTop: null,
     search: "", gradeFilter: "", tagChips: {},   // ficheId -> [tagId,…]
     cols: 1, sortKey: null, sortDir: "asc",
-    loading: false, tagsMapped: false, tagsMapping: false,
+    loading: false,
     dirtyWrites: false,         // any live write this session → reload Questi on close (like planner)
     importEnabled: false,       // import stays gated until the OPSTAP resolver lands (August)
     // Pick mode: the Methodes panel borrows this overlay to let the teacher pick the fiches that
@@ -75,7 +75,7 @@
     // Goals mode: the list as a WEET/KEN/KAN sheet (see makeGoalsTable).
     goalsMode: false,
     goalLoading: {},            // ficheId -> true while its read is in flight
-    goalRowFill: {}             // ficheId -> fills that row's cells once its goals are known
+    rowFill: {}                 // ficheId -> refreshes that row (goals/tag chips) once its fiche info arrives
   };
   var GRADES = ["K0", "K1", "K2", "K3", "L1", "L2", "L3", "L4", "L5", "L6", "NLG"];
 
@@ -247,16 +247,16 @@
       // otherwise keep showing whatever tag was last browsed.
       if (mgr.pick && mgr.pick.startTagId != null) {
         var startPick = mgr.pick.startTagId;
-        var go = function () { renderTagBar(); return loadListUnion(startPick).then(function () { loadAllTagMemberships(); }); };
+        var go = function () { renderTagBar(); return loadListUnion(startPick); };
         return mgr.ownTags.length ? go() : S().fetchOwnTags().then(function (tags) { mgr.ownTags = tags || []; return go(); });
       }
-      if (mgr.ownTags.length) { renderTagBar(); applyFilter(); loadAllTagMemberships(); return; }
+      if (mgr.ownTags.length) { renderTagBar(); applyFilter(); return; }
       setStatus("Tags laden…");
       return S().fetchOwnTags().then(function (tags) {
         mgr.ownTags = tags || [];
         renderTagBar();
         var startTag = lstate.lastTagId != null ? lstate.lastTagId : allOwnTagId();
-        return loadList(startTag).then(function () { loadAllTagMemberships(); });
+        return loadList(startTag);
       });
     });
   }
@@ -394,42 +394,19 @@
     lstate.lastTagId = parentId; saveState();
     renderTagBar(); renderList(); setStatus("Lesfiches laden…");
     var ids = [parentId].concat(childIdsOf(parentId));
-    return Promise.all(ids.map(fetchTagFiches)).then(function (lists) {
+    var lists = [], failed = 0;   // at most 4 tag lists in flight (a vak can have a dozen subtags)
+    return S().mapLimit(ids.map(function (id, i) { return i; }), 4, function (i) {
+      return fetchTagFiches(ids[i]).then(function (arr) { lists[i] = arr; }, function () { failed++; });
+    }).then(function () {
       var seen = {}, merged = [];
       lists.forEach(function (arr) { (arr || []).forEach(function (f) { if (f && !seen[f.id]) { seen[f.id] = true; merged.push(f); } }); });
-      mgr.fiches = merged; mgr.loading = false; setStatus(""); applyFilter();
+      mgr.fiches = merged; mgr.loading = false; setStatus(failed ? failed + " tag(s) konden niet geladen worden — lijst onvolledig, probeer 'Vernieuwen'." : ""); applyFilter();
     }).catch(function (e) { mgr.loading = false; setStatus("Laadfout: " + ((e && e.message) || e)); });
   }
 
-  function fetchTagFicheIds(tagId) {
-    var acc = [], PAGE = 100, MAXP = 60;
-    function page(offset, guard) {
-      return jget(lessonsUrl(tagId, PAGE, offset)).then(function (j) {
-        var res = (j && j.result) || [], total = (j && j.num_records) != null ? j.num_records : acc.length + res.length;
-        res.forEach(function (f) { acc.push(f.id); });
-        if (res.length === PAGE && acc.length < total && guard < MAXP) return page(offset + PAGE, guard + 1);
-        return acc;
-      });
-    }
-    return page(0, 0);
-  }
-  // Walk every real own tag (tops + children) once → fill mgr.tagChips so the Tags column
-  // populates without per-fiche reads. Runs on every open (guarded against concurrent runs).
-  function loadAllTagMemberships() {
-    if (mgr.tagsMapped || mgr.tagsMapping) return;
-    mgr.tagsMapping = true;
-    var tags = mgr.ownTags.filter(function (t) { return t.type !== "default"; });
-    var i = 0, total = tags.length;
-    if (!total) { mgr.tagsMapping = false; return; }
-    function nextTag() {
-      if (i >= tags.length) { mgr.tagsMapping = false; mgr.tagsMapped = true; scheduleRender(); return; }
-      var t = tags[i++];
-      fetchTagFicheIds(t.id).then(function (ids) {
-        ids.forEach(function (fid) { var l = mgr.tagChips[fid] || (mgr.tagChips[fid] = []); if (l.indexOf(t.id) < 0) l.push(t.id); });
-      }).catch(function () {}).then(function () { scheduleRender(); setTimeout(nextTag, 40); });
-    }
-    nextTag();
-  }
+  // Tag chips come from each fiche's own edit view (the list carries no tags), read lazily per
+  // visible row and cached per version — see loadFicheInfo. This replaced a walk over every tag
+  // (~130 list requests on each open).
   var _renderTimer = null;
   // Background refreshes (tag chips arriving) never rebuild the goals sheet under the cursor.
   function scheduleRender() { if (_renderTimer) return; _renderTimer = setTimeout(function () { _renderTimer = null; if (goalsListHasFocus()) scheduleRender(); else renderList(); }, 400); }
@@ -463,9 +440,12 @@
   }
   function ficheRow(f) {
     var checked = !!mgr.selected[f.id], pending = !!mgr.pending[f.id];
-    var chips = (mgr.tagChips[f.id] || []).map(function (tid) {
-      return h("span", { class: "qwl-chip", style: "border-color:" + tagHex(tid) }, [h("span", { class: "qwl-dot", style: "background:" + tagHex(tid) }), h("span", { text: tagName(tid) })]);
-    });
+    function chipEls() {
+      return (mgr.tagChips[f.id] || []).map(function (tid) {
+        return h("span", { class: "qwl-chip", style: "border-color:" + tagHex(tid) }, [h("span", { class: "qwl-dot", style: "background:" + tagHex(tid) }), h("span", { text: tagName(tid) })]);
+      });
+    }
+    var tagsCell = h("div", { class: "qwl-c-tags" }, chipEls());
     var picking = !!mgr.pick;
     var cb = h("input", { class: "qwl-cb", type: "checkbox" }); cb.checked = checked;
     cb.addEventListener("change", function () {
@@ -480,13 +460,14 @@
     if (!picking) txt.addEventListener("click", function (e) { e.stopPropagation(); startInlineTitle(f, subjectCell, ficheName(f)); });
     subjectCell.appendChild(txt);
     if (pending) subjectCell.appendChild(h("span", { class: "qwl-badge", text: "gewijzigd" }));
-    var row = h("div", { class: "qwl-row" + (checked ? " sel" : "") + (pending ? " pend" : ""), title: picking ? "" : "Dubbelklik om volledig te bewerken" }, [
+    var row = h("div", { class: "qwl-row" + (checked ? " sel" : "") + (pending ? " pend" : ""), "data-fid": String(f.id), title: picking ? "" : "Dubbelklik om volledig te bewerken" }, [
       h("label", { class: "qwl-cbcell" }, [cb]),
       subjectCell,
       h("div", { class: "qwl-c-grades", text: gradesOf(f) }),
       h("div", { class: "qwl-c-used", text: usedOf(f) }),
-      h("div", { class: "qwl-c-tags" }, chips)
+      tagsCell
     ]);
+    mgr.rowFill[f.id] = function () { tagsCell.innerHTML = ""; chipEls().forEach(function (c) { tagsCell.appendChild(c); }); };
     if (picking) {
       row.addEventListener("click", function (e) {
         if (e.target === cb) return;            // the checkbox fires its own change event
@@ -536,14 +517,13 @@
   // ========================================================================
   function toggleGoalsMode() {
     mgr.goalsMode = !mgr.goalsMode;
-    if (!mgr.goalsMode) { _goalQueue = []; if (_goalObserver) _goalObserver.disconnect(); }
     setStatus(mgr.goalsMode ? "Lesdoelen: typ per fiche, Tab = volgende cel, Enter = volgende fiche. Niets wordt geschreven zonder 'Wijzigingen controleren'." : "");
     renderList();
   }
   function goalsListHasFocus() { var a = document.activeElement; return !!(mgr.goalsMode && a && mgr.els.list && mgr.els.list.contains(a)); }
-  // Goals per fiche VERSION, saved under qwp_goalcache_v1: { "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }.
-  // Safe to keep: a fiche id never changes content (every edit mints a new id), so a cached id is
-  // exact forever and a fiche seen once opens instantly. Only unseen versions are read.
+  // Fiche info per VERSION, saved under qwp_goalcache_v1: { "<fiche id>": { g: {weet,ken,kan}, m: methode hint, t: [tag ids] } }.
+  // Safe to keep: a fiche id never changes content (every edit — tags included — mints a new id), so a
+  // cached id is exact forever and a fiche seen once costs no request. Only unseen versions are read.
   var GOALCACHE_KEY = "qwp_goalcache_v1", _goalCache = null, _goalCacheSaveT = null;
   function loadGoalCache() {
     if (_goalCache) return Promise.resolve();
@@ -552,59 +532,68 @@
   function cacheGoals(id, edit) {
     var gf = S().ficheGoalFields(edit), g = {};
     GOAL_KINDS.forEach(function (k) { g[k] = gf[k] ? S().goalText(gf[k].content) : ""; });
-    var entry = { g: g, m: methodGoalsHint(edit) };
+    var entry = { g: g, m: methodGoalsHint(edit), t: (edit.tags || []).map(function (t) { return t.id; }) };
     _goalCache[id] = entry;
+    applyCachedTags(id, entry);
     clearTimeout(_goalCacheSaveT);
     _goalCacheSaveT = setTimeout(function () { S().storeSet(GOALCACHE_KEY, _goalCache); }, 800);
     return entry;
   }
+  function infoCached(id) { var e = _goalCache && _goalCache[id]; return !!(e && e.t); }
+  function overlayOpen() { return !!(mgr.els.root && mgr.els.root.classList.contains("qwl-show")); }
+  // Tags of deleted catalog tags are dropped, never shown as a bare id.
+  function applyCachedTags(id, entry) { if (entry && entry.t) mgr.tagChips[id] = entry.t.filter(function (tid) { return ownTagById(tid); }); }
   // Read queue, fed by rows scrolling into view (+200px) — only what you look at is read, a few at a
   // time, so a big tag costs no request burst. "Lokale doelen overnemen" queues the whole list.
-  var GOAL_READ_CONCURRENCY = 4, _goalQueue = [], _goalWorkers = 0, _goalObserver = null, _goalFailed = 0;
+  var GOAL_READ_CONCURRENCY = 4, _goalQueue = [], _goalWorkers = 0, _goalObserver = null, _goalFailed = 0, _goalReadRound = 0;
   function queueGoalRead(id, front) {
-    if (!_goalCache || _goalCache[id] || mgr.goalLoading[id]) return;
+    if (!_goalCache || infoCached(id) || mgr.goalLoading[id]) return;
     var at = _goalQueue.indexOf(id);
     if (at >= 0) { if (!front) return; _goalQueue.splice(at, 1); }
     if (front) _goalQueue.unshift(id); else _goalQueue.push(id);
     pumpGoalReads();
   }
   function pumpGoalReads() {
-    while (mgr.goalsMode && _goalWorkers < GOAL_READ_CONCURRENCY && _goalQueue.length) {
+    while (overlayOpen() && _goalWorkers < GOAL_READ_CONCURRENCY && _goalQueue.length) {
       var id = _goalQueue.shift();
-      if (!_goalCache[id] && !mgr.goalLoading[id]) startGoalRead(id);
+      if (!infoCached(id) && !mgr.goalLoading[id]) startGoalRead(id);
     }
     goalLoadStatus();
   }
   function startGoalRead(id) {
-    _goalWorkers++; mgr.goalLoading[id] = true;
+    _goalWorkers++; _goalReadRound++; mgr.goalLoading[id] = true;
     readFicheEdit(id).then(function (edit) {
       var entry = cacheGoals(id, edit);
-      if (mgr.goalRowFill[id]) mgr.goalRowFill[id](entry);
-    }).catch(function () { _goalFailed++; if (mgr.goalRowFill[id]) mgr.goalRowFill[id](null); })
+      if (mgr.rowFill[id]) mgr.rowFill[id](entry);
+    }).catch(function () { _goalFailed++; if (mgr.rowFill[id]) mgr.rowFill[id](null); })
       .then(function () { delete mgr.goalLoading[id]; _goalWorkers--; pumpGoalReads(); });
   }
   function goalLoadStatus() {
-    if (!mgr.goalsMode || goalsListHasFocus()) return;
+    if (!overlayOpen() || goalsListHasFocus()) return;
     var left = _goalQueue.length + _goalWorkers;
-    setStatus(left ? "Doelen laden… nog " + left : (_goalFailed ? _goalFailed + " fiche(s) konden niet gelezen worden." : ""));
+    if (!left && !_goalFailed && !_goalReadRound) return;   // nothing read: leave other status alone
+    setStatus(left ? "Fiches lezen… nog " + left : (_goalFailed ? _goalFailed + " fiche(s) konden niet gelezen worden." : ""));
   }
-  function loadGoalEdits(items) {
-    _goalFailed = 0;
+  // Goals and tag chips for the listed fiches (both list modes): cached versions fill at once,
+  // the rest are read as their rows scroll into view.
+  function loadFicheInfo(items) {
+    _goalFailed = 0; _goalReadRound = 0;
     loadGoalCache().then(function () {
-      if (!mgr.goalsMode) return;
+      if (!overlayOpen()) return;
       _goalQueue = [];
       var lazy = typeof IntersectionObserver === "function" && !!mgr.els.list;
       items.forEach(function (f) {
-        if (_goalCache[f.id]) { if (mgr.goalRowFill[f.id]) mgr.goalRowFill[f.id](_goalCache[f.id]); }
-        else if (!lazy) queueGoalRead(f.id, false);
+        var e = _goalCache[f.id];
+        if (e) { applyCachedTags(f.id, e); if (mgr.rowFill[f.id]) mgr.rowFill[f.id](e); }
+        if (!infoCached(f.id) && !lazy) queueGoalRead(f.id, false);
       });
       if (_goalObserver) _goalObserver.disconnect();
       if (lazy) {
         _goalObserver = new IntersectionObserver(function (entries) {
           entries.forEach(function (en) { if (en.isIntersecting) queueGoalRead(en.target.getAttribute("data-fid"), true); });
         }, { rootMargin: "200px 0px" });
-        var rows = mgr.els.list.querySelectorAll(".qwl-grow[data-fid]");
-        for (var i = 0; i < rows.length; i++) if (!_goalCache[rows[i].getAttribute("data-fid")]) _goalObserver.observe(rows[i]);
+        var rows = mgr.els.list.querySelectorAll(".qwl-row[data-fid]");
+        for (var i = 0; i < rows.length; i++) if (!infoCached(rows[i].getAttribute("data-fid"))) _goalObserver.observe(rows[i]);
       }
       pumpGoalReads();
     });
@@ -676,14 +665,14 @@
       });
       if (entry.m) { hint.style.display = ""; hint.title = "Doelen van de methode:\n" + entry.m; }
     }
-    mgr.goalRowFill[f.id] = fill;
+    mgr.rowFill[f.id] = fill;
     if (_goalCache && _goalCache[f.id]) fill(_goalCache[f.id]);
     return row;
   }
   // One-time move of the goals typed in the print preview (this browser, qwp_goals_v1) into the
   // fiches. Only fiches with no WEET/KEN/KAN yet; records of an older fiche version cannot match.
   function importLocalGoals() {
-    var listed = mgr.filtered, missing = listed.filter(function (f) { return !(_goalCache && _goalCache[f.id]); });
+    var listed = mgr.filtered, missing = listed.filter(function (f) { return !infoCached(f.id); });
     if (missing.length) {
       missing.forEach(function (f) { queueGoalRead(f.id, false); });
       setStatus("Eerst alle " + missing.length + " fiches lezen — klik daarna opnieuw op 'Lokale doelen overnemen'.");
@@ -713,13 +702,14 @@
     updateSidebar();
     if (mgr.loading) { wrap.appendChild(h("div", { class: "qwl-empty", text: "Laden…" })); return; }
     if (!mgr.filtered.length) { wrap.appendChild(h("div", { class: "qwl-empty", text: "Geen lesfiches." })); return; }
-    if (mgr.goalsMode) { mgr.goalRowFill = {}; wrap.appendChild(makeTable(mgr.filtered)); loadGoalEdits(mgr.filtered); return; }
-    if (mgr.cols === 2) {
+    mgr.rowFill = {};
+    if (mgr.cols === 2 && !mgr.goalsMode) {
       var mid = Math.ceil(mgr.filtered.length / 2);
       wrap.appendChild(h("div", { class: "qwl-cols" }, [makeTable(mgr.filtered.slice(0, mid)), makeTable(mgr.filtered.slice(mid))]));
     } else {
       wrap.appendChild(makeTable(mgr.filtered));
     }
+    loadFicheInfo(mgr.filtered);
   }
 
   function updateSidebar() {
