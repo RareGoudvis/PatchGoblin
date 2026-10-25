@@ -74,9 +74,8 @@
     pickStore: {},              // ficheId -> fiche, so a selection survives switching tags
     // Goals mode: the list as a WEET/KEN/KAN sheet (see makeGoalsTable).
     goalsMode: false,
-    goalEdits: {},              // ficheId -> edit view (return_format=edit), read once per version
     goalLoading: {},            // ficheId -> true while its read is in flight
-    goalRowFill: {}             // ficheId -> fills that row's cells once its edit view arrives
+    goalRowFill: {}             // ficheId -> fills that row's cells once its goals are known
   };
   var GRADES = ["K0", "K1", "K2", "K3", "L1", "L2", "L3", "L4", "L5", "L6", "NLG"];
 
@@ -537,35 +536,78 @@
   // ========================================================================
   function toggleGoalsMode() {
     mgr.goalsMode = !mgr.goalsMode;
+    if (!mgr.goalsMode) { _goalQueue = []; if (_goalObserver) _goalObserver.disconnect(); }
     setStatus(mgr.goalsMode ? "Lesdoelen: typ per fiche, Tab = volgende cel, Enter = volgende fiche. Niets wordt geschreven zonder 'Wijzigingen controleren'." : "");
     renderList();
   }
   function goalsListHasFocus() { var a = document.activeElement; return !!(mgr.goalsMode && a && mgr.els.list && mgr.els.list.contains(a)); }
-  // Read the edit view of every listed fiche once (3 at a time); rows fill in as they arrive.
-  var GOAL_READ_CONCURRENCY = 3;
-  function loadGoalEdits(items) {
-    var todo = items.filter(function (f) { return !mgr.goalEdits[f.id] && !mgr.goalLoading[f.id]; });
-    if (!todo.length) return;
-    todo.forEach(function (f) { mgr.goalLoading[f.id] = true; });
-    var total = todo.length, done = 0, next = 0, failed = 0;
-    function worker() {
-      if (next < todo.length && !mgr.goalsMode) {
-        // Left goals mode mid-load: release the rest so the next visit reads them.
-        todo.slice(next).forEach(function (f) { delete mgr.goalLoading[f.id]; }); next = todo.length;
-      }
-      if (next >= todo.length) return Promise.resolve();
-      var f = todo[next++];
-      return readFicheEdit(f.id).then(function (edit) {
-        mgr.goalEdits[f.id] = edit;
-        if (mgr.goalRowFill[f.id]) mgr.goalRowFill[f.id](edit);
-      }).catch(function () { failed++; if (mgr.goalRowFill[f.id]) mgr.goalRowFill[f.id](null); })
-        .then(function () {
-          delete mgr.goalLoading[f.id]; done++;
-          if (mgr.goalsMode && !goalsListHasFocus()) setStatus(done < total ? "Doelen laden… " + done + " / " + total : (failed ? failed + " fiche(s) konden niet gelezen worden." : ""));
-          return worker();
-        });
+  // Goals per fiche VERSION, saved under qwp_goalcache_v1: { "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }.
+  // Safe to keep: a fiche id never changes content (every edit mints a new id), so a cached id is
+  // exact forever and a fiche seen once opens instantly. Only unseen versions are read.
+  var GOALCACHE_KEY = "qwp_goalcache_v1", _goalCache = null, _goalCacheSaveT = null;
+  function loadGoalCache() {
+    if (_goalCache) return Promise.resolve();
+    return S().storeGet(GOALCACHE_KEY).then(function (v) { if (!_goalCache) _goalCache = v || {}; });
+  }
+  function cacheGoals(id, edit) {
+    var gf = S().ficheGoalFields(edit), g = {};
+    GOAL_KINDS.forEach(function (k) { g[k] = gf[k] ? S().goalText(gf[k].content) : ""; });
+    var entry = { g: g, m: methodGoalsHint(edit) };
+    _goalCache[id] = entry;
+    clearTimeout(_goalCacheSaveT);
+    _goalCacheSaveT = setTimeout(function () { S().storeSet(GOALCACHE_KEY, _goalCache); }, 800);
+    return entry;
+  }
+  // Read queue, fed by rows scrolling into view (+200px) — only what you look at is read, a few at a
+  // time, so a big tag costs no request burst. "Lokale doelen overnemen" queues the whole list.
+  var GOAL_READ_CONCURRENCY = 4, _goalQueue = [], _goalWorkers = 0, _goalObserver = null, _goalFailed = 0;
+  function queueGoalRead(id, front) {
+    if (!_goalCache || _goalCache[id] || mgr.goalLoading[id]) return;
+    var at = _goalQueue.indexOf(id);
+    if (at >= 0) { if (!front) return; _goalQueue.splice(at, 1); }
+    if (front) _goalQueue.unshift(id); else _goalQueue.push(id);
+    pumpGoalReads();
+  }
+  function pumpGoalReads() {
+    while (mgr.goalsMode && _goalWorkers < GOAL_READ_CONCURRENCY && _goalQueue.length) {
+      var id = _goalQueue.shift();
+      if (!_goalCache[id] && !mgr.goalLoading[id]) startGoalRead(id);
     }
-    for (var i = 0; i < GOAL_READ_CONCURRENCY; i++) worker();
+    goalLoadStatus();
+  }
+  function startGoalRead(id) {
+    _goalWorkers++; mgr.goalLoading[id] = true;
+    readFicheEdit(id).then(function (edit) {
+      var entry = cacheGoals(id, edit);
+      if (mgr.goalRowFill[id]) mgr.goalRowFill[id](entry);
+    }).catch(function () { _goalFailed++; if (mgr.goalRowFill[id]) mgr.goalRowFill[id](null); })
+      .then(function () { delete mgr.goalLoading[id]; _goalWorkers--; pumpGoalReads(); });
+  }
+  function goalLoadStatus() {
+    if (!mgr.goalsMode || goalsListHasFocus()) return;
+    var left = _goalQueue.length + _goalWorkers;
+    setStatus(left ? "Doelen laden… nog " + left : (_goalFailed ? _goalFailed + " fiche(s) konden niet gelezen worden." : ""));
+  }
+  function loadGoalEdits(items) {
+    _goalFailed = 0;
+    loadGoalCache().then(function () {
+      if (!mgr.goalsMode) return;
+      _goalQueue = [];
+      var lazy = typeof IntersectionObserver === "function" && !!mgr.els.list;
+      items.forEach(function (f) {
+        if (_goalCache[f.id]) { if (mgr.goalRowFill[f.id]) mgr.goalRowFill[f.id](_goalCache[f.id]); }
+        else if (!lazy) queueGoalRead(f.id, false);
+      });
+      if (_goalObserver) _goalObserver.disconnect();
+      if (lazy) {
+        _goalObserver = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) { if (en.isIntersecting) queueGoalRead(en.target.getAttribute("data-fid"), true); });
+        }, { rootMargin: "200px 0px" });
+        var rows = mgr.els.list.querySelectorAll(".qwl-grow[data-fid]");
+        for (var i = 0; i < rows.length; i++) if (!_goalCache[rows[i].getAttribute("data-fid")]) _goalObserver.observe(rows[i]);
+      }
+      pumpGoalReads();
+    });
   }
   // The vendor's own lesdoelen, when the fiche sits on a methode template (read-only hint).
   function methodGoalsHint(edit) {
@@ -604,10 +646,10 @@
       var ta = h("textarea", { class: "qwl-ginp", rows: "2", "data-col": String(i + 1), placeholder: "laden…", disabled: "true" });
       ta.addEventListener("keydown", goalCellKeys);
       ta.addEventListener("change", function () {
-        var edit = mgr.goalEdits[f.id]; if (!edit) return;
-        var gf = S().ficheGoalFields(edit), old = gf[k] ? S().goalText(gf[k].content) : "", nv = ta.value.trim();
-        var g = {}; g[k] = nv;
-        stagePending(f, edit, { goals: g }, nv === old ? [] : [{ label: k.toUpperCase(), old: old, nw: nv }]);
+        var entry = _goalCache && _goalCache[f.id]; if (!entry) return;
+        var old = entry.g[k] || "", nv = ta.value.trim();
+        var g = {}; g[k] = nv; var orig = {}; orig[k] = old;
+        stagePending(f, null, { goals: g, goalsOrig: orig }, nv === old ? [] : [{ label: k.toUpperCase(), old: old, nw: nv }]);
         markRow();
       });
       cells[k] = ta;
@@ -615,7 +657,7 @@
     title.addEventListener("keydown", goalCellKeys);
     title.addEventListener("change", function () {
       var nv = title.value, orig = ficheName(f);
-      stagePending(f, mgr.goalEdits[f.id] || null, { subject: nv }, nv === orig ? [] : [{ label: "Titel", old: orig, nw: nv }]);
+      stagePending(f, null, { subject: nv }, nv === orig ? [] : [{ label: "Titel", old: orig, nw: nv }]);
       markRow();
     });
     var row = h("div", { class: "qwl-row qwl-grow" + (cb.checked ? " sel" : "") + (pend ? " pend" : ""), "data-fid": String(f.id) }, [
@@ -624,26 +666,29 @@
       cells.weet, cells.ken, cells.kan
     ]);
     function markRow() { row.classList.toggle("pend", !!mgr.pending[f.id]); updateSidebar(); }
-    function fill(edit) {
-      if (!edit) { GOAL_KINDS.forEach(function (k) { cells[k].placeholder = "niet gelezen"; }); return; }
-      var gf = S().ficheGoalFields(edit), p = mgr.pending[f.id];
+    function fill(entry) {
+      if (!entry) { GOAL_KINDS.forEach(function (k) { cells[k].placeholder = "niet gelezen"; }); return; }
+      var p = mgr.pending[f.id];
       GOAL_KINDS.forEach(function (k) {
         var ta = cells[k];
-        ta.value = (p && p.goals && Object.prototype.hasOwnProperty.call(p.goals, k)) ? p.goals[k] : (gf[k] ? S().goalText(gf[k].content) : "");
+        ta.value = (p && p.goals && Object.prototype.hasOwnProperty.call(p.goals, k)) ? p.goals[k] : (entry.g[k] || "");
         ta.placeholder = ""; ta.disabled = false;
       });
-      var mh = methodGoalsHint(edit);
-      if (mh) { hint.style.display = ""; hint.title = "Doelen van de methode:\n" + mh; }
+      if (entry.m) { hint.style.display = ""; hint.title = "Doelen van de methode:\n" + entry.m; }
     }
     mgr.goalRowFill[f.id] = fill;
-    if (mgr.goalEdits[f.id]) fill(mgr.goalEdits[f.id]);
+    if (_goalCache && _goalCache[f.id]) fill(_goalCache[f.id]);
     return row;
   }
   // One-time move of the goals typed in the print preview (this browser, qwp_goals_v1) into the
   // fiches. Only fiches with no WEET/KEN/KAN yet; records of an older fiche version cannot match.
   function importLocalGoals() {
-    var listed = mgr.filtered, missing = listed.filter(function (f) { return !mgr.goalEdits[f.id]; }).length;
-    if (missing) { setStatus("Wacht tot alle doelen geladen zijn (" + missing + " nog bezig)."); return; }
+    var listed = mgr.filtered, missing = listed.filter(function (f) { return !(_goalCache && _goalCache[f.id]); });
+    if (missing.length) {
+      missing.forEach(function (f) { queueGoalRead(f.id, false); });
+      setStatus("Eerst alle " + missing.length + " fiches lezen — klik daarna opnieuw op 'Lokale doelen overnemen'.");
+      return;
+    }
     S().storeGet("qwp_goals_v1").then(function (store) {
       store = store || {};
       var staged = 0, skipped = 0, matched = 0;
@@ -652,9 +697,9 @@
         var vals = {}; GOAL_KINDS.forEach(function (k) { var v = String(rec[k] || "").trim(); if (v) vals[k] = v; });
         if (!Object.keys(vals).length) return;
         matched++;
-        var edit = mgr.goalEdits[f.id], gf = S().ficheGoalFields(edit);
-        if (GOAL_KINDS.some(function (k) { return gf[k] && S().goalText(gf[k].content); })) { skipped++; return; }
-        stagePending(f, edit, { goals: vals }, Object.keys(vals).map(function (k) { return { label: k.toUpperCase(), old: "", nw: vals[k] }; }));
+        var cur = _goalCache[f.id].g;
+        if (GOAL_KINDS.some(function (k) { return cur[k]; })) { skipped++; return; }
+        stagePending(f, null, { goals: vals, goalsOrig: cur }, Object.keys(vals).map(function (k) { return { label: k.toUpperCase(), old: "", nw: vals[k] }; }));
         staged++;
       });
       var total = Object.keys(store).filter(function (key) { var r = store[key]; return key.indexOf("f:") === 0 && r && GOAL_KINDS.some(function (k) { return String(r[k] || "").trim(); }); }).length;
@@ -730,6 +775,27 @@
         ta.value = (pend && pend.text && Object.prototype.hasOwnProperty.call(pend.text, fieldKey(fld))) ? pend.text[fieldKey(fld)] : (fld.content != null ? fld.content : "");
         areas[fieldKey(fld)] = ta; body.push(ta);
       });
+      // Tags: click a pill to switch it on/off. tags[] is a full replace, so the whole set is staged.
+      var origTags = (edit.tags || []).map(function (t) { return String(t.id); });
+      var tagSet = {}; ((pend && pend.tags) ? pend.tags.map(String) : origTags).forEach(function (id) { tagSet[id] = true; });
+      var tagSummary = h("span", { class: "qwl-tagsum" });
+      var tagPick = h("div", { class: "qwl-tagpick" });
+      function tagPill(tg) {
+        var on = !!tagSet[String(tg.id)];
+        return h("button", { class: "qwl-pill" + (on ? " add" : ""), onclick: function () {
+          if (tagSet[String(tg.id)]) delete tagSet[String(tg.id)]; else tagSet[String(tg.id)] = true;
+          drawTags();
+        } }, [h("span", { class: "qwl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "qwl-pill-mark", text: on ? "✓" : "" })]);
+      }
+      function drawTags() {
+        renderTagGroups(tagPick, tagPill);
+        tagSummary.innerHTML = "";
+        var ids = Object.keys(tagSet);
+        tagSummary.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "qwl-note", text: "geen tags" }));
+      }
+      drawTags();
+      body.push(h("label", { class: "qwl-flabel", text: "Tags" }));
+      body.push(h("details", { class: "qwl-tagdetails" }, [h("summary", {}, [tagSummary, h("span", { class: "qwl-tagedit", text: "wijzigen" })]), tagPick]));
       if ((edit.fields || []).some(function (x) { return x.type === "goals"; })) body.push(h("div", { class: "qwl-note", text: "ZILL-doelen blijven ongewijzigd." }));
       body.push(h("div", { class: "qwl-note", text: "Niets wordt geschreven tot je op 'Wijzigingen controleren' klikt en goedkeurt." }));
       var bd = m.querySelector(".qwl-modal-bd"); bd.innerHTML = ""; body.forEach(function (e) { bd.appendChild(e); });
@@ -744,7 +810,9 @@
           text[fieldKey(fld)] = nv;
           if (nv !== ov) changes.push({ label: fld.title || "Tekst", old: ov, nw: nv });
         });
-        stagePending(f, edit, { subject: subject, text: text }, changes);
+        var nextTags = Object.keys(tagSet), tagsChanged = nextTags.slice().sort().join() !== origTags.slice().sort().join();
+        if (tagsChanged) changes.push({ label: "Tags", oldEl: chipRow(origTags.map(Number)), newEl: chipRow(nextTags.map(Number)) });
+        stagePending(f, edit, { subject: subject, text: text, tags: tagsChanged ? nextTags : null }, changes);
         m.close(); renderList();
         setStatus(pendCount() + " wijziging(en) klaargezet — druk 'Wijzigingen controleren'.");
       }, text: "Bewaar wijziging" }));
@@ -765,15 +833,17 @@
     var dropLabels = [];
     if (opts.goals) {
       e.goals = e.goals || {};
-      var gf = e.edit ? S().ficheGoalFields(e.edit) : {};
+      var gf = e.edit ? S().ficheGoalFields(e.edit) : {}, given = opts.goalsOrig || {};
       Object.keys(opts.goals).forEach(function (k) {
-        var orig = gf[k] ? S().goalText(gf[k].content) : "";
+        // goalsOrig: the stored text as goals mode knows it (cache); else read it off the edit view.
+        var orig = Object.prototype.hasOwnProperty.call(given, k) ? (given[k] || "") : (gf[k] ? S().goalText(gf[k].content) : "");
         if (opts.goals[k] === orig) { delete e.goals[k]; dropLabels.push(k.toUpperCase()); }
         else e.goals[k] = opts.goals[k];
       });
     }
     var origSubject = (e.edit && e.edit.subject != null) ? e.edit.subject : ficheName(f);
     if (opts.subject !== undefined && opts.subject === origSubject) { e.subject = null; dropLabels.push("Titel"); }
+    if (opts.tags === null) dropLabels.push("Tags");
     e.changes = (e.changes || []).filter(function (c) { return dropLabels.indexOf(c.label) < 0 && changes.every(function (n) { return n.label !== c.label; }); }).concat(changes);
     var textChanged = e.text && e.edit && Object.keys(e.text).some(function (k) { var fld = (e.edit.fields || []).filter(function (x) { return fieldKey(x) === k; })[0]; return fld && (e.text[k] !== (fld.content != null ? fld.content : "")); });
     var goalsChanged = !!(e.goals && Object.keys(e.goals).length);
@@ -835,8 +905,7 @@
         else if (mgr.tagChips[oldId]) mgr.tagChips[newId] = mgr.tagChips[oldId];
         if (oldId !== newId) delete mgr.tagChips[oldId];
         if (mgr.selected[oldId]) { delete mgr.selected[oldId]; mgr.selected[newId] = true; }
-        // The new version has new field ids — goals mode re-reads it (which also shows what landed).
-        delete mgr.goalEdits[oldId];
+        // The new version is a new id: goals mode reads it fresh, which also shows what landed.
         delete mgr.pending[id];
       });
     }, prog.update).then(function (fails) { if (fails.length < keys.length) mgr.dirtyWrites = true; prog.done(fails, keys.length); renderList(); });
@@ -860,16 +929,7 @@
         renderPick();
       } }, [h("span", { class: "qwl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "qwl-pill-mark", text: addSet[tg.id] ? "＋" : (remSet[tg.id] ? "－" : "") })]);
     }
-    function renderPick() {
-      pickWrap.innerHTML = "";
-      var tops = S().topTagsForOwner(mgr.ownTags, ctx().ownerId).filter(function (t) { return !/alle.*lesfiches/i.test(t.title || ""); });
-      tops.forEach(function (t) {
-        var kids = mgr.ownTags.filter(function (k) { return String(k.parent) === String(t.id); }).sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); });
-        var grp = h("div", { class: "qwl-pickgrp" }, [h("div", { class: "qwl-pickgrp-top" }, [pill(t)])]);
-        if (kids.length) grp.appendChild(h("div", { class: "qwl-pickgrp-kids" }, kids.map(pill)));
-        pickWrap.appendChild(grp);
-      });
-    }
+    function renderPick() { renderTagGroups(pickWrap, pill); }
     renderPick();
     var m = modal("Tags bewerken — " + ids.length + " fiches", [
       h("div", { class: "qwl-note", text: "Klik een tag: 1× toevoegen (＋), 2× verwijderen (－), 3× niets. Wijzigingen worden klaargezet; niets wordt geschreven tot 'Wijzigingen controleren'." }),
@@ -883,6 +943,17 @@
       if (!add.length && !rem.length && !newName) { m.close(); return; }
       m.close(); stageTagChanges(ids, add, rem, newName);
     }, text: "Klaarzetten" }));
+  }
+  // Vak tags with their subtags indented beneath, one pill each (shared by both tag pickers).
+  function renderTagGroups(wrap, pill) {
+    wrap.innerHTML = "";
+    var tops = S().topTagsForOwner(mgr.ownTags, ctx().ownerId).filter(function (t) { return !/alle.*lesfiches/i.test(t.title || ""); });
+    tops.forEach(function (t) {
+      var kids = mgr.ownTags.filter(function (k) { return String(k.parent) === String(t.id); }).sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); });
+      var grp = h("div", { class: "qwl-pickgrp" }, [h("div", { class: "qwl-pickgrp-top" }, [pill(t)])]);
+      if (kids.length) grp.appendChild(h("div", { class: "qwl-pickgrp-kids" }, kids.map(pill)));
+      wrap.appendChild(grp);
+    });
   }
   // Read each selected fiche → compute new tag set → stage into pending (no separate confirm).
   function stageTagChanges(ids, add, rem, newName) {

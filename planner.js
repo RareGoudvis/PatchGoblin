@@ -1760,16 +1760,31 @@
     var list = Object.keys(ids);
     if (!list.length) return Promise.resolve(false);
     list.forEach(function (id) { _printFicheGoals[id] = { goals: null, src: "loading" }; });
-    return Promise.all(list.map(function (id) {
-      return fetchFicheEdit(id).then(function (edit) {
-        noteFicheThread(edit);
-        var g = goalsOfEdit(edit);
-        if (g) { _printFicheGoals[id] = { goals: g, src: "fiche" }; return; }
-        return newerVersionGoals(edit).then(function (g2) {
-          _printFicheGoals[id] = g2 ? { goals: g2, src: "newer" } : { goals: null, src: "none" };
-        });
-      }).catch(function () { _printFicheGoals[id] = { goals: null, src: "none" }; });
-    })).then(function () { return true; });
+    // At most 4 reads at a time, and a version the Lesfiche-manager already read (qwp_goalcache_v1 —
+    // a fiche id never changes content) costs none — keeps print from bursting Questi.
+    return storeGet("qwp_goalcache_v1").then(function (cache) {
+      cache = cache || {};
+      return mapLimit(list, 4, function (id) {
+        var hit = cache[id] && cache[id].g, hg = {};
+        if (hit) GOALS_KINDS.forEach(function (k) { if (hit[k.key]) hg[k.key] = hit[k.key]; });
+        if (Object.keys(hg).length) { _printFicheGoals[id] = { goals: hg, src: "fiche" }; return Promise.resolve(); }
+        return fetchFicheEdit(id).then(function (edit) {
+          noteFicheThread(edit);
+          var g = goalsOfEdit(edit);
+          if (g) { _printFicheGoals[id] = { goals: g, src: "fiche" }; return; }
+          return newerVersionGoals(edit).then(function (g2) {
+            _printFicheGoals[id] = g2 ? { goals: g2, src: "newer" } : { goals: null, src: "none" };
+          });
+        }).catch(function () { _printFicheGoals[id] = { goals: null, src: "none" }; });
+      });
+    }).then(function () { return true; });
+  }
+  // Run fn over items with at most `n` promises in flight; resolves when all settle.
+  function mapLimit(items, n, fn) {
+    var i = 0;
+    function worker() { if (i >= items.length) return Promise.resolve(); var it = items[i++]; return Promise.resolve().then(function () { return fn(it); }).catch(function () {}).then(worker); }
+    var ws = []; for (var k = 0; k < Math.min(n, items.length); k++) ws.push(worker());
+    return Promise.all(ws);
   }
   // What a card shows: the fiche's goals when it has any, else the local record (fiche-less lesuren,
   // methode fiches, older typed goals). Hide flags always come from the local record.

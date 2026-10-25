@@ -103,6 +103,7 @@ storeGet, storeSet, ficheGoalFields, goalText, IS_BETA, betaPill`.
 | `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
 | `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and pre-beta text (own fiches now keep goals in the fiche) |
 | `qwp_threads_v1` | planner (print) + lessons | fiche lineage `{ "<thread>": newest fiche id seen }` — learned from every edit view read/written (the list has no `thread`) |
+| `qwp_goalcache_v1` | lessons (goals mode) + print | goals per fiche VERSION `{ "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }` — exact forever (an id never changes content), so a seen fiche costs no request |
 | `qwp_print_v1` | planner (print) | print window choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool }` |
 | `qwp_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
@@ -279,7 +280,8 @@ version. `buildPatch` sends every extra field exactly as Questi's editor does, `
 `opts.goals` updates or appends them; never create an empty one. Text fields key on `fieldKey()`
 (template id, or `"x"+id` for an extra field) — keying on `template_field_id` alone made all extra
 fields share one `"null"` key. Goals mode in the manager (`makeGoalsTable`) stages into `mgr.pending`
-like any edit and backs up ≥5 goal writes first. A planned lesuur keeps its fiche **version**, so print
+like any edit and backs up ≥5 goal writes first. Goal reads are **viewport-driven** (IntersectionObserver,
+max 4 in flight) and print caps its reads at 4 (`mapLimit`) — keep Questi traffic light, never a burst. A planned lesuur keeps its fiche **version**, so print
 follows the fiche's `thread` (same for every version; `qwp_threads_v1`) to the newest version, then the
 newest own fiche with the same title, and marks the card "nieuwere versie".
 
