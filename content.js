@@ -184,24 +184,24 @@
     var b = document.createElement("button");
     b.type = "button";
     b.setAttribute("role", "menuitem");
-    b.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:none;background:transparent;border-radius:9px;padding:7px 8px;cursor:pointer;color:#1e2a33;font-family:" + MENU_FONT + ";";
+    b.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:none;background:transparent;border-radius:9px;padding:7px 8px;cursor:pointer;color:#fff;font-family:" + MENU_FONT + ";";
     var tile = document.createElement("span");
     tile.style.cssText = "flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;" +
-      (tone === "amber" ? "background:#FFB343;color:#1e2a33;" : "background:#eef2f4;color:#2D5BE3;");
+      (tone === "amber" ? "background:#FFB343;color:#1e2a33;" : "background:rgba(255,255,255,.09);color:#FFB343;");
     tile.innerHTML = icoSvg(icon);
     var txt = document.createElement("span");
     txt.style.cssText = "flex:1 1 auto;min-width:0;display:flex;flex-direction:column;";
     var t = document.createElement("span"); t.style.cssText = "font-size:14px;font-weight:700;line-height:1.25;"; t.textContent = title;
     txt.appendChild(t);
-    if (sub) { var d = document.createElement("span"); d.style.cssText = "font-size:12px;color:#6b7a82;line-height:1.3;"; d.textContent = sub; txt.appendChild(d); }
+    if (sub) { var d = document.createElement("span"); d.style.cssText = "font-size:12px;color:#a9b7bf;line-height:1.3;"; d.textContent = sub; txt.appendChild(d); }
     b.appendChild(tile); b.appendChild(txt);
-    if (hint) { var k = document.createElement("span"); k.style.cssText = "flex:0 0 auto;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#4a5a63;background:#eef2f4;"; k.textContent = hint; b.appendChild(k); }
-    b.addEventListener("mouseenter", function () { b.style.background = "#f1f4f6"; });
+    if (hint) { var k = document.createElement("span"); k.style.cssText = "flex:0 0 auto;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#d7e0e5;background:rgba(255,255,255,.1);"; k.textContent = hint; b.appendChild(k); }
+    b.addEventListener("mouseenter", function () { b.style.background = "rgba(255,255,255,.08)"; });
     b.addEventListener("mouseleave", function () { b.style.background = "transparent"; });
     b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); closeMenu(); onClick(); });
     return b;
   }
-  function menuSep() { var s = document.createElement("div"); s.style.cssText = "height:1px;margin:4px 6px;background:#e3e9ec;"; return s; }
+  function menuSep() { var s = document.createElement("div"); s.style.cssText = "height:1px;margin:4px 6px;background:rgba(255,255,255,.12);"; return s; }
   function openMenu(wrap, caret) {
     closeMenu();
     var r = wrap.getBoundingClientRect();
@@ -209,10 +209,10 @@
     m.setAttribute("role", "menu");
     m.setAttribute("aria-label", "UnQuesti");
     m.style.cssText = "position:fixed;z-index:2147482500;top:" + Math.round(r.bottom + 10) + "px;left:" + Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 310))) + "px;width:300px;" +
-      "display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid #d5dbdf;border-top:3px solid #FFB343;border-radius:12px;box-shadow:0 10px 28px rgba(30,42,51,.18),0 2px 6px rgba(30,42,51,.08);padding:8px;box-sizing:border-box;";
+      "display:flex;flex-direction:column;gap:2px;background:#1e2a33;color:#fff;border:1px solid #1e2a33;border-radius:12px;box-shadow:0 10px 28px rgba(30,42,51,.28),0 2px 6px rgba(30,42,51,.12);padding:8px;box-sizing:border-box;";
     var head = document.createElement("div");
-    head.style.cssText = "display:flex;align-items:center;gap:8px;padding:4px 8px 8px;font:800 14px/1 " + MENU_FONT + ";color:#1e2a33;";
-    head.innerHTML = markSvg(20) + "<span>UnQuesti</span>" + (IS_BETA ? '<span style="margin-left:auto;padding:2px 6px;border-radius:6px;background:#fff0e0;color:#8a3b12;font-size:10px;font-weight:700;letter-spacing:.06em;">BETA</span>' : "");
+    head.style.cssText = "display:flex;align-items:center;gap:8px;padding:4px 8px 8px;font:800 14px/1 " + MENU_FONT + ";color:#fff;";
+    head.innerHTML = markSvg(20) + "<span>UnQuesti</span>" + (IS_BETA ? '<span style="margin-left:auto;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#FFB343;font-size:10px;font-weight:700;letter-spacing:.06em;">BETA</span>' : "");
     m.appendChild(head);
     var n = pendingCount();
     m.appendChild(menuItem("plan", "Plannen", "deze week en volgende", SHORTCUT, toggle));

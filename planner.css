@@ -368,13 +368,11 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-tab.active, .qwp-tab.active:hover { background:var(--uq-blue-ink); color:#fff; cursor:default; }
 /* Vak filter: two equal columns of tiles, colour bar left; "Alle vakken" and the settings link span both. */
 .qwp-vaktoggle { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:5px; }
-.qwp-vakbtn { display:flex; align-items:center; gap:8px; min-width:0; height:32px; border:1px solid var(--line2); background:var(--surface); border-radius:7px; padding:0 9px 0 0; overflow:hidden; font-size:12.5px; font-weight:600; color:var(--ink); cursor:pointer; text-align:left; }
+.qwp-vakbtn { display:flex; align-items:center; gap:8px; min-width:0; height:32px; border:2px solid var(--line2); background:var(--surface); border-radius:7px; padding:0 9px 0 10px; overflow:hidden; font-size:12.5px; font-weight:600; color:var(--ink); cursor:pointer; text-align:left; }
 .qwp-vakbtn.all { grid-column:1 / -1; padding-left:10px; }
-.qwp-vakbar { flex:0 0 5px; align-self:stretch; background:var(--line2); }
-.qwp-vakbtn.all .qwp-vakbar { display:none; }
 .qwp-vakname { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qwp-vakbtn:hover { border-color:var(--accent-line); }
-.qwp-vakbtn.active { background:var(--uq-blue-tint); border-color:var(--uq-blue); box-shadow:inset 0 0 0 1px var(--uq-blue); }
+.qwp-vakbtn.active { background:var(--uq-blue-tint); border-color:var(--uq-blue); font-weight:800; box-shadow:0 1px 3px rgba(30,42,51,.22); }
 .qwp-vakmore { grid-column:1 / -1; justify-self:start; border:none; background:transparent; padding:2px 0; font-size:12px; font-weight:600; color:var(--uq-blue-ink); text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .qwp-vakdot { width:9px; height:9px; border-radius:50%; background:var(--line2); flex:0 0 auto; }
 .qwp-ownerrow { display:flex; align-items:center; gap:6px; min-width:0; }
@@ -399,8 +397,6 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 
 /* One fiche list; fills whatever height is left so the actions stay pinned to the bottom. */
 .qwp-picker { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
-.qwp-listhd { flex:0 0 auto; display:flex; justify-content:space-between; gap:10px; padding:8px 16px 4px; font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
-.qwp-listhd-t { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qwp-picker-list { flex:1 1 auto; min-height:0; overflow:auto; }
 .qwp-pfiche { display:flex; align-items:center; gap:10px; padding:8px 16px; border-bottom:1px solid var(--soft); background:#fff; cursor:grab; }
 .qwp-pfiche:hover { background:#f6f8f9; }
@@ -705,9 +701,8 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-vakviews button { border:none; background:transparent; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:700; color:var(--accent); cursor:pointer; }
 .qwp-vakviews button.active { background:var(--uq-blue-ink); color:#fff; }
 .qwp-vaktoggle.vv-compact { grid-template-columns:repeat(auto-fill, minmax(56px, 1fr)); gap:4px; }
-.qwp-vaktoggle.vv-compact .qwp-vakbtn { height:26px; gap:6px; padding-right:6px; font-size:11.5px; letter-spacing:.02em; }
+.qwp-vaktoggle.vv-compact .qwp-vakbtn { height:26px; gap:6px; padding:0 6px; justify-content:center; font-size:11.5px; letter-spacing:.02em; }
 .qwp-vaktoggle.vv-compact .qwp-vakbtn.all { grid-column:auto; padding-left:8px; }
-.qwp-vaktoggle.vv-compact .qwp-vakbar { flex-basis:4px; }
 .qwp-vaktoggle.vv-select { grid-template-columns:minmax(0, 1fr); }
 .qwp-vakselrow { display:flex; align-items:center; gap:8px; min-width:0; }
 .qwp-vaksw { flex:0 0 8px; height:24px; border-radius:3px; background:var(--line2); }
@@ -731,3 +726,4 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-subchip { background:#fff; border:1px solid var(--line2); color:var(--accent); font-weight:600; font-size:11.5px; padding:3px 10px; }
 .qwp-subchip:hover { border-color:var(--uq-blue); }
 .qwp-subchip.active { background:var(--uq-blue-ink); border-color:var(--uq-blue-ink); color:#fff; }
+.qwp-notag { display:inline-flex; vertical-align:-3px; }

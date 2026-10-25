@@ -1140,7 +1140,7 @@
   // hydrateRange (print, settings) still resolves only once everything is read.
   function hydrateRange(startISO, endISO) { return hydrateRangeLive(startISO, endISO).then(function (r) { return r.done; }); }
   function isUnhydrated(s) { return !!(s && (s._pending || s._detailFailed)); }
-  function hydrateRangeLive(startISO, endISO, onDetail) {
+  function hydrateRangeLive(startISO, endISO, onDetail, skip) {
     return fetchItems(startISO, endISO).then(function (items) {
       var slots = items.map(function (it) {
         var day = weekdayIdx(it.startdate);
@@ -1165,7 +1165,10 @@
           themaKey: null, themaTagId: null,
           description: "", origDescription: "",
           ficheContentId: null, ficheTitle: "", origFicheContentId: null, origFicheTitle: "",
-          starttime: "", endtime: "", _hydrated: false
+          starttime: "", endtime: "", _hydrated: false,
+          // The week window this slot was read in = its occurrence window when written (patchItem's
+          // range_*), kept per slot so a staged change from another week still hits ITS occurrence.
+          _range: { start: startISO, end: endISO }
         };
       });
       // Stamp thema identity before anything can overwrite a title.
@@ -1174,7 +1177,7 @@
         if (s.isFullday && s.themaTagId != null) s.vak = s.themaTagId;
         else if (!s.isFullday && isThemaVak(s.vak)) s.themaFiche = true;
       });
-      var need = slots.filter(function (s) { return s.idCalendar !== "cal_holidays" && (s.hasAtt || !/^Lesuur\s*\d+$/.test(s.title)); });
+      var need = slots.filter(function (s) { return s.idCalendar !== "cal_holidays" && (s.hasAtt || !/^Lesuur\s*\d+$/.test(s.title)) && !(skip && skip(s)); });
       // One detail read per lesuur — the boot's biggest cost. Four at a time (never a burst; see
       // mapLimit) instead of strictly one after another; each slot only touches its own fields.
       need.forEach(function (s) { s._pending = true; });
@@ -1269,7 +1272,7 @@
         old: { title: s.origTitle, desc: s.origDescription, fiche: s.origFicheTitle || "(geen)" },
         neu: { title: s.title, desc: writesDescriptions() ? toHtmlDesc(nd) : (s.origDescription || ""), fiche: (s.isGym ? "(geen — gym)" : (s.ficheTitle || "(geen)")) },
         descEcho: descEcho,
-        patchBody: body, range: range,
+        patchBody: body, range: s._range || range,
         themaTagId: (isThemaSlot(s) && s.themaTagId != null) ? s.themaTagId : null,
         // Only re-POST the attachment when the fiche actually CHANGED. A description- or title-only
         // edit is a plain PATCH: omitting `attachments` keeps the existing one. Re-POSTing an
@@ -1385,7 +1388,6 @@
       // Lesfiches tab: lessons.js mounts its tag tree here (setTab → __QWP_LESSONS.mount).
       h("div", { class: "qwp-lf-side qwp-lf-only", id: "qwp-lf-side" }),
       h("div", { class: "qwp-picker qwp-plan-only", id: "qwp-picker-0" }, [
-        h("div", { class: "qwp-listhd" }, [h("span", { class: "qwp-listhd-t", id: "qwp-listhd-t" }), h("span", { text: "Laatst gebruikt" })]),
         h("div", { class: "qwp-picker-list", id: "qwp-picker-list-0" }),
         h("div", { class: "qwp-selbar", id: "qwp-selbar", style: "display:none" }, [
           h("span", { class: "qwp-pick-count", id: "qwp-pick-count-0", text: "0 geselecteerd" }),
@@ -1594,7 +1596,40 @@
   }
   // Same selection buildCommitPlan writes, without building the bodies.
   function stagedCount() {
-    return view.slots.filter(function (s) { return s.isEditable && s.idCalendar !== "cal_holidays" && computeDirty(s); }).length;
+    return view.slots.filter(function (s) { return s.isEditable && s.idCalendar !== "cal_holidays" && computeDirty(s); }).length + offscreenStaged().length;
+  }
+  // ---- Staged changes survive week navigation (plan a month, write once) ----
+  // Leaving a week puts its changed lesuren aside in view.stash, whole (edits + the stored values
+  // they are compared with + their own occurrence window, _range). Coming back puts the same objects
+  // back instead of the freshly read ones, so the edits are still there; Controleer and the counts
+  // include the ones in other weeks. Keyed by item id + date: a recurring series could share an id.
+  // In memory only, like every staged change — a page reload drops them.
+  function slotKey(s) { return String(s.itemId) + "|" + String(s.startdate || "").slice(0, 10); }
+  function stashCurrent() {
+    if (!view.stash) view.stash = {};
+    (view.slots || []).forEach(function (s) {
+      var k = slotKey(s);
+      if (s.isEditable && s.idCalendar !== "cal_holidays" && computeDirty(s)) view.stash[k] = s;
+      else delete view.stash[k];
+    });
+  }
+  function offscreenStaged() {
+    if (!view.stash) return [];
+    var here = {}; (view.slots || []).forEach(function (s) { here[slotKey(s)] = true; });
+    return Object.keys(view.stash).filter(function (k) { return !here[k]; }).map(function (k) { return view.stash[k]; })
+      .filter(function (s) { return computeDirty(s); });
+  }
+  // What Controleer writes: the loaded weeks plus other weeks' staged slots. The review and the write
+  // match rows by item id, so an other-week slot whose id is also in use here (only possible if
+  // Questi gave a series one id) is held back — said in the review — rather than risk the wrong week.
+  function commitSlots() {
+    var used = {}, out = (view.slots || []).slice(), held = [];
+    out.forEach(function (s) { used[String(s.itemId)] = true; });
+    offscreenStaged().forEach(function (s) {
+      if (used[String(s.itemId)]) { held.push(s); return; }
+      used[String(s.itemId)] = true; out.push(s);
+    });
+    return { slots: out, held: held };
   }
   // Everything the ONE Controleer writes: calendar changes plus the Lesfiche-manager's staged fiche
   // edits and tags to create. The launcher badge (__QWP_PENDING_COUNT), the Controleer badge and the
@@ -1618,20 +1653,17 @@
     var st = elId("qwp-staged"); if (!st) return;
     st.style.display = n ? "" : "none"; st.innerHTML = "";
     st.appendChild(h("span", { class: "qwp-staged-dot" }));
-    st.appendChild(document.createTextNode(n + (n === 1 ? " wijziging" : " wijzigingen")));
+    var away = offscreenStaged().length;
+    st.appendChild(document.createTextNode(n + (n === 1 ? " wijziging" : " wijzigingen") + (away ? " (" + away + " in andere weken)" : "")));
   }
 
   // ---------- Week navigation ----------
-  // Steps ONE week, so "this week + next" can roll forward. A reload replaces every slot, so staged
-  // edits would be lost — ask first instead of dropping them quietly.
-  function confirmDiscard() {
-    var n = stagedCount(); if (!n) return true;
-    try { return window.confirm(n + (n === 1 ? " wijziging is" : " wijzigingen zijn") + " nog niet weggeschreven en gaan verloren. Toch doorgaan?"); } catch (e) { return true; }
-  }
-  function prevWeek() { if (!confirmDiscard()) return; view.weekOffset -= 1; reloadAndRender(); }
-  function nextWeek() { if (!confirmDiscard()) return; view.weekOffset += 1; reloadAndRender(); }
-  function thisWeek() { if (!confirmDiscard()) return; view.weekOffset = 0; reloadAndRender(); }
-  function refreshWeeks() { if (!confirmDiscard()) return; reloadAndRender(); }
+  // Steps ONE week, so "this week + next" can roll forward. Staged changes are kept (view.stash, see
+  // stashCurrent), so a month can be planned and written in one Controleer.
+  function prevWeek() { view.weekOffset -= 1; reloadAndRender(); }
+  function nextWeek() { view.weekOffset += 1; reloadAndRender(); }
+  function thisWeek() { view.weekOffset = 0; reloadAndRender(); }
+  function refreshWeeks() { reloadAndRender(); }
   var MONTH_NL_SHORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
   // "26 – 30 okt" / "26 okt – 6 nov" for Monday of week a … Friday of week b (week indexes).
   // `base` = another Monday than the planner's (the Afdrukken tab browses weeks on its own).
@@ -3879,9 +3911,14 @@
     }
     function tile(id, label, color, extra) {
       var on = String(p.filterVak) === String(id);
-      var bar = h("span", { class: "qwp-vakbar" }); if (color) bar.style.background = color;
-      return h("button", { class: "qwp-vakbtn" + (on ? " active" : "") + (extra || ""), type: "button", "aria-pressed": on ? "true" : "false", title: label, onclick: function () { pick(id); } },
-        [bar, h("span", { class: "qwp-vakname", text: label })]);
+      var b = h("button", { class: "qwp-vakbtn" + (on ? " active" : "") + (extra || ""), type: "button", "aria-pressed": on ? "true" : "false", title: label, onclick: function () { pick(id); } },
+        [h("span", { class: "qwp-vakname", text: label })]);
+      // The tag colour IS the tile: full border, filled when chosen (ink picked for contrast).
+      if (color) {
+        b.style.borderColor = color;
+        if (on) { b.style.background = color; b.style.color = goalsInkOn(color); }
+      }
+      return b;
     }
     var mode = vakView();
     wrap.className = "qwp-vaktoggle qwp-plan-only vv-" + mode;
@@ -3925,6 +3962,12 @@
     p.filterVak = defaultTopTagId(v); p.filterTagId = p.filterVak; p.unionMode = true; state.panels[pi].filterVak = p.filterVak; saveState();
     renderPanel(pi);
   }
+  // Tag with a slash: "fiches with no subtag".
+  function NOTAG_ICON() {
+    var sp = h("span", { class: "qwp-notag" });
+    sp.innerHTML = '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.2"/><path d="M3 21 21 3"/></svg>';
+    return sp;
+  }
   function renderSubcats(pi) {
     var wrap = elId("qwp-subcats-" + pi); if (!wrap) return; wrap.innerHTML = "";
     var p = view.panels[pi];
@@ -3932,7 +3975,7 @@
     if (!subs.length) { p.unionMode = false; p.filterTagId = p.filterVak; return; }
     // "Alle" = union (parent + all children); "Geen subtag" = parent-only; then each child.
     wrap.appendChild(h("button", { class: "qwp-subchip" + (p.unionMode ? " active" : ""), onclick: function () { p.unionMode = true; renderSubcats(pi); loadAndRenderList(pi); }, text: "Alle" }));
-    wrap.appendChild(h("button", { class: "qwp-subchip" + ((!p.unionMode && String(p.filterTagId) === String(p.filterVak)) ? " active" : ""), onclick: function () { p.unionMode = false; p.filterTagId = p.filterVak; renderSubcats(pi); loadAndRenderList(pi); }, text: "Geen subtag" }));
+    wrap.appendChild(h("button", { class: "qwp-subchip" + ((!p.unionMode && String(p.filterTagId) === String(p.filterVak)) ? " active" : ""), onclick: function () { p.unionMode = false; p.filterTagId = p.filterVak; renderSubcats(pi); loadAndRenderList(pi); }, title: "Zonder subtag", "aria-label": "Zonder subtag" }, [NOTAG_ICON()]));
     subs.forEach(function (t) { wrap.appendChild(h("button", { class: "qwp-subchip" + ((!p.unionMode && String(p.filterTagId) === String(t.id)) ? " active" : ""), onclick: function () { p.unionMode = false; p.filterTagId = t.id; renderSubcats(pi); loadAndRenderList(pi); }, text: (t.title || "").trim() })); });
   }
   // Ensure the (source, tag) fiches are fetched, then render — with a loading state.
@@ -4034,13 +4077,10 @@
     // Only this school year counts as "used"; an older date is shown on hover only.
     return { text: "—", cls: "old", title: "Niet dit schooljaar (laatst op " + full + ")" };
   }
+  // No header line above the list (space): the count lives in the search field's placeholder.
   function renderListHead(pi, n) {
-    var el = elId("qwp-listhd-t"); if (!el) return;
-    var p = view.panels[pi], bits = [];
-    if (!isOwnSource(p.source)) bits.push(ownerName(p.source));
-    if (p.filterVak != null) bits.push((tagTitle(p.source, p.filterVak) || "").trim());
-    if (!p.unionMode && p.filterTagId != null && String(p.filterTagId) !== String(p.filterVak)) bits.push((tagTitle(p.source, p.filterTagId) || "").trim());
-    el.textContent = bits.filter(Boolean).join(" · ") + (n != null ? " (" + n + ")" : "");
+    var el = elId("qwp-search-" + pi); if (!el) return;
+    el.placeholder = n != null ? "Zoek in " + n + " fiche" + (n === 1 ? "" : "s") + "…" : "Zoek…";
   }
   function syncFilterControls(pi) {
     var p = view.panels[pi];
@@ -4943,21 +4983,25 @@
   // affected fiches is ticked by default. Opened by the Controleer button and the header count.
   function slotWhere(s) {
     var top = topTagIdOf(s.vak), vak = top != null ? (anyTagTitle(top) || "").trim() : "";
-    var d = view.weekStart ? ddmm(view.weekStart, (s.weekIdx || 0) * 7 + (s.dayIdx || 0)) : "";
+    var d = s.startdate ? ddmm(String(s.startdate).slice(0, 10), 0) : (view.weekStart ? ddmm(view.weekStart, (s.weekIdx || 0) * 7 + (s.dayIdx || 0)) : "");
     return (DAY_ABBR[s.dayIdx] || "") + " " + d + (s.time ? " " + s.time : "") + (vak ? " · " + vak : "");
   }
-  function slotByItemId(id) { for (var i = 0; i < view.slots.length; i++) if (String(view.slots[i].itemId) === String(id)) return view.slots[i]; return null; }
+  function slotByItemId(id) {
+    var all = commitSlots().slots;
+    for (var i = 0; i < all.length; i++) if (String(all[i].itemId) === String(id)) return all[i];
+    return null;
+  }
   function openReview() {
     if (busyLoading()) return;   // stored titles/fiches of some lesuren are not read yet
     var old = elId("qwp-modal"); if (old) old.remove();
     var L = lessonsApi(), lp = { tags: [], fiches: [] };
     if (L) { try { lp = L.pendingSummary(); } catch (e) { console.error("[QWP] pendingSummary:", e); } }
-    var plan = buildCommitPlan(view.slots);
+    var cs = commitSlots(), plan = buildCommitPlan(cs.slots);
     // Lesuren that hold a fiche being edited: dirty ones follow it to the new version as part of
     // their own row; clean ones become an opt-in "Fiche-versie" row.
     var ficheByFid = {}; lp.fiches.forEach(function (f) { ficheByFid[String(f.ficheId)] = f; });
     var follows = {}, bumps = [];
-    view.slots.forEach(function (s) {
+    cs.slots.forEach(function (s) {
       if (!s.isEditable || s.idCalendar === "cal_holidays" || s.isGym || !s.ficheContentId) return;
       var pf = ficheByFid[String(s.ficheContentId)]; if (!pf) return;
       if (computeDirty(s)) follows[s.itemId] = pf; else bumps.push({ slot: s, fiche: pf });
@@ -5046,7 +5090,9 @@
       rows.forEach(function (r) { r.el.classList.toggle("off", !r.cb.checked || r.cb.disabled); });
       var n = chosen().length;
       goBtn.textContent = "Wegschrijven (" + n + ")"; goBtn.disabled = n ? null : "true";
-      sub.textContent = rows.length + (rows.length === 1 ? " wijziging" : " wijzigingen") + (n !== rows.length ? " · " + n + " aangevinkt" : "") + " · nog niets is naar Questi gestuurd";
+      var away = offscreenStaged().length - cs.held.length;
+      sub.textContent = rows.length + (rows.length === 1 ? " wijziging" : " wijzigingen") + (away > 0 ? " (" + away + " uit andere weken)" : "") + (n !== rows.length ? " · " + n + " aangevinkt" : "") + " · nog niets is naar Questi gestuurd" +
+        (cs.held.length ? " · " + cs.held.length + " uit andere weken wacht: zelfde reeks als een lesuur hier, schrijf eerst deze weg" : "");
       masterCb.checked = n === rows.length;
     }
     var aside = h("aside", { class: "qwp-cr-aside" }, [
@@ -5119,8 +5165,8 @@
       var map = (rep.fiches && rep.fiches.map) || {};
       Object.keys(map).forEach(function (k) { byOld[String(map[k].oldId)] = map[k]; });
       ((rep.fiches && rep.fiches.fails) || []).forEach(function (f) { failedFid[String(sel.ficheIdByKey[f.key])] = f.title; });
-      var held = {};
-      view.slots.forEach(function (s) {
+      var held = {}, cs = commitSlots();
+      cs.slots.forEach(function (s) {
         if (!s.isEditable || s.idCalendar === "cal_holidays" || s.isGym || !s.ficheContentId) return;
         var fid = String(s.ficheContentId), newAssign = fid !== String(s.origFicheContentId || "");
         var m = byOld[fid];
@@ -5137,7 +5183,7 @@
           rep.held.push(slotWhere(s) + " — fiche ‘" + failedFid[fid] + "’ werd niet bijgewerkt");
         }
       });
-      var plan = buildCommitPlan(view.slots).filter(function (p) { return (sel.calIds[p.itemId] || sel.bumpIds[p.itemId]) && !held[p.itemId]; });
+      var plan = buildCommitPlan(cs.slots).filter(function (p) { return (sel.calIds[p.itemId] || sel.bumpIds[p.itemId]) && !held[p.itemId]; });
       if (!plan.length) { finishSharedWrite(rep, sel, [], 0, []); return; }
       setStatus("3/3 · Agenda wegschrijven…");
       _commitAfter = function (ok, fails) { finishSharedWrite(rep, sel, plan, ok, fails); };
@@ -5363,12 +5409,25 @@
     }, 250);
   }
   function reloadWeek() {
+    stashCurrent();
+    // Undo snapshots address slots by item id within ONE window; across windows they could hit a
+    // kept slot of another week, so the history starts fresh per window (kept edits stay staged).
+    if (view.undoStack.length) { view.undoStack = []; refreshUndoBtn(); }
     var wr = currentWeekRange(); view.weekStart = wr.start;
     var gen = ++_loadGen;
     setStatus("Rooster laden…");
-    return hydrateRangeLive(wr.start, wr.end, function () { if (gen === _loadGen) scheduleHydratePaint(); }).then(function (r) {
+    var kept = function (s) { return !!(view.stash && view.stash[slotKey(s)]); };
+    return hydrateRangeLive(wr.start, wr.end, function () { if (gen === _loadGen) scheduleHydratePaint(); }, kept).then(function (r) {
       if (gen !== _loadGen) return;   // a newer load owns view.slots
-      view.slots = r.slots; view.slotsStart = wr.start; view.hydrateTotal = r.total;
+      // A lesuur with kept edits comes back as the kept object, re-seated in this window's week rows.
+      var base = addDays(wr.start, 0);
+      view.slots = r.slots.map(function (s) {
+        var k = view.stash && view.stash[slotKey(s)]; if (!k) return s;
+        var d0 = addDays(String(k.startdate).slice(0, 10), 0);
+        if (d0 && base) k.weekIdx = Math.max(0, Math.floor(Math.round((d0 - base) / 86400000) / 7));
+        return k;
+      });
+      view.slotsStart = wr.start; view.hydrateTotal = r.total;
       reloadSlotVakLabels(); applyStoredVakken(view.slots);
       view.hydrateP = r.done.then(function () {
         if (gen !== _loadGen) return false;

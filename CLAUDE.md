@@ -191,7 +191,16 @@ cache), and the header counts lesuren without goals (`goalsStateOf`). The review
 both weeks side by side with the generic `.qwp-tt` rules — the UnQuesti CSS is scoped to `.qwp-wk`.
 Rows, breaks and no-school days are all derived from the data, never hardcoded. `vak` (subject) is not an API field — it is
 the teacher's per-timeslot tag mapping from `state.settings`. Commit path is
-`buildCommitPlan` → review diff → `doCommit`. Ctrl+Z undo stack, cap 30.
+`buildCommitPlan` → review diff → `doCommit`. Ctrl+Z undo stack, cap 30, cleared on week change.
+
+**Staged changes survive week navigation.** `reloadWeek` first calls `stashCurrent()`: every dirty
+slot goes into `view.stash` (memory only), keyed `itemId|date` (`slotKey`) because a series might
+share an id. On reload a stashed slot replaces the fresh one (weekIdx re-seated, detail read skipped);
+others stay "offscreen". Every slot carries `_range` (the week window it was read in) and
+`buildCommitPlan` PATCHes with `s._range`, so each change hits its own occurrence. Review/commit go
+through `commitSlots()` (loaded + offscreen); review rows are matched by item id, so an offscreen slot
+whose id is also loaded is **held back** with a visible note. New per-slot loops over staged work must
+use `commitSlots().slots`, not `view.slots`.
 
 **Thema rows** (whole-week full-day items: WO, Godsdienst, …). One row per distinct `themaKey`,
 so a third thema needs no code change. **Identity must survive a commit**, because the commit
