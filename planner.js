@@ -1005,6 +1005,8 @@
     all.forEach(function (s) {
       if (!s || s.isFullday || s.isGym || s.ficheContentId || !s.isEditable || s.idCalendar === "cal_holidays") return;
       if (!s.themaFiche) return;
+      // Stored title not read yet — or the week's bars are still loading, so their themafiche is unknown.
+      if (isUnhydrated(s) || all.some(function (x) { return x.isFullday && x._pending && x.weekIdx === s.weekIdx; })) return;
       var top = topTagIdOf(s.vak);
       var bar = top == null ? null : all.filter(function (x) {
         return x.isFullday && x.weekIdx === s.weekIdx && x.idCalendar !== "cal_holidays" &&
@@ -1040,6 +1042,7 @@
   // from stored descriptions. A lesuur with a fiche gets the fiche's vak (when known), any other the
   // timeslot setting. Staged like any edit — the review shows each description/title change.
   function resetVakkenToDefault() {
+    if (busyLoading()) return;
     var cand = view.slots.filter(function (s) {
       return s.isEditable && !s.isFullday && !s.isGym && s.idCalendar !== "cal_holidays";
     });
@@ -1088,6 +1091,8 @@
   function slotKeyStd(dayIdx, time) { return dayIdx + "|" + time; }
 
   function computeDirty(s) {
+    // Its stored title/description/fiche are not known yet (or could not be read): never a change.
+    if (isUnhydrated(s)) return false;
     // "Vak als beschrijving schrijven" off → a description difference is never a reason to write.
     var descChanged = writesDescriptions() && toHtmlDesc(descFor(s)) !== (s.origDescription || "");
     var titleChanged = (s.title || "") !== (s.origTitle || "");
@@ -1119,7 +1124,17 @@
   }
 
   // ---------- Hydrate ----------
-  function hydrateRange(startISO, endISO) {
+  // Two stages. The /cal/items LIST alone gives every slot its day, time, settings vak and thema
+  // identity, so the grid can paint at once; each lesuur's DETAIL (stored title, description, fiche,
+  // groups) follows through mapLimit(…, 4). hydrateRangeLive resolves at the list stage with
+  // { slots, done, total } — `done` settles when every detail has answered (never rejects) — and
+  // calls onDetail(slot) after each one. Until its detail is in, a slot carries `_pending`; a failed
+  // read leaves `_detailFailed`. Both make isUnhydrated() true: such a slot is never dirty, never
+  // re-vakked or re-titled, cannot be edited, and Controleer waits for `_pending` to clear.
+  // hydrateRange (print, settings) still resolves only once everything is read.
+  function hydrateRange(startISO, endISO) { return hydrateRangeLive(startISO, endISO).then(function (r) { return r.done; }); }
+  function isUnhydrated(s) { return !!(s && (s._pending || s._detailFailed)); }
+  function hydrateRangeLive(startISO, endISO, onDetail) {
     return fetchItems(startISO, endISO).then(function (items) {
       var slots = items.map(function (it) {
         var day = weekdayIdx(it.startdate);
@@ -1156,9 +1171,10 @@
       var need = slots.filter(function (s) { return s.idCalendar !== "cal_holidays" && (s.hasAtt || !/^Lesuur\s*\d+$/.test(s.title)); });
       // One detail read per lesuur — the boot's biggest cost. Four at a time (never a burst; see
       // mapLimit) instead of strictly one after another; each slot only touches its own fields.
-      return mapLimit(need, 4, function (s) {
+      need.forEach(function (s) { s._pending = true; });
+      var done = mapLimit(need, 4, function (s) {
           return fetchItemDetail(s.itemId).then(function (d) {
-            if (!d) return;
+            if (!d) { s._detailFailed = true; return; }
             s.origDescription = d.description || ""; s.description = s.origDescription;
             // Since ~2026-10 the LIST endpoint reports a computed `title_lessons` ("* <fiche> (1)") in
             // `title` for any item with a fiche; the detail keeps the real stored title. Use that, or
@@ -1171,8 +1187,10 @@
             if (stripHtml(s.origDescription) === "Zie themafiche.") s.themaFiche = true;
             if (d.starttime) { s.starttime = d.starttime; if (!s.time) s.time = String(d.starttime).slice(0, 5); }
             s.endtime = d.endtime || ""; s._hydrated = true;
-          }).catch(function () {});
+          }).catch(function () { s._detailFailed = true; })
+            .then(function () { s._pending = false; if (onDetail) onDetail(s); });
       }).then(function () { return slots; });
+      return { slots: slots, done: done, total: need.length };
     });
   }
 
@@ -1298,12 +1316,22 @@
   function actBtn(id, icon, label, onclick, extraCls, title) {
     return h("button", { class: "qwp-actbtn" + (extraCls ? " " + extraCls : ""), id: id, title: title || null, onclick: onclick }, [svgIcon(icon, 20, icon === "check" ? "2" : "1.8"), h("span", { text: label })]);
   }
-  function buildShell() {
-    var tabs = h("nav", { class: "qwp-tabs", "aria-label": "Onderdelen" }, [
-      h("button", { class: "qwp-tab active", "data-tab": "plan", "aria-current": "page", text: "Plannen", onclick: function () { setTab("plan"); } }),
-      h("button", { class: "qwp-tab", "data-tab": "lesfiches", title: "Lesfiches beheren", text: "Lesfiches", onclick: function () { setTab("lesfiches"); } }),
-      h("button", { class: "qwp-tab", title: "Afdrukvenster voor de geladen week (opgeslagen planning)", text: "Afdrukken", onclick: openPrintFromPlanner })
+  // The three tabs, drawn at the top of whichever sidebar is showing (Plannen's or Afdrukken's).
+  // Plannen and Afdrukken swap the window's two columns (showTab); Lesfiches opens the manager.
+  function openLesfichesTab() { goTab("lesfiches"); }
+  function tabsNav(active) {
+    function tab(id, label, title, fn) {
+      var on = id === active;
+      return h("button", { class: "qwp-tab" + (on ? " active" : ""), "data-tab": id, "aria-current": on ? "page" : null, title: on ? null : title, text: label, onclick: fn });
+    }
+    return h("nav", { class: "qwp-tabs", "aria-label": "Onderdelen" }, [
+      tab("plan", "Plannen", "Terug naar de weekplanning", function () { goTab("plan"); }),
+      tab("lesfiches", "Lesfiches", "Lesfiche-manager openen", function () { goTab("lesfiches"); }),
+      tab("print", "Afdrukken", "Afdrukken: de opgeslagen planning van een week", function () { goTab("print"); })
     ]);
+  }
+  function buildShell() {
+    var tabs = tabsNav("plan");
     var sortSel = h("select", { class: "qwp-fsel", id: "qwp-sort-0", onchange: function (e) {
       var p = view.panels[0]; p.sortDir = e.target.value === "za" ? "za" : "az"; state.panels[0].sortDir = p.sortDir; saveState(); renderPickList(0);
     } }, [h("option", { value: "az", text: "Titel A → Z" }), h("option", { value: "za", text: "Titel Z → A" })]);
@@ -1377,7 +1405,8 @@
     // Lesfiches tab: lessons.js mounts its header, table and side sheet here.
     var lfMain = h("main", { class: "qwp-lf-main qwp-lf-only", id: "qwp-lf-main" });
 
-    var main = h("div", { class: "qwp-main" }, [side, content, lfMain]);
+    var pp = buildPrintPanel();
+    var main = h("div", { class: "qwp-main", id: "qwp-mainwrap" }, [side, content, lfMain, pp.side, pp.main]);
 
     var page = h("div", { class: "qwp-page", id: "qwp-page" }, [main]);
     var overlay = h("div", { class: "qwp-overlay", id: "qwp-overlay" }, [page]);
@@ -1392,6 +1421,23 @@
     }, true);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu"); } });
     return overlay;
+  }
+  // The single tab switch. Plannen and Lesfiches share the Plannen column pair (setTab mounts the
+  // Lesfiche-manager into it); Afdrukken swaps in its own column pair (showTab). Going to one tab
+  // always leaves the other mode first, so no tab bar is ever out of step.
+  function goTab(name) {
+    if (name === "print") { if (_tab === "lesfiches") setTab("plan"); showTab("print"); return; }
+    if (view.tab === "print") showTab("plan");
+    setTab(name === "lesfiches" ? "lesfiches" : "plan");
+  }
+  // Plannen | Afdrukken: one window, two column pairs; only the visible pair is shown.
+  function showTab(name) {
+    view.tab = name === "print" ? "print" : "plan";
+    var m = elId("qwp-mainwrap"); if (m) m.classList.toggle("tab-print", view.tab === "print");
+    closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu");
+    var pop = elId("qwp-pop"); if (pop) pop.remove();
+    if (view.tab === "print") enterPrintTab();
+    else refreshStaged();
   }
 
   // Resolve any tag id (own OR colleague) up to its top-level subject tag id.
@@ -1479,6 +1525,12 @@
   function refreshStaged() {
     var n = totalStagedCount();
     var badge = elId("qwp-review-n"); if (badge) { badge.textContent = String(n); badge.style.display = n ? "" : "none"; }
+    // Controleer waits until every lesuur's detail is in (see hydrateRangeLive) — and says why.
+    var nLoad = hydratePending(), rv = elId("qwp-review");
+    if (rv) {
+      rv.classList.toggle("qwp-wait", nLoad > 0);
+      rv.title = nLoad ? loadingReason(nLoad) : "Controleer de wijzigingen en schrijf ze weg";
+    }
     var st = elId("qwp-staged"); if (!st) return;
     st.style.display = n ? "" : "none"; st.innerHTML = "";
     st.appendChild(h("span", { class: "qwp-staged-dot" }));
@@ -1498,8 +1550,10 @@
   function refreshWeeks() { if (!confirmDiscard()) return; reloadAndRender(); }
   var MONTH_NL_SHORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
   // "26 – 30 okt" / "26 okt – 6 nov" for Monday of week a … Friday of week b (week indexes).
-  function shortRange(wa, wb) {
-    var a = addDays(view.weekStart, wa * 7), b = addDays(view.weekStart, wb * 7 + 4); if (!a || !b) return "";
+  // `base` = another Monday than the planner's (the Afdrukken tab browses weeks on its own).
+  function shortRange(wa, wb, base) {
+    base = base || view.weekStart;
+    var a = addDays(base, wa * 7), b = addDays(base, wb * 7 + 4); if (!a || !b) return "";
     if (a.getMonth() === b.getMonth()) return a.getDate() + " – " + b.getDate() + " " + MONTH_NL_SHORT[b.getMonth()];
     return a.getDate() + " " + MONTH_NL_SHORT[a.getMonth()] + " – " + b.getDate() + " " + MONTH_NL_SHORT[b.getMonth()];
   }
@@ -1592,17 +1646,6 @@
     if (window.__UQ_SETTINGS && typeof window.__UQ_SETTINGS.open === "function") { window.__UQ_SETTINGS.open(); return; }
     openInstellingen();
   }
-  // Print the weeks on screen (the stored planning — staged edits are not on Questi yet).
-  function openPrintFromPlanner() {
-    if (!view.weekStart || !ctx.ready) { printCurrentWeek(); return; }
-    closePrintOverlay();
-    printToast("Weekplanning laden…");
-    fetchPrintView(view.weekStart, state.weeks || 1).then(function (pv) { hideToast(); openPrintOverlay(pv); })
-      .catch(function (e) { printToast("Afdrukken lukt niet — probeer opnieuw.", true); console.error("[QWP] print:", e); });
-    var n = stagedCount();
-    if (n) setStatus("Let op: het afdrukvoorbeeld toont de opgeslagen planning — " + n + " wijziging(en) zijn nog niet weggeschreven.");
-  }
-
   // ---------- Custom print: a branded, time-aligned week (own window) ----------
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function isLesuurPlaceholder(t) { return /^Lesuur\s*\d+$/i.test((t || "").trim()); }
@@ -1849,7 +1892,6 @@
   // height and shrinks .psheet-inner (scale ≤ 1) to the printable height; also scales the fixed sheet
   // to the preview pane (screen only, via the --ss zoom var). Idempotent → safe to re-run on resize.
   var PRINT_FIT_W = 1040, PRINT_FIT_H = 700;
-  var _printResize = null;   // window resize handler while the print overlay is open (removed on close)
   function fitPrintDoc(doc, win) {
     if (!doc) return;
     var wr = doc.querySelectorAll(".psheet-scale"), j;
@@ -2631,6 +2673,7 @@
     (slots || []).forEach(function (s2) {
       if (!s2 || s2.isFullday || s2.isGym || s2.idCalendar === "cal_holidays") return;
       if (s2.vakReset) return;   // "Vakken herstellen" chose the default on purpose this session
+      if (isUnhydrated(s2)) return;   // stored description/fiche not read yet
       if (String(s2.ficheContentId || "") !== String(s2.origFicheContentId || "")) return;   // changed in the planner
       var target = slotVakOverride(s2);
       if (target == null && s2.ficheContentId) target = _ficheVakCache[s2.ficheContentId];
@@ -2724,190 +2767,309 @@
     });
     return { timeRows: timeRows, rowMeta: rowMeta, presence: presence };
   }
-  // Fetch a week's slots (items + fiche details) into a standalone pv — never touches `view`.
+  // A print-view (pv) from hydrated slots — never touches `view`. weekIdx is recomputed against
+  // startISO (hydrate counts from view.weekStart). Fiche vakken and colours are resolved first: print
+  // must show the same mismatch warnings the grid does, and it renders once with no later repaint.
+  function printViewFrom(slots, startISO, weeks) {
+    var base = addDays(startISO, 0);
+    (slots || []).forEach(function (s) {
+      var d0 = addDays(String(s.startdate).slice(0, 10), 0);
+      s.weekIdx = (d0 && base) ? Math.max(0, Math.floor((d0 - base) / 86400000 / 7)) : 0;
+    });
+    var r = computeRowsFrom(slots);
+    var pv = { slots: slots, weekStart: startISO, weeks: weeks, timeRows: r.timeRows, rowMeta: r.rowMeta, presence: r.presence, ficheColor: {} };
+    return resolveFicheVakken(pv.slots).then(function () { applyStoredVakken(pv.slots); applyThemaLesuurTitles(pv.slots); return buildFicheColors(pv); });
+  }
+  // Fetch a week's slots (items + every detail) into a standalone pv.
   function fetchPrintView(startISO, weeks) {
     var endD = addDays(startISO, 7 * weeks - 1), endISO = endD ? isoDate(endD) : startISO;
-    return hydrateRange(startISO, endISO).then(function (slots) {
-      // hydrateRange computes weekIdx against view.weekStart; recompute against our own start.
-      var base = addDays(startISO, 0);
-      (slots || []).forEach(function (s) {
-        var d0 = addDays(String(s.startdate).slice(0, 10), 0);
-        s.weekIdx = (d0 && base) ? Math.max(0, Math.floor((d0 - base) / 86400000 / 7)) : 0;
-      });
-      var r = computeRowsFrom(slots);
-      var pv = { slots: slots, weekStart: startISO, weeks: weeks, timeRows: r.timeRows, rowMeta: r.rowMeta, presence: r.presence, ficheColor: {} };
-      // Resolve fiche colours AND fiche vakken — print must show the same mismatch warnings the
-      // grid does, and it renders once with no chance to repaint later.
-      return resolveFicheVakken(pv.slots).then(function () { applyStoredVakken(pv.slots); applyThemaLesuurTitles(pv.slots); return buildFicheColors(pv); });
+    return hydrateRange(startISO, endISO).then(function (slots) { return printViewFrom(slots, startISO, weeks); });
+  }
+  // The planner already holds exactly these weeks, every detail read and nothing staged: its slots ARE
+  // the stored planning, so print works on copies of them instead of reading every item a second time.
+  // Anything else (another week, staged edits, a detail still loading or failed) → null, fetch instead.
+  function plannerPrintView(startISO, weeks) {
+    // slotsStart, not weekStart: reloadWeek moves weekStart before the new list has arrived.
+    if (!view.slotsStart || startISO !== view.slotsStart || weeks > view.weeks || !view.slots.length) return null;
+    if (hydratePending() || hydrateFailed() || stagedCount()) return null;
+    var copies = view.slots.filter(function (s) { return s.weekIdx < weeks; }).map(function (s) { return Object.assign({}, s); });
+    return printViewFrom(copies, startISO, weeks);
+  }
+
+  // ---------- Afdrukken tab: print settings in the sidebar, live A4 preview in the main column ----------
+  // The former standalone print window, re-mounted as the planner's third tab (one copy of the logic).
+  // It prints the STORED planning of the chosen week(s) — staged edits are not on Questi yet, and the
+  // sidebar says so. The preview iframe holds the very document that gets printed; the Voorkant /
+  // Achterkant switch only hides pages on screen (@media screen), printing always sends every page.
+  var _pp = null;
+  var PRINT_VERSIONS = [
+    { v: "plain", t: "Gewoon", d: "het weekrooster, één blad per week" },
+    { v: "goals1", t: "Lesdoelen · 1 A4", d: "één blad per week, 3 lijnen per les" },
+    { v: "goals2", t: "Lesdoelen · 2 A4", d: "voor- en achterkant, 8 lijnen per les" }
+  ];
+  function ppLbl(t) { return h("div", { class: "qpp-lbl", text: t }); }
+  function buildPrintPanel() {
+    var P = _pp = { pv: null, start: null, weeks: 1, extras: {}, gen: 0, page: "front", pages: 0, plannerWeek: null, prefsLoaded: false,
+      prefs: { mode: "plain", tabs: "word", legend: true, meta: true }, calBoxes: [], verCards: [], tabBtns: [], pageBtns: [] };
+    P.frame = h("iframe", { class: "qpp-frame", title: "Afdrukvoorbeeld" });
+    P.msg = h("div", { class: "qpp-msg", style: "display:none" });
+    P.range = h("span", { class: "qpp-wk-lbl", text: "…" });
+    P.ta = h("textarea", { class: "qpp-ta", rows: "3", placeholder: "bv. donderdag schoolfotograaf" });
+    P.ta.addEventListener("input", renderPrintPreview);
+    P.notesChk = h("input", { type: "checkbox" });
+    P.notesChk.addEventListener("change", renderPrintPreview);
+    P.metaChk = h("input", { type: "checkbox" }); P.metaChk.checked = true;
+    P.metaChk.addEventListener("change", function () { P.prefs.meta = P.metaChk.checked; savePrintPrefs(); renderPrintPreview(); });
+    P.legendChk = h("input", { type: "checkbox" }); P.legendChk.checked = true;
+    P.legendChk.addEventListener("change", function () { P.prefs.legend = P.legendChk.checked; savePrintPrefs(); renderPrintPreview(); });
+    var verList = PRINT_VERSIONS.map(function (x) {
+      var r = h("input", { type: "radio", name: "qpp-mode", value: x.v });
+      r.addEventListener("change", function () { if (r.checked) { P.prefs.mode = x.v; savePrintPrefs(); renderPrintPreview(); } });
+      var card = h("label", { class: "qpp-ver" }, [r, h("span", { class: "qpp-ver-tx" }, [h("span", { class: "qpp-ver-t", text: x.t }), h("span", { class: "qpp-ver-d", text: x.d })])]);
+      P.verCards.push({ v: x.v, r: r, el: card });
+      return card;
+    });
+    function tabBtn(v, label) {
+      var b = h("button", { type: "button", text: label, onclick: function () { P.prefs.tabs = v; savePrintPrefs(); renderPrintPreview(); } });
+      P.tabBtns.push({ v: v, el: b }); return b;
+    }
+    // Only meaningful for the Lesdoelen versions; hidden for Gewoon.
+    P.goalsOnly = [
+      h("div", { class: "qpp-seg", role: "group", "aria-label": "Labels op de kaart" }, [tabBtn("word", "WEET / KEN / KAN"), tabBtn("icon", "Icoontjes")]),
+      h("label", { class: "qpp-check" }, [P.legendChk, h("span", { text: "Vakkenlegende in het woensdagvak" })])
+    ];
+    // Only meaningful for Gewoon: its note block prints ruled lines when no text was typed.
+    P.notesRow = h("label", { class: "qpp-check" }, [P.notesChk, h("span", { text: "Lege notitieregels als er geen opmerking is" })]);
+    P.cals = h("div", { class: "qpp-sec", style: "display:none" });
+    P.staged = h("div", { class: "qpp-note", style: "display:none" });
+    P.warn = h("div", { class: "qpp-warn", style: "display:none" });
+    P.hint = h("div", { class: "qpp-hint" });
+    var body = h("div", { class: "qpp-body" }, [
+      h("div", { class: "qpp-sec" }, [
+        ppLbl("Week"),
+        h("div", { class: "qpp-wk" }, [
+          h("button", { type: "button", class: "qpp-arrow", "aria-label": "Vorige week", title: "Vorige week", text: "←", onclick: function () { stepPrintWeek(-1); } }),
+          P.range,
+          h("button", { type: "button", class: "qpp-arrow", "aria-label": "Volgende week", title: "Volgende week", text: "→", onclick: function () { stepPrintWeek(1); } })
+        ])
+      ]),
+      h("fieldset", { class: "qpp-sec qpp-vers" }, [h("legend", { class: "qpp-lbl", text: "Versie" })].concat(verList)),
+      h("div", { class: "qpp-sec" }, [ppLbl("Op het blad")].concat(P.goalsOnly).concat([
+        h("label", { class: "qpp-check" }, [P.metaChk, h("span", { text: "Weeknummer en afdrukdatum" })])
+      ])),
+      P.cals,
+      h("div", { class: "qpp-sec" }, [h("label", { class: "qpp-lbl", text: "Opmerking voor deze week" }), P.ta, P.notesRow]),
+      P.staged,
+      P.warn
+    ]);
+    var foot = h("div", { class: "qpp-foot" }, [
+      h("button", { type: "button", class: "qpp-btn", text: "Bewaar als PDF", title: "Opent het afdrukvenster — kies daar ‘Opslaan als PDF’", onclick: function () { doPrintPanel(true); } }),
+      h("button", { type: "button", class: "qpp-btn primary", text: "Afdrukken", onclick: function () { doPrintPanel(false); } })
+    ]);
+    P.side = h("aside", { class: "qpp-side", id: "qwp-pside" }, [h("div", { class: "qpp-top" }, [tabsNav("print")]), body, P.hint, foot]);
+    function pageBtn(v, label) {
+      var b = h("button", { type: "button", text: label, onclick: function () { P.page = v; applyPrintPage(); } });
+      P.pageBtns.push({ v: v, el: b }); return b;
+    }
+    P.pageSeg = h("div", { class: "qpp-seg qpp-pageseg", role: "group", "aria-label": "Pagina" }, [pageBtn("front", "Voorkant"), pageBtn("back", "Achterkant")]);
+    P.sub = h("span", { class: "qpp-sub" });
+    P.main = h("main", { class: "qpp-main", id: "qwp-pmain" }, [
+      h("header", { class: "qwp-mhdr qpp-hdr" }, [
+        h("div", { class: "qpp-title", text: "Voorbeeld" }), P.sub, h("span", { class: "qwp-spacer" }), P.pageSeg,
+        betaPill(), h("button", { class: "qwp-topx", onclick: hide, title: "Sluiten", text: "✕" })
+      ]),
+      h("div", { class: "qpp-preview" }, [P.frame, P.msg])
+    ]);
+    window.addEventListener("resize", function () { if (view.tab === "print") fitPrintFrame(); });
+    return P;
+  }
+  // qwp_print_v1 = { mode, tabs, legend, meta } — shared with the Afdrukken section in settings.js.
+  function savePrintPrefs() { storeSet("qwp_print_v1", _pp.prefs); }
+  function loadPrintPrefs() {
+    return storeGet("qwp_print_v1").then(function (v) {
+      var p = _pp.prefs; v = v || {};
+      if (PRINT_VERSIONS.some(function (x) { return x.v === v.mode; })) p.mode = v.mode;
+      if (v.tabs === "word" || v.tabs === "icon") p.tabs = v.tabs;
+      if (typeof v.legend === "boolean") p.legend = v.legend;
+      if (typeof v.meta === "boolean") p.meta = v.meta;
+      _pp.legendChk.checked = p.legend; _pp.metaChk.checked = p.meta;
+    }).catch(function () {});
+  }
+  function ppOpts() {
+    var P = _pp, txt = P.ta.value || "";
+    return { comment: txt, showNotes: !!txt.trim() || (P.prefs.mode === "plain" && P.notesChk.checked), showMeta: P.metaChk.checked };
+  }
+  function syncPrintControls() {
+    var P = _pp, goals = P.prefs.mode !== "plain";
+    P.verCards.forEach(function (c) { c.r.checked = c.v === P.prefs.mode; c.el.classList.toggle("on", c.r.checked); });
+    P.tabBtns.forEach(function (b) { b.el.classList.toggle("active", b.v === P.prefs.tabs); });
+    P.goalsOnly.forEach(function (el) { el.style.display = goals ? "" : "none"; });
+    P.notesRow.style.display = goals ? "none" : "";
+    P.pageSeg.style.display = goals ? "" : "none";
+    P.sub.textContent = goals ? "A4 liggend · klik een vak-tab om die soort doel op deze fiche te verbergen" : "A4 liggend · één pagina per week";
+  }
+  // Status line over the preview: "Week laden…", or an error with one way out.
+  function ppMsg(text, isErr, action) {
+    var m = _pp.msg; m.innerHTML = "";
+    m.className = "qpp-msg" + (isErr ? " err" : "");
+    if (!text) { m.style.display = "none"; return; }
+    m.style.display = "";
+    m.appendChild(h("span", { text: text }));
+    if (action) m.appendChild(h("button", { type: "button", class: "qpp-msg-btn", text: action.label, onclick: action.fn }));
+  }
+  function printRangeLabel(start, weeks) {
+    var a = isoWeekNo(start), b = isoWeekNo(isoDate(addDays(start, (weeks - 1) * 7)));
+    return "Week " + a + (b !== a ? " – " + b : "") + " · " + shortRange(0, weeks - 1, start);
+  }
+  function fitPrintFrame() { var P = _pp; if (P && P.frame.contentDocument) fitPrintDoc(P.frame.contentDocument, P.frame.contentWindow); }
+  function renderPrintPreview() {
+    var P = _pp; if (!P) return;
+    syncPrintControls(); syncPrintNotes();
+    if (!P.pv) return;
+    var doc = P.frame.contentDocument || (P.frame.contentWindow && P.frame.contentWindow.document); if (!doc) return;
+    var goals = P.prefs.mode !== "plain";
+    doc.open(); doc.write(goals ? printGoalsDocHtml(P.pv, P.extras, ppOpts(), P.prefs.mode, P.prefs) : printDocHtml(P.pv, P.extras, ppOpts())); doc.close();
+    applyPrintPage();
+    if (goals) {
+      wireGoalsEditor(doc, renderPrintPreview);
+      // Goals live in the fiches: read them (max 4 in flight, goal cache first), then paint once more.
+      var pv = P.pv;
+      loadPrintFicheGoals(pv).then(function (changed) { if (P.pv !== pv) return; if (changed) renderPrintPreview(); else syncPrintWarn(); });
+    }
+    syncPrintWarn();
+    // scale-to-fit after layout settles (two frames)
+    requestAnimationFrame(function () { requestAnimationFrame(fitPrintFrame); });
+  }
+  // Voorkant / Achterkant: on screen show every other page (front = 1st, 3rd…; back = 2nd, 4th…).
+  function applyPrintPage() {
+    var P = _pp, doc = P.frame.contentDocument; if (!doc || !doc.head) return;
+    var goals = P.prefs.mode !== "plain";
+    P.pages = doc.querySelectorAll(".psheet-scale").length;
+    if (P.pages < 2) P.page = "front";
+    var st = doc.getElementById("qpp-page");
+    if (!st) { st = doc.createElement("style"); st.id = "qpp-page"; doc.head.appendChild(st); }
+    st.textContent = (goals && P.pages > 1) ? ("@media screen { .psheet-scale:nth-of-type(" + (P.page === "back" ? "odd" : "even") + ") { display: none; } }") : "";
+    P.pageBtns.forEach(function (b) {
+      b.el.classList.toggle("active", b.v === P.page);
+      if (b.v === "back") { b.el.disabled = P.pages < 2; b.el.title = P.pages < 2 ? "Deze versie heeft maar één pagina" : ""; }
+    });
+    requestAnimationFrame(fitPrintFrame);
+  }
+  // Cards the Lesdoelen print would leave without goals. Own fiches are fixed in the fiche (Lesfiches);
+  // a methode card has no fiche of ours, so its goals are typed straight into the preview.
+  function printGoalsMissing(pv) {
+    var c = { own: 0, meth: 0, loading: 0 };
+    ((pv && pv.slots) || []).forEach(function (s) {
+      if (s.isFullday || s.idCalendar === "cal_holidays") return;
+      var g = goalsStateOf(s);
+      if (g === "loading") c.loading++;
+      else if (g === "missing") { if (isMethodSlot(s)) c.meth++; else c.own++; }
+    });
+    return c;
+  }
+  function syncPrintWarn() {
+    var P = _pp, w = P.warn; w.innerHTML = "";
+    var c = (P.prefs.mode !== "plain" && P.pv) ? printGoalsMissing(P.pv) : null;
+    if (!c || (!c.own && !c.meth && !c.loading)) { w.style.display = "none"; return; }
+    w.style.display = "";
+    var kids = [];
+    if (c.loading) kids.push(h("span", { text: "doelen laden…" }));
+    if (c.own) kids.push(h("span", null, [c.own + (c.own === 1 ? " kaart" : " kaarten") + " zonder doelen · ",
+      h("a", { href: "#", text: "nu invullen", onclick: function (e) { e.preventDefault(); openGoalsFix(); } })]));
+    if (c.meth) kids.push(h("span", { text: c.meth + (c.meth === 1 ? " methodekaart" : " methodekaarten") + " zonder doelen — typ ze in het voorbeeld" }));
+    w.appendChild(h("span", { class: "qpp-warn-i", "aria-hidden": "true", text: "!" }));
+    w.appendChild(h("span", { class: "qpp-warn-t" }, kids));
+  }
+  // "nu invullen": goals live in the fiche, so the Lesfiches tab is where they are typed. Without that
+  // module, the planner's Doelen mode at least shows which lesuren still miss them.
+  function openGoalsFix() {
+    if (window.__QWP_LESSONS && window.__QWP_LESSONS.open) { openLesfichesTab(); return; }
+    var P = _pp, w = (P.start && view.weekStart) ? Math.round((addDays(P.start, 0) - addDays(view.weekStart, 0)) / 604800000) : -1;
+    if (w >= 0 && w < view.weeks) state.doelenWeek = w;
+    goTab("plan"); setMainMode("doelen");
+    if (w < 0 || w >= view.weeks) setStatus("Doelen toont de weken die in Plannen geladen zijn — de afgedrukte week staat daar niet bij.");
+  }
+  function syncPrintNotes() {
+    var P = _pp, n = stagedCount(), msgs = [];
+    var f = P.pv ? P.pv.slots.filter(function (s) { return s._detailFailed; }).length : 0;
+    if (n) msgs.push(n + (n === 1 ? " wijziging is" : " wijzigingen zijn") + " nog niet weggeschreven — het voorbeeld toont de planning zoals ze in Questi staat.");
+    if (f) msgs.push(f + (f === 1 ? " lesuur kon" : " lesuren konden") + " niet volledig gelezen worden; die staan er met Questi’s lijsttitel.");
+    P.staged.textContent = msgs.join(" "); P.staged.style.display = msgs.length ? "" : "none";
+  }
+  // Other own calendars (e.g. the zorgjuf's), rebuilt per visit — the werkagenda may have changed —
+  // keeping whatever was ticked.
+  function buildPrintCals() {
+    var P = _pp, was = {};
+    P.calBoxes.forEach(function (b) { if (b.cb.checked) was[String(b.id)] = true; });
+    P.calBoxes = []; P.cals.innerHTML = "";
+    var cals = extraPrintCalendars();
+    P.cals.style.display = cals.length ? "" : "none";
+    if (!cals.length) return;
+    P.cals.appendChild(ppLbl("Andere agenda’s meeprinten"));
+    cals.forEach(function (c) {
+      var cb = h("input", { type: "checkbox", value: String(c.id) });
+      cb.checked = !!was[String(c.id)];
+      cb.addEventListener("change", refreshPrintExtras);
+      P.calBoxes.push({ cb: cb, id: c.id });
+      P.cals.appendChild(h("label", { class: "qpp-check" }, [cb, h("span", { class: "qpp-cal-dot", style: "background:" + (c.color || "#888") }), h("span", { text: c.name })]));
     });
   }
-  // Ensure context + tag lists are available for a headless print (trimmed loadEverything).
-  // loadState() first so the teacher's per-timeslot vak map (state.settings) + week span are
-  // honoured headless — same as printing through the planner (where boot() loads state).
-  function ensurePrintData() {
-    return loadState().then(function () {
-      var p = ctx.ready ? Promise.resolve() : detectContext().then(function () {});
-      return p.then(function () {
-        if (!ctx.schoolId) throw new Error("no-context");
-        if (view.ownTags && view.ownTags.length) return;
-        return Promise.all([fetchTags(), fetchOwnTags(), fetchSharedTags()]).then(function (r) {
-          view.tags = r[0] || []; view.ownTags = r[1] || []; view.sharedTags = r[2] || [];
-        });
-      });
-    });
+  function refreshPrintExtras() {
+    var P = _pp, pv = P.pv; if (!pv) return Promise.resolve();
+    var ids = P.calBoxes.filter(function (b) { return b.cb.checked; }).map(function (b) { return b.id; });
+    return fetchPrintExtras(pv, ids).then(function (ex) { if (P.pv !== pv) return; P.extras = ex; renderPrintPreview(); });
   }
-  // Lightweight floating toast (the planner status line is hidden when the overlay isn't shown).
-  function printToast(msg, isErr) {
-    hideToast();
-    var t = h("div", { id: "qwp-print-toast", text: msg });
-    t.style.cssText = "position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:2147483000;" +
-      "background:" + (isErr ? "#b3261e" : "#2f6d6b") + ";color:#fff;padding:8px 14px;border-radius:8px;" +
-      "font:600 13px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.25);";
-    if (document.body) document.body.appendChild(t);
-    if (isErr) setTimeout(hideToast, 4500);
-  }
-  function hideToast() { var t = document.getElementById("qwp-print-toast"); if (t) t.remove(); }
-  // Toolbar "Afdrukken" chip entry point — headless: detect context, fetch this week, show the
-  // fullscreen print window (settings + live preview), like the planner/lesfiche overlays.
-  function printCurrentWeek() {
-    if (document.getElementById("qwp-print-overlay")) { document.getElementById("qwp-print-overlay").classList.add("qwp-show"); return; }
-    printToast("Weekplanning laden…");
-    ensurePrintData().then(function () {
-      var ow = resolveOpenWeek(), start = ow.start;   // same resolver as the planner — never a different week
-      var weeks = state.weeks || 1;
-      return fetchPrintView(start, weeks).then(function (pv) { hideToast(); openPrintOverlay(pv); });
+  function loadPrintWeek(start) {
+    var P = _pp, gen = ++P.gen;
+    P.start = start; P.weeks = Math.max(1, +state.weeks || 1);
+    P.range.textContent = printRangeLabel(start, P.weeks);
+    ppMsg("Week laden…");
+    return (plannerPrintView(start, P.weeks) || fetchPrintView(start, P.weeks)).then(function (pv) {
+      if (gen !== P.gen) return;
+      P.pv = pv; P.extras = {}; ppMsg("");
+      return refreshPrintExtras();
     }).catch(function (e) {
-      printToast("Afdrukken lukt niet — open eerst je agenda in Questi (en log in).", true);
+      if (gen !== P.gen) return;
       console.error("[QWP] print:", e);
+      ppMsg("Deze week kon niet geladen worden.", true, { label: "Opnieuw", fn: function () { loadPrintWeek(start); } });
     });
   }
-  // Fullscreen print window: left = settings (week nav, comment, extra calendars), main = live
-  // A4 preview in an iframe. "Afdrukken" prints the iframe (its @page landscape is authoritative).
-  function openPrintOverlay(pv) {
-    resetPrintFicheGoals(); // goals may have been edited in the manager since the last print
-    var curPv = pv, curStart = pv.weekStart, weeks = pv.weeks, curExtras = {};
-    var frame = h("iframe", { class: "qpp-frame", title: "Afdrukvoorbeeld" });
-    var rangeLbl = h("span", { class: "qpp-range" });
-    function setRangeLbl() { rangeLbl.textContent = weeks > 1 ? (weekTitleFor(curPv, 0) + "  /  " + weekTitleFor(curPv, 1)) : weekTitleFor(curPv, 0); }
-    // comment / notes
-    var chk = h("input", { type: "checkbox" });
-    var ta = h("textarea", { class: "qwp-textarea", rows: "3", placeholder: "bv. korte toelichting voor deze week…", disabled: "true" });
-    // week no. + print date
-    var metaChk = h("input", { type: "checkbox" });
-    // Versie: "plain" = the layout above; "goals1"/"goals2" = Lesdoelen, see printGoalsDocHtml.
-    // Tabs: label on the Lesdoelen tabs, "word" or "icon". Both remembered in qwp_print_v1.
-    var printPrefs = { mode: "plain", tabs: "word", legend: true }, prefRadios = { mode: [], tabs: [] };
-    function prefRadio(key, val, text) {
-      var r = h("input", { type: "radio", name: "qpp-" + key, value: val });
-      r.checked = val === printPrefs[key];
-      r.addEventListener("change", function () {
-        if (!r.checked) return;
-        printPrefs[key] = val; storeSet("qwp_print_v1", printPrefs); syncTabsRow(); renderPreview();
-      });
-      prefRadios[key].push(r);
-      return h("label", { class: "qpp-check" }, [r, h("span", { text: text })]);
-    }
-    var legendChk = h("input", { type: "checkbox" });
-    legendChk.checked = true;
-    legendChk.addEventListener("change", function () { printPrefs.legend = legendChk.checked; storeSet("qwp_print_v1", printPrefs); renderPreview(); });
-    var tabsRow = h("div", null, [
-      h("div", { class: "qpp-side-lbl", text: "Lesdoelen: labels" }),
-      prefRadio("tabs", "word", "Woord (WEET / KEN / KAN)"),
-      prefRadio("tabs", "icon", "Icoon"),
-      h("div", { class: "qpp-side-lbl", text: "Lesdoelen: woensdagvak" }),
-      h("label", { class: "qpp-check" }, [legendChk, h("span", { text: "Vakkenlegende" })])
-    ]);
-    function syncTabsRow() { tabsRow.style.display = printPrefs.mode === "plain" ? "none" : ""; }
-    function opts() { return { comment: chk.checked ? (ta.value || "") : "", showNotes: chk.checked, showMeta: metaChk.checked }; }
-    function fitFrame() { fitPrintDoc(frame.contentDocument, frame.contentWindow); }
-    function renderPreview() {
-      var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document); if (!doc) return;
-      doc.open(); doc.write(printPrefs.mode !== "plain" ? printGoalsDocHtml(curPv, curExtras, opts(), printPrefs.mode, printPrefs) : printDocHtml(curPv, curExtras, opts())); doc.close();
-      if (printPrefs.mode !== "plain") {
-        wireGoalsEditor(doc, renderPreview);
-        // Goals live in the fiches: read them, then paint once more (a no-op once all are known).
-        loadPrintFicheGoals(curPv).then(function (changed) { if (changed) renderPreview(); });
-      }
-      // scale-to-fit after layout settles (two frames), so each week is exactly one page
-      requestAnimationFrame(function () { requestAnimationFrame(fitFrame); });
-    }
-    _printResize = fitFrame;
-    window.addEventListener("resize", _printResize);
-    function selectedCals() { return calBoxes.filter(function (b) { return b.cb.checked; }).map(function (b) { return b.id; }); }
-    function refreshExtras() {
-      fetchPrintExtras(curPv, selectedCals()).then(function (ex) { curExtras = ex; renderPreview(); });
-    }
-    chk.addEventListener("change", function () { ta.disabled = !chk.checked; renderPreview(); if (chk.checked) { try { ta.focus(); } catch (e) {} } });
-    ta.addEventListener("input", renderPreview);
-    metaChk.addEventListener("change", renderPreview);
-    function nav(delta) {
-      var ns = isoDate(addDays(curStart, delta * 7 * weeks));
-      fetchPrintView(ns, weeks).then(function (np) { curStart = ns; curPv = np; setRangeLbl(); refreshExtras(); });
-    }
-    // extra calendars
-    var extraCals = extraPrintCalendars(), calBoxes = [];
-    var calSection = [];
-    if (extraCals.length) {
-      calSection.push(h("div", { class: "qpp-side-lbl", text: "Andere agenda's meeprinten" }));
-      extraCals.forEach(function (c) {
-        var cb = h("input", { type: "checkbox", value: String(c.id) });
-        cb.addEventListener("change", refreshExtras);
-        calBoxes.push({ cb: cb, id: c.id });
-        calSection.push(h("label", { class: "qpp-check" }, [cb, h("span", { class: "qpp-cal-dot", style: "background:" + (c.color || "#888") }), h("span", { text: c.name })]));
-      });
-    }
-    var side = h("div", { class: "qpp-side" }, [
-      h("div", { class: "qpp-side-lbl", text: "Versie" }),
-      prefRadio("mode", "plain", "Gewoon"),
-      prefRadio("mode", "goals1", "Lesdoelen (1 A4)"),
-      prefRadio("mode", "goals2", "Lesdoelen (2 A4)"),
-      tabsRow,
-      h("div", { class: "qpp-side-lbl", text: "Blad" }),
-      h("label", { class: "qpp-check" }, [metaChk, h("span", { text: "Weeknr. + afdrukdatum" })]),
-      h("div", { class: "qpp-side-lbl", text: "Opmerking / notities" }),
-      h("label", { class: "qpp-check" }, [chk, h("span", { text: "Notitieblok toevoegen" })]),
-      ta
-    ].concat(calSection).concat([
-      h("div", { class: "qpp-hint", text: "Liggend A4, één pagina per week. Notitieblok uit? De blokken worden groter zodat de week de pagina vult. Gebruik ← → om een andere week te kiezen." })
-    ]));
-    var doPrint = function () { try { fitFrame(); frame.contentWindow.focus(); frame.contentWindow.print(); } catch (e) { printToast("Afdrukken mislukt.", true); } };
-    var header = h("div", { class: "qpp-header" }, [
-      h("span", { class: "qpp-title", text: "Afdrukken" }),
-      h("button", { class: "qpp-navbtn", title: "Vorige week", text: "←", onclick: function () { nav(-1); } }),
-      rangeLbl,
-      h("button", { class: "qpp-navbtn", title: "Volgende week", text: "→", onclick: function () { nav(1); } }),
-      h("span", { class: "qpp-spacer" }),
-      h("button", { class: "qpp-print", text: "Afdrukken", onclick: doPrint }),
-      h("button", { class: "qpp-x", title: "Sluiten", text: "✕", onclick: closePrintOverlay })
-    ]);
-    var overlay = h("div", { class: "qwp-print-overlay qwp-show", id: "qwp-print-overlay" }, [
-      header,
-      h("div", { class: "qpp-main" }, [side, h("div", { class: "qpp-preview" }, [frame])])
-    ]);
-    document.body.appendChild(overlay);
-    document.documentElement.classList.add("qwp-locked");
-    setRangeLbl();
-    refreshExtras(); // also renders the preview
-    syncTabsRow();
-    storeGet("qwp_print_v1").then(function (v) {
-      var changed = false;
-      ["mode", "tabs"].forEach(function (key) {
-        var val = v && v[key];
-        if (!val || val === printPrefs[key] || !prefRadios[key].some(function (r) { return r.value === val; })) return;
-        printPrefs[key] = val; changed = true;
-        prefRadios[key].forEach(function (r) { r.checked = r.value === val; });
-      });
-      if (v && typeof v.legend === "boolean" && v.legend !== printPrefs.legend) {
-        printPrefs.legend = v.legend; legendChk.checked = v.legend; changed = true;
-      }
-      if (changed) { syncTabsRow(); renderPreview(); }
+  function stepPrintWeek(d) { var P = _pp; if (!P.start) return; loadPrintWeek(isoDate(addDays(P.start, d * 7 * P.weeks))); }
+  // Entering the tab: wait for context + tags (plannerReady) and for the planner's own week reads to
+  // finish (never two hydrations bursting Questi at once), then load. Follows the planner's week,
+  // unless this tab was stepped to another week since the planner last changed its own.
+  function enterPrintTab() {
+    var P = _pp; if (!P) return;
+    syncPrintControls(); syncPrintNotes();
+    requestAnimationFrame(fitPrintFrame);
+    if (!P.pv) ppMsg("Laden…");
+    var prefsP = P.prefsLoaded ? Promise.resolve() : loadPrintPrefs().then(function () { P.prefsLoaded = true; syncPrintControls(); });
+    return prefsP.then(plannerReady).then(function () { return view.hydrateP; }).then(function () {
+      if (view.tab !== "print") return;
+      buildPrintCals();
+      var start = (P.start && P.plannerWeek === view.weekStart) ? P.start : (view.weekStart || resolveOpenWeek().start);
+      P.plannerWeek = view.weekStart;
+      resetPrintFicheGoals();   // goals may have been edited in the manager since the last visit
+      return loadPrintWeek(start);
+    }, function () {
+      ppMsg("Afdrukken kan pas als de planner geladen is.", true, { label: "Naar Plannen", fn: function () { goTab("plan"); } });
     });
   }
-  function closePrintOverlay() {
-    if (_printResize) { window.removeEventListener("resize", _printResize); _printResize = null; }
-    var o = document.getElementById("qwp-print-overlay"); if (o) o.remove();
-    var planner = document.getElementById("qwp-overlay");
-    if (!(planner && planner.classList.contains("qwp-show"))) document.documentElement.classList.remove("qwp-locked");
+  // "Bewaar als PDF" is the same browser print dialog with a pointer to its PDF destination — said
+  // out loud rather than pretending to save a file itself.
+  function doPrintPanel(pdf) {
+    var P = _pp;
+    if (!P.pv) { ppMsg("Het voorbeeld is nog niet klaar.", true); return; }
+    P.hint.textContent = pdf ? "Kies in het afdrukvenster bij ‘Bestemming’: Opslaan als PDF." : "";
+    setTimeout(function () {
+      try { fitPrintFrame(); P.frame.contentWindow.focus(); P.frame.contentWindow.print(); }
+      catch (e) { ppMsg("Afdrukken mislukt — probeer opnieuw.", true); }
+    }, pdf ? 60 : 0);
+  }
+  // Toolbar "Afdrukken deze week" (window.__QWP_PRINT): the planner, opened on its Afdrukken tab.
+  function openPrintTab() {
+    if (!els.root) { boot("print"); return; }
+    show(); goTab("print");
   }
 
   // ---------- Timetable (single side-by-side matrix, fits viewport) ----------
@@ -2989,7 +3151,7 @@
     refreshStaged();
     renderGoalCount();
     refreshPlannedInList();
-    if (doel) setTimeout(loadDoelenGoals, 0);
+    if (doel && !hydratePending()) setTimeout(loadDoelenGoals, 0);   // after the item details: one 4-wide stream at a time
   }
   function weekSection(w, keys, doel) {
     var grid = h("div", { class: "qwp-tt qwp-wkgrid" });
@@ -3116,7 +3278,7 @@
   // kind you can drop a fiche onto or mark as a mass-add target.
   // A WO/Godsdienst lesuur refers to the week's themafiche by default, but may still receive its
   // own fiche — so themaFiche no longer blocks targeting, and the title is never consulted.
-  function isTargetable(s) { return s && s.isEditable && s.idCalendar !== "cal_holidays" && !s.isFullday && !s.ficheContentId && !s.isGym; }
+  function isTargetable(s) { return s && s.isEditable && !isUnhydrated(s) && s.idCalendar !== "cal_holidays" && !s.isFullday && !s.ficheContentId && !s.isGym; }
   function isTarget(itemId) { return view.targetSlots.indexOf(itemId) > -1; }
   function toggleTarget(itemId) {
     var i = view.targetSlots.indexOf(itemId);
@@ -3161,6 +3323,10 @@
       }, [h("div", { class: "qwp-cell-empty-hint", text: "leeg" })]);
     }
     var dirty = computeDirty(s);
+    // Painted from the /cal/items LIST, detail not in yet (or failed): Questi's decorated list title,
+    // shown stripped, and no interaction until the stored title/fiche are known.
+    var unread = isUnhydrated(s);
+    var shownTitle = unread ? stripQuestiDecoration(s.title) : s.title;
     var thema = s.themaFiche || isThemaSlot(s);
     var targetable = isTargetable(s);
     var themaBand = isThemaSlot(s);
@@ -3175,6 +3341,7 @@
     if (targetable) cls += " slot-empty";
     if (targetable && isTarget(s.itemId)) cls += " target";
     if (!planned) cls += " unplanned";
+    if (s._pending) cls += " loading"; else if (s._detailFailed) cls += " loadfail";
     var gstate = (doel && !themaBand) ? goalsStateOf(s) : "none";
     if (gstate === "missing") cls += " nogoals";
 
@@ -3187,6 +3354,9 @@
     var mism = vakMismatch(s);
     if (mism) cls += " vakmismatch";
     var mark = dirty ? h("span", { class: "qwp-cell-mark", title: "Nog niet weggeschreven — zie Controleer", text: "gewijzigd" }) : null;
+    if (unread) mark = s._pending
+      ? h("span", { class: "qwp-cell-load", title: "Titel, omschrijving en fiche van dit lesuur worden nog gelezen", text: "laden…" })
+      : h("span", { class: "qwp-cell-load fail", title: "Dit lesuur kon niet gelezen worden — het blijft ongewijzigd. Vernieuwen (Alles) probeert opnieuw.", text: "niet geladen" });
     var warn = mism ? h("span", {
       class: "qwp-vakwarn",
       title: "Fiche hoort bij " + (mism.ficheVak || "?") + " · dit lesuur staat ingesteld als " + (mism.slotVak || "?"),
@@ -3197,6 +3367,10 @@
     // double click opens the popup. Filled/gym/thema: single click opens popup.
     var onclick = targetable ? function () { toggleTarget(s.itemId); } : function () { openSlotPopup(s); };
     var ondbl = targetable ? function () { openSlotPopup(s); } : null;
+    if (unread) {
+      onclick = function () { setStatus(s._pending ? "Dit lesuur wordt nog geladen — even geduld." : "Dit lesuur kon niet gelezen worden en blijft ongewijzigd. Vernieuwen (Alles) probeert opnieuw."); };
+      ondbl = null;
+    }
 
     var kids;
     if (themaBand) {
@@ -3205,7 +3379,7 @@
         dot,
         h("span", { class: "qwp-band-vak", text: vakLbl }),
         themaUntagged ? h("span", { class: "qwp-thema-untagged", title: "Klik deze balk en kies een Vak om de rij te benoemen.", text: "geen vaktag" }) : null,
-        h("span", { class: "qwp-band-t", text: stripQuestiDecoration(stripThemaPrefix(s.title) || s.title) || "(leeg)" }),
+        h("span", { class: "qwp-band-t", text: stripQuestiDecoration(stripThemaPrefix(shownTitle) || shownTitle) || "(leeg)" }),
         mark
       ];
     } else {
@@ -3223,7 +3397,7 @@
       kids = [
         bar,
         h("div", { class: "qwp-cell-body" }, [
-          h("div", { class: "qwp-cell-title", text: s.title || "(leeg)" }),
+          h("div", { class: "qwp-cell-title", text: shownTitle || "(leeg)" }),
           sub ? h("div", { class: "qwp-cell-sub", text: sub }) : null
         ]),
         (doel && planned) ? goalsBlockFor(s) : null
@@ -3231,13 +3405,14 @@
     }
 
     var cell = h("div", {
-      class: cls, title: targetable ? "Klik = doel voor 'Toevoegen aan rooster' · dubbelklik = handmatig kiezen" : (s.title || ""),
+      class: cls, title: targetable ? "Klik = doel voor 'Toevoegen aan rooster' · dubbelklik = handmatig kiezen" : (shownTitle || ""),
       "data-vak": (state.settings[slotKeyStd(s.dayIdx, s.time)] || ""),
       onclick: onclick, ondblclick: ondbl,
       ondragover: function (e) { e.preventDefault(); cell.classList.add("drop"); },
       ondragleave: function () { cell.classList.remove("drop"); },
       ondrop: function (e) {
         e.preventDefault(); cell.classList.remove("drop"); endDragTargets();
+        if (unread) { onclick(); return; }   // same reason as a click
         try {
           var dd = JSON.parse(e.dataTransfer.getData("text/plain"));
           if (dd && dd.kind === "slot") {
@@ -3760,7 +3935,7 @@
   // vakTagId here is a live top-tag id (matches the Instellingen slot→tag map).
   function emptySlotsForVak(vakTagIdArg) {
     return view.slots.filter(function (s) {
-      if (!s.isEditable || s.idCalendar === "cal_holidays") return false;
+      if (!s.isEditable || s.idCalendar === "cal_holidays" || isUnhydrated(s)) return false;
       if (s.ficheContentId || s.isGym) return false;
       if (isNoSchool(s.dayIdx, s.time)) return false;
       var stdVak = state.settings[slotKeyStd(s.dayIdx, s.time)];
@@ -3768,7 +3943,7 @@
     }).sort(function (a, b) { return (a.weekIdx - b.weekIdx) || (a.dayIdx - b.dayIdx) || String(a.time).localeCompare(String(b.time)); });
   }
   function allEmptySlots() {
-    return view.slots.filter(function (s) { return s.isEditable && s.idCalendar !== "cal_holidays" && !s.isFullday && !s.ficheContentId && !s.isGym && !isNoSchool(s.dayIdx, s.time); })
+    return view.slots.filter(function (s) { return s.isEditable && !isUnhydrated(s) && s.idCalendar !== "cal_holidays" && !s.isFullday && !s.ficheContentId && !s.isGym && !isNoSchool(s.dayIdx, s.time); })
       .sort(function (a, b) { return (a.weekIdx - b.weekIdx) || (a.dayIdx - b.dayIdx) || String(a.time).localeCompare(String(b.time)); });
   }
   function slotLabel(s) { return "(wk " + (s.weekIdx + 1) + ") - " + DAY_NAMES[s.dayIdx].toLowerCase() + " - " + (s.time || ""); }
@@ -3785,6 +3960,7 @@
   }
 
   function openMassAdd(pi) {
+    if (busyLoading()) return;
     var picks = Object.keys(view.panels[pi].picked).map(function (k) { return view.panels[pi].picked[k]; });
     if (!picks.length) { setStatus("Niets aangevinkt in de lijst."); return; }
     var old = elId("qwp-modal"); if (old) old.remove();
@@ -3953,7 +4129,7 @@
   // ---------- Undo (per-slot snapshot stack; Ctrl+Z + sidebar button) ----------
   // Only these slot fields are mutated by planning actions, so snapshot just them.
   function snapshotSlots() {
-    return view.slots.map(function (s) { return { itemId: s.itemId, title: s.title, ficheContentId: s.ficheContentId, ficheTitle: s.ficheTitle, ficheIsMethod: s.ficheIsMethod, isGym: s.isGym, themaFiche: s.themaFiche, vak: s.vak }; });
+    return view.slots.map(function (s) { return { itemId: s.itemId, unread: isUnhydrated(s), title: s.title, ficheContentId: s.ficheContentId, ficheTitle: s.ficheTitle, ficheIsMethod: s.ficheIsMethod, isGym: s.isGym, themaFiche: s.themaFiche, vak: s.vak }; });
   }
   function pushUndo(label) {
     view.undoStack.push({ label: label || "actie", snap: snapshotSlots() });
@@ -3963,7 +4139,8 @@
   function doUndo() {
     if (!view.undoStack.length) { setStatus("Niets om ongedaan te maken."); return; }
     var entry = view.undoStack.pop();
-    entry.snap.forEach(function (o) { var s = slotById(o.itemId); if (s) { s.title = o.title; s.ficheContentId = o.ficheContentId; s.ficheTitle = o.ficheTitle; s.ficheIsMethod = o.ficheIsMethod; s.isGym = o.isGym; s.themaFiche = o.themaFiche; s.vak = o.vak; } });
+    // A slot that was still unread when the snapshot was taken held LIST values — never restore those.
+    entry.snap.forEach(function (o) { var s = slotById(o.itemId); if (s && !o.unread) { s.title = o.title; s.ficheContentId = o.ficheContentId; s.ficheTitle = o.ficheTitle; s.ficheIsMethod = o.ficheIsMethod; s.isGym = o.isGym; s.themaFiche = o.themaFiche; s.vak = o.vak; } });
     renderTimetable(); refreshUndoBtn(); setStatus("Ongedaan: " + entry.label);
   }
   function refreshUndoBtn() {
@@ -4373,6 +4550,7 @@
   // Whole-week bars too: their stored title may carry our "<Thema> — " prefix in front of the
   // decoration; the commit re-applies that prefix for a tagged bar (themaCommitTitle).
   function cleanDecoratedTitles() {
+    if (busyLoading()) return;
     var hits = view.slots.filter(function (s) {
       if (!s.isEditable || s.isGym || !s.ficheContentId || !s.ficheTitle || s.idCalendar === "cal_holidays") return false;
       var m = String(stripThemaPrefix(s.title || "") || s.title || "").match(DECORATED_RE);
@@ -4385,6 +4563,7 @@
     setStatus(hits.length + " titel(s) opgeschoond — controleer bij Wijzigingen en schrijf weg.");
   }
   function openCopyPrevWeek() {
+    if (busyLoading()) return;
     if (!view.weekStart) { setStatus("Geen week geladen."); return; }
     var old = elId("qwp-modal"); if (old) old.remove();
     var span = 7;   // the week before the first loaded week, copied into that week
@@ -4605,6 +4784,7 @@
   }
   function slotByItemId(id) { for (var i = 0; i < view.slots.length; i++) if (String(view.slots[i].itemId) === String(id)) return view.slots[i]; return null; }
   function openReview() {
+    if (busyLoading()) return;   // stored titles/fiches of some lesuren are not read yet
     var old = elId("qwp-modal"); if (old) old.remove();
     var L = lessonsApi(), lp = { tags: [], fiches: [] };
     if (L) { try { lp = L.pendingSummary(); } catch (e) { console.error("[QWP] pendingSummary:", e); } }
@@ -4869,6 +5049,7 @@
     return base + Math.floor(Math.random() * (base > 0 ? base : 150));
   }
   function doCommit() {
+    if (busyLoading()) return;
     if (!_approvedPlan || !_approvedPlan.length) { _commitAfter = null; setStatus("Niets goedgekeurd."); return; }
     var plan = _approvedPlan, i = 0, ok = 0, fails = [];
     setStatus("Bezig met wegschrijven…");
@@ -4959,16 +5140,60 @@
     var end = new Date(mon); end.setDate(mon.getDate() + (7 * view.weeks - 1));
     return { start: isoDate(mon), end: isoDate(end) };
   }
+  // Paint first, details after. Resolves as soon as the LIST is in (view.slots set, every lesuur with a
+  // detail to read marked _pending); view.hydrateP resolves true once every detail answered and the grid
+  // was repainted with them — or false when a newer load replaced this one. Meanwhile each arriving
+  // detail schedules a throttled repaint (scheduleHydratePaint) and the status line counts along.
+  var _loadGen = 0, _hydPaintT = null;
+  function hydratePending() { return (view.slots || []).filter(function (s) { return s._pending; }).length; }
+  function hydrateFailed() { return (view.slots || []).filter(function (s) { return s._detailFailed; }).length; }
+  function loadingReason(n) { return "Nog " + n + (n === 1 ? " lesuur" : " lesuren") + " aan het laden — Controleer kan zodra alles geladen is."; }
+  // Bulk tools and Controleer call this first; true = refused, with the reason in the status line.
+  function busyLoading() { var n = hydratePending(); if (n) setStatus(loadingReason(n)); return n > 0; }
+  function syncHydrateStatus() {
+    var n = hydratePending(), t = view.hydrateTotal || 0;
+    if (n) setStatus("Lesuren laden: " + (t - n) + "/" + t + " — Controleer kan pas als alles geladen is.");
+  }
+  // Said once the details are in: lesuren whose detail could not be read stay as they are.
+  function hydrateFailNote() {
+    var f = hydrateFailed();
+    return f ? (" · " + f + (f === 1 ? " lesuur kon" : " lesuren konden") + " niet gelezen worden en blijven ongewijzigd — Vernieuwen probeert opnieuw.") : "";
+  }
+  function scheduleHydratePaint() {
+    if (_hydPaintT) return;
+    _hydPaintT = setTimeout(function () {
+      _hydPaintT = null;
+      if (!els.root) return;
+      // A repaint mid-drag would pull the dragged card out from under the pointer — wait.
+      if (els.root.classList.contains("qwp-dragging")) { scheduleHydratePaint(); return; }
+      renderTimetable(); syncHydrateStatus();
+    }, 250);
+  }
   function reloadWeek() {
     var wr = currentWeekRange(); view.weekStart = wr.start;
+    var gen = ++_loadGen;
     setStatus("Rooster laden…");
-    return hydrateRange(wr.start, wr.end).then(function (slots) { view.slots = slots; reloadSlotVakLabels(); applyStoredVakken(view.slots); });
+    return hydrateRangeLive(wr.start, wr.end, function () { if (gen === _loadGen) scheduleHydratePaint(); }).then(function (r) {
+      if (gen !== _loadGen) return;   // a newer load owns view.slots
+      view.slots = r.slots; view.slotsStart = wr.start; view.hydrateTotal = r.total;
+      reloadSlotVakLabels(); applyStoredVakken(view.slots);
+      view.hydrateP = r.done.then(function () {
+        if (gen !== _loadGen) return false;
+        clearTimeout(_hydPaintT); _hydPaintT = null;
+        if (els.root) renderTimetable();
+        return true;
+      });
+    });
   }
+  // Resolves only when the week is FULLY read (settings.js re-reads titles after it).
   function reloadAndRender() {
     return reloadWeek().then(function () {
-      renderTimetable();
+      renderTimetable(); syncHydrateStatus();
+      return view.hydrateP;
+    }).then(function (current) {
+      if (!current) return;
       var nt = view.slots.filter(function (s2) { return s2.autoThemaTitle && computeDirty(s2); }).length;
-      setStatus(nt ? (nt + " WO/Godsdienst-lesuur/lesuren krijgen de themafiche als titel en het vak als beschrijving — controleer bij Wijzigingen.") : "Rooster geladen.");
+      setStatus((nt ? (nt + " WO/Godsdienst-lesuur/lesuren krijgen de themafiche als titel en het vak als beschrijving — controleer bij Wijzigingen.") : "Rooster geladen.") + hydrateFailNote());
       // Then, without blocking the paint, find out which fiches disagree with their lesuur's vak.
       resolveFicheVakken(view.slots, function (changed) {
         var n = applyStoredVakken(view.slots);
@@ -4987,7 +5212,7 @@
   // Sidebar tabs. Plannen and Lesfiches swap the sidebar body and the main column inside this one
   // overlay (CSS: #qwp-overlay.qwp-tab-lf hides .qwp-plan-only, shows .qwp-lf-only); the bottom bar
   // (Alles · Instellingen · Debug · Controleer) stays. Lesfiches = lessons.js mounted into
-  // #qwp-lf-side / #qwp-lf-main. Afdrukken keeps its own handler (openPrintFromPlanner).
+  // #qwp-lf-side / #qwp-lf-main. Switching between all three tabs goes through goTab.
   var _tab = "plan";
   function setTab(name) {
     if (!els.root) return;
@@ -4995,7 +5220,7 @@
     if (lf && !(L && typeof L.mount === "function")) { setStatus("De Lesfiche-manager is niet geladen."); console.warn("[QWP] lessons module niet geladen"); return; }
     _tab = lf ? "lesfiches" : "plan";
     els.root.classList.toggle("qwp-tab-lf", lf);
-    Array.prototype.forEach.call(els.root.querySelectorAll(".qwp-tab[data-tab]"), function (b) {
+    Array.prototype.forEach.call(els.root.querySelectorAll("#qwp-side .qwp-tab[data-tab]"), function (b) {
       var on = b.getAttribute("data-tab") === _tab;
       b.classList.toggle("active", on);
       if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
@@ -5012,7 +5237,7 @@
   function openLessonsManager() {
     if (!(window.__QWP_LESSONS && window.__QWP_LESSONS.mount)) { console.warn("[QWP] lessons module niet geladen"); return; }
     if (!els.root) boot(); else show();
-    setTab("lesfiches");
+    goTab("lesfiches");
   }
   // Exposed so the in-page quick menu "Lesfiches" (content.js) opens the planner on that tab,
   // even when the planner overlay was never opened — boot detects context on demand.
@@ -5123,19 +5348,25 @@
     // schoolId is fine but the per-user lesfiche tag wasn't found → let the user
     // paste it (grid still renders; only the fiche panels need the tag).
     if (ctx.ownDefaultTagId == null && state.manualOwnTagId == null) { openOwnTagPrompt(); }
+    // reloadWeek resolves at the LIST stage: the grid paints here while the details keep coming in.
     return Promise.all([fetchPeople(), fetchTags(), fetchOwnTags(), fetchSharedTags(), reloadWeek()]).then(function (res) {
       view.people = res[0]; view.tags = res[1]; view.ownTags = res[2]; view.sharedTags = res[3];
       view.ownTopTags = topTagsForOwner(view.ownTags, ctx.ownerId);
       buildVakTagMap();
       migrateSettingsToTagIds();
       reloadSlotVakLabels();
-      renderTimetable();
+      renderTimetable(); syncHydrateStatus();
+      markPlannerReady(true);   // context, tags and the week list: enough for the Afdrukken tab
       renderAllPanels(); // pills from real tags; each panel lazy-loads its tag's fiches
       renderGlobalOwners();
       return loadOwnFiches(); // full own list (for the slot popup search) via tag 5
     }).then(function () {
       var note = elId("qwp-side-note"); if (note) note.textContent = (groupFor(myId()) || { items: [] }).items.length + " eigen lesfiches geladen.";
-      setStatus(state.colleagues.length ? ("Klaar. Collega's: " + state.colleagues.map(function (c) { return c.name; }).join(", ")) : "Klaar.");
+      // The health check reads ctx.groupId, which only an item DETAIL supplies — and the first-run
+      // wizard reads stored titles/descriptions: both wait for the week to be fully read.
+      return view.hydrateP;
+    }).then(function () {
+      setStatus((state.colleagues.length ? ("Klaar. Collega's: " + state.colleagues.map(function (c) { return c.name; }).join(", ")) : "Klaar.") + hydrateFailNote());
       quickHealthCheck();
       // Week, tags and fiches are in: settings.js listens for this to auto-open first-run setup.
       try { document.dispatchEvent(new CustomEvent("qwp:loaded")); } catch (e) {}
@@ -5155,15 +5386,39 @@
     detectContext().then(function () { if (!ctx.schoolId) { showContextError(); return; } return loadEverything(); }).catch(function (e) { console.error("[QWP] retry error:", e); setStatus("Laadfout — probeer 'Vernieuwen'."); });
   }
 
-  function boot() {
+  // Resolves once loadEverything has context, tags and the week list (the Afdrukken tab waits on it);
+  // rejected when boot stops (logged out, no context, load error) — a later retry makes a fresh one.
+  var _readyD = null;
+  function readyDeferred() {
+    if (!_readyD) {
+      var d = _readyD = {};
+      d.p = new Promise(function (res, rej) { d.res = res; d.rej = rej; });
+      d.p.catch(function () {});
+    }
+    return _readyD;
+  }
+  function plannerReady() {
+    if (view.ready) return Promise.resolve();
+    if (view.bootFailed) return Promise.reject(new Error("planner-not-ready"));   // never wait forever
+    return readyDeferred().p;
+  }
+  function markPlannerReady(ok) {
+    var d = readyDeferred();
+    if (ok) { view.ready = true; view.bootFailed = false; d.res(); }
+    else if (!view.ready) { view.bootFailed = true; d.rej(new Error("planner-not-ready")); _readyD = null; }
+  }
+  // tab: "print" opens straight on Afdrukken (window.__QWP_PRINT).
+  function boot(tab) {
     var root = buildShell();
     document.body.appendChild(root);
     show();
+    if (tab === "print") goTab("print");
     checkForUpdate(); // best-effort GitHub version check → banner if a newer release exists
     // Ctrl/⌘+Z undo — only while the panel is open and not editing text.
     document.addEventListener("keydown", function (e) {
       if (!els.root || !els.root.classList.contains("qwp-show")) return;
       if (!(e.ctrlKey || e.metaKey) || e.shiftKey || (e.key !== "z" && e.key !== "Z")) return;
+      if (view.tab === "print") return;   // nothing to undo on the Afdrukken tab
       var t = e.target, tn = t && t.tagName;
       if (tn === "INPUT" || tn === "TEXTAREA" || tn === "SELECT" || (t && t.isContentEditable)) return;
       e.preventDefault(); doUndo();
@@ -5183,8 +5438,8 @@
         return detectContext();
       });
     }).then(function (r) {
-      if (r === "__STOP__") return;               // logged-out screen shown; don't continue
-      if (!ctx.schoolId) { showContextError(); return; }
+      if (r === "__STOP__") { markPlannerReady(false); return; }   // logged-out screen shown; don't continue
+      if (!ctx.schoolId) { markPlannerReady(false); goTab("plan"); showContextError(); return; }
       // Open on the week the user is viewing in Questi (else today): seed weekOffset before the
       // first reloadWeek so currentWeekRange() lands on it. Nav buttons work from this base.
       var ow = resolveOpenWeek(), todayMon = mondayOf(isoDate(new Date()));
@@ -5193,11 +5448,11 @@
       view.weekFromQuesti = ow.fromQuesti;
       return loadEverything().then(function () {
         // Say which rule picked the week — the fallback is the common path, not an error.
-        setStatus(ow.fromQuesti ? "Week overgenomen uit Questi." : "Week van vandaag geladen.");
+        setStatus((ow.fromQuesti ? "Week overgenomen uit Questi." : "Week van vandaag geladen.") + hydrateFailNote());
       });
-    }).catch(function (e) { console.error("[QWP] boot error:", e); setStatus("Laadfout — probeer 'Vernieuwen'."); });
+    }).catch(function (e) { console.error("[QWP] boot error:", e); markPlannerReady(false); setStatus("Laadfout — probeer 'Vernieuwen'."); });
   }
-  window.__QWP_PRINT = printCurrentWeek;
+  window.__QWP_PRINT = openPrintTab;
 
   // Test hook (no effect in the browser).
   window.__QWP_TEST = { boot: boot, view: view, state: state, ctx: ctx, detectContext: detectContext, renderTimetable: renderTimetable, openSlotPopup: openSlotPopup, openMassAdd: openMassAdd, openInstellingen: openInstellingen };
