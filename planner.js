@@ -4512,6 +4512,22 @@
     if (card) card.appendChild(h("button", { class: "qwp-btn", text: "Sluiten", onclick: hideCommitOverlay }));
   }
   function hideCommitOverlay() { var ov = elId("qwp-commit-overlay"); if (ov) ov.remove(); }
+  // Debug → "Laadscherm testen": the real write screen with fake progress. Writes nothing, reloads
+  // nothing — it only plays the overlay (working goblin, tape bar, still goblin) and closes it.
+  function demoCommitOverlay() {
+    var total = 8, done = 0;
+    showCommitOverlay(total);
+    var m = elId("qwp-commit-msg"); if (m) m.textContent = "Voorbeeld — er wordt niets naar Questi geschreven.";
+    var t = setInterval(function () {
+      done++; updateCommitOverlay(done, total);
+      if (done < total) return;
+      clearInterval(t);
+      msg2("Klaar — (voorbeeld, niets weggeschreven)");
+      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner");
+      if (sp) { var gob = goblinImg("goblin-full.png", "qwp-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
+      setTimeout(hideCommitOverlay, 2200);
+    }, 450);
+  }
 
   // ---------- Diagnose / Zelftest (READ-ONLY — never writes, never mutates state) ----------
   var TOOL_VERSION = "qwp-2026-07-04";
@@ -4567,6 +4583,7 @@
             else setStatus("Opslaan als .json kan niet: de instellingen-module (settings.js) is niet geladen.");
           } }),
           h("button", { class: "qwp-btn qwp-ghost", text: "Rapport kopiëren", onclick: function () { copyDiagReport(rows); } }),
+          h("button", { class: "qwp-btn qwp-ghost", text: "Laadscherm testen", title: "Speelt het wegschrijf-scherm af met nepvoortgang — er gaat niets naar Questi", onclick: function () { modal.remove(); demoCommitOverlay(); } }),
           h("button", { class: "qwp-btn", text: "Sluiten", onclick: function () { modal.remove(); } })
         ])
       ])
