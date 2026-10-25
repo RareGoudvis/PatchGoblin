@@ -3625,8 +3625,6 @@
         h("span", { class: "qwp-cell-vak", text: vakLbl || (s.isGym ? "Gym" : "") }),
         warn, mark
       ]);
-      // Not planned yet: the vak shows as a stripe in its colour; the full bar comes with a fiche.
-      if (!planned && color) bar.style.boxShadow = "inset 4px 0 0 " + color;
       if (planned && color) { bar.style.background = color; bar.style.color = goalsInkOn(color); }
       // Second line: what the old (hidden) fiche line said, only when it adds something.
       var sub = (!planned && targetable) ? "sleep een fiche"

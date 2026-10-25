@@ -42,7 +42,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 @keyframes qws-spin { to { transform: rotate(360deg); } }
 
 /* ---------- Settings shell ---------- */
-#qws-overlay .qws-shell { position: absolute; inset: 0; display: flex; border-top: 3px solid var(--accent); }
+#qws-overlay .qws-shell { position: absolute; inset: 0; display: flex; }
 #qws-overlay .qws-aside { flex: 0 0 300px; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); min-width: 0; }
 #qws-overlay .qws-aside-t { display: flex; align-items: center; gap: 8px; padding: 16px 18px 8px; font-size: 18px; font-weight: 700; }
 #qws-overlay .qws-navlist { flex: 1 1 auto; overflow: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; }
@@ -81,7 +81,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 
 #qws-overlay .qws-note { font-size: 13px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--accent-weak); color: var(--ink); line-height: 1.45; }
 #qws-overlay .qws-note.ok { background: var(--change-weak); color: var(--new-ink); }
-#qws-overlay .qws-note.warn { background: var(--warn-tint); color: var(--warn-ink); border-left: 3px solid var(--uq-orange); }
+#qws-overlay .qws-note.warn { background: var(--warn-tint); color: var(--warn-ink); }
 
 #qws-overlay .qws-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: var(--radius-sm); padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 #qws-overlay .qws-btn:hover:not([disabled]) { background: var(--accent-weak); }
@@ -229,7 +229,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 html[data-pg-theme="dark"] #qws-overlay {
   --page:#1E1F27; --panel:#24252F; --surface:#374151; --canvas:#1E1F27; --raised:#24252F;
   --hover:#2B2D38; --soft:#313543; --line:#3A3D4A; --line-soft:#33363F; --line2:#4B5060;
-  --ink:#F4F1E8; --muted:#A8ADB8; --faint:#8A8F9B;
+  --ink:#F4F1E8; --muted:#8E94A2; --faint:#6F7584;
   --accent:#C9CCD3; --accent-weak:#2E3140; --accent-line:#4B5060;
   --uq-blue-ink:#8B5CF6; --uq-blue-tint:#352C55; --uq-cyan-tint:#2E3B2A;
   --uq-orange-tint:#3A2E17; --uq-orange-ink:#F8C15A;

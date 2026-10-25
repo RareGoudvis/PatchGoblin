@@ -175,10 +175,10 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-cell.movable:active { cursor:grabbing; }
 /* Drag: slots whose Instellingen vak matches the dragged fiche get a stronger cue. */
 .qwp-dragging .qwp-cell.vak-match { border-style:solid; border-color:var(--accent); background:var(--accent-weak); box-shadow:0 0 0 2px var(--accent-weak); animation:none; }
-.qwp-cell.hasexisting { border-left:3px solid var(--accent); }
-.qwp-cell.dirty { border-color:var(--change-line); background:var(--change-weak); border-left:3px solid var(--change); }
+.qwp-cell.hasexisting { }
+.qwp-cell.dirty { border-color:var(--change-line); background:var(--change-weak); }
 .qwp-cell.isgym { background:var(--gym-weak); }
-.qwp-cell.isthema { background:var(--thema-weak); border-left:3px solid var(--thema); }
+.qwp-cell.isthema { background:var(--thema-weak); }
 .qwp-cell.thema-span .qwp-cell-vak { color:var(--thema); }
 .qwp-cell-top { display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:14px; }
 .qwp-cell-vak { font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); }
@@ -335,17 +335,17 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 /* Diff colors for the NEW grid (precedence handled in JS). */
 .qwp-rv-cell.rv-old { background:var(--surface); }
 .qwp-rv-cell.rv-same { background:var(--surface); }
-.qwp-rv-cell.rv-changed { background:var(--change-weak); border-color:var(--change-line); border-left:3px solid var(--change); }
-.qwp-rv-cell.rv-empty { background:var(--warn-tint); border-color:var(--thema-line); border-left:3px solid var(--warn-line); }
+.qwp-rv-cell.rv-changed { background:var(--change-weak); border-color:var(--change-line); }
+.qwp-rv-cell.rv-empty { background:var(--warn-tint); border-color:var(--thema-line); }
 .qwp-rv-cell.rv-empty .qwp-cell-title { color:var(--warn-ink); }
-.qwp-rv-cell.rv-alert { background:var(--danger-tint); border-color:var(--danger-line); border-left:3px solid var(--danger); }
+.qwp-rv-cell.rv-alert { background:var(--danger-tint); border-color:var(--danger-line); }
 .qwp-rv-cell.rv-alert .qwp-cell-title { color:var(--danger); }
 .qwp-rv-cell.noschool { background:repeating-linear-gradient(135deg, var(--line-soft) 0 6px, transparent 6px 12px); }
 
 /* Slot popup: note under the editable title (only shown when a fiche would override it). */
 .qwp-pop-note { margin-top:6px; font-size:11.5px; line-height:1.45; color:var(--thema); background:var(--thema-weak); border:1px solid var(--thema-line); border-radius:var(--radius-sm); padding:6px 9px; }
 /* Attached fiche belongs to a different vak than the lesuur's Instellingen vak. */
-.qwp-cell.vakmismatch { box-shadow: inset 3px 0 0 var(--thema); }
+.qwp-cell.vakmismatch { }
 .qwp-vakwarn { margin-left:6px; font-size:10px; font-weight:700; color:var(--thema); background:var(--thema-weak); border:1px solid var(--thema-line); border-radius:999px; padding:0 6px; cursor:help; white-space:nowrap; }
 
 /* Slot popup: one-click titles for a Lichamelijke opvoeding lesuur (title only, no fiche). */
@@ -383,7 +383,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-ownerseg { display:flex; min-width:0; border:1px solid var(--line2); border-radius:8px; overflow:hidden; }
 .qwp-ownerseg button { display:flex; align-items:center; min-width:0; border:none; background:var(--surface); color:var(--accent); padding:6px 12px; font-size:12.5px; font-weight:600; cursor:pointer; }
 .qwp-ownerseg button + button { border-left:1px solid var(--line2); }
-.qwp-ownerseg button.active { background:var(--uq-blue-tint); color:var(--ink); box-shadow:inset 0 -2px 0 var(--uq-blue); }
+.qwp-ownerseg button.active { background:var(--uq-blue-ink); color:#fff; }
 .qwp-owner-name { max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qwp-filterbtn { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line2); background:var(--surface); border-radius:8px; padding:6px 12px; font-size:12.5px; font-weight:600; color:var(--accent); cursor:pointer; }
 .qwp-filterbtn:hover { border-color:var(--accent-line); }
@@ -404,8 +404,8 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-picker-list { flex:1 1 auto; min-height:0; overflow:auto; }
 .qwp-pfiche { display:flex; align-items:center; gap:10px; padding:8px 16px; border-bottom:1px solid var(--soft); background:var(--surface); cursor:grab; }
 .qwp-pfiche:hover { background:var(--hover); }
-.qwp-pfiche.d-plan { background:var(--uq-cyan-tint); box-shadow:inset 3px 0 0 var(--uq-cyan); }
-.qwp-pfiche.picked { background:var(--uq-blue-tint); box-shadow:inset 3px 0 0 var(--uq-blue); }
+.qwp-pfiche.d-plan { background:var(--uq-cyan-tint); }
+.qwp-pfiche.picked { background:var(--uq-blue-tint); }
 .qwp-pfiche-pick { flex:0 0 auto; width:15px; height:15px; display:flex; align-items:center; justify-content:center; }
 .qwp-pfiche-sq { width:10px; height:10px; border-radius:3px; background:var(--line2); }
 .qwp-pfiche-pick input { display:none; width:15px; height:15px; margin:0; accent-color:var(--uq-blue); }
@@ -474,7 +474,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk .qwp-tt-dayhd { justify-content:center; background:none; border:none; padding:0 0 2px; font-size:12.5px; font-weight:700; color:var(--muted); container-type:inline-size; white-space:nowrap; overflow:hidden; }
 .qwp-dh-short { display:none; }
 @container (max-width: 150px) { .qwp-dh-long { display:none; } .qwp-dh-short { display:inline; } }
-.qwp-wk .qwp-tt-dayhd.today { color:var(--ink); box-shadow:inset 0 -2px 0 var(--uq-blue); }
+.qwp-wk .qwp-tt-dayhd.today { color:var(--ink); font-weight:800; }
 .qwp-wk .qwp-tt-timelbl { justify-content:flex-start; padding:4px 0 0; font-size:12px; font-weight:600; color:var(--muted); }
 .qwp-wk .qwp-tt-break { min-height:12px; }
 .qwp-wk .qwp-tt-break span { font-size:8.5px; padding:1px 12px; }
@@ -499,7 +499,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk .qwp-cell.target { background:var(--uq-cyan-tint); border:2px solid var(--uq-blue); box-shadow:none; }
 .qwp-wk .qwp-cell.sel { box-shadow:0 0 0 2px var(--uq-cyan); }
 .qwp-wk .qwp-cell.drop { background:var(--uq-cyan-tint); border-color:var(--uq-blue); }
-.qwp-wk .qwp-cell.vakmismatch { box-shadow:inset 3px 0 0 var(--uq-orange); }
+.qwp-wk .qwp-cell.vakmismatch { }
 .qwp-wk .qwp-vakwarn { color:var(--uq-orange-ink); background:var(--uq-orange-tint); border-color:var(--uq-orange); }
 .qwp-wk .qwp-cell.blank, .qwp-wk .qwp-cell.blank:hover { background:transparent; border:1px dashed transparent; min-height:0; }
 .qwp-wk .qwp-cell.empty { flex-direction:row; align-items:center; justify-content:center; background:transparent; border:1px dashed var(--line); }
@@ -511,13 +511,13 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk .qwp-cell.thema-span.dirty { border:2px solid var(--uq-blue); }
 .qwp-band-vak { flex:0 0 auto; display:flex; align-items:center; padding:5px 10px; background:var(--soft); font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink); }
 .qwp-band-t { flex:1 1 auto; min-width:0; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.qwp-cell.thema-span .qwp-cell-mark { font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink); box-shadow:inset 0 -2px 0 var(--uq-blue); }
+.qwp-cell.thema-span .qwp-cell-mark { font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--uq-blue-ink); }
 .qwp-wk .qwp-thema-untagged { margin-left:0; }
 .qwp-wk .qwp-thema-more { position:static; flex:0 0 auto; }
 
 /* Doelen mode: one week expanded, taller cards with WEET / KEN / KAN lines (read-only). */
 .qwp-wk.doelen .qwp-cell:not(.thema-span):not(.blank):not(.empty) { min-height:128px; }
-.qwp-wk.doelen .qwp-cell.nogoals { border:2px solid var(--uq-orange); }
+.qwp-wk.doelen .qwp-cell.nogoals { }
 .qwp-wk.doelen .qwp-cell.dirty { border:2px solid var(--uq-blue); }
 .qwp-gl { flex:1 1 auto; display:flex; flex-direction:column; gap:1px; padding:3px 6px 5px; }
 .qwp-gl-row { display:grid; grid-template-columns:34px minmax(0, 1fr); gap:5px; align-items:end; min-height:22px; border-bottom:1px solid var(--line2); }
@@ -536,7 +536,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk .qwp-cell.empty { cursor:help; }
 
 /* ---- Menus (Alles, Collega) ---- */
-.qwp-menu { position:fixed; z-index:45; display:flex; flex-direction:column; gap:2px; max-height:calc(100vh - 40px); overflow:auto; padding:10px; background:var(--surface); border:1px solid var(--line2); border-top:3px solid var(--uq-amber); border-radius:12px; box-shadow:0 10px 28px rgba(30,42,51,.18), 0 2px 6px rgba(30,42,51,.08); }
+.qwp-menu { position:fixed; z-index:45; display:flex; flex-direction:column; gap:2px; max-height:calc(100vh - 40px); overflow:auto; padding:10px; background:var(--surface); border:1px solid var(--line2); border-radius:12px; box-shadow:0 10px 28px rgba(30,42,51,.18), 0 2px 6px rgba(30,42,51,.08); }
 .qwp-alles-menu { width:420px; max-width:calc(100vw - 24px); }
 .qwp-src-menu { width:280px; padding:6px; border-radius:10px; }
 .qwp-mgrp { padding:8px 10px 2px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
@@ -549,7 +549,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-mi-n { font-size:14px; font-weight:700; }
 .qwp-mi-d { font-size:12px; color:var(--muted); }
 .qwp-mi-tag { flex:0 0 auto; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:700; color:var(--muted); background:var(--soft); }
-.qwp-mi-tag.write { color:var(--ink); background:var(--warn-tint); box-shadow:inset 0 0 0 1px var(--uq-amber); }
+.qwp-mi-tag.write { color:var(--warn-ink); background:var(--warn-tint); }
 .qwp-src-menu .qwp-mi { padding:6px 10px; }
 .qwp-src-menu .qwp-mi-n { font-size:13px; }
 .qwp-msep { height:1px; margin:4px 0; background:var(--line); }
@@ -617,7 +617,7 @@ fieldset.qpp-sec > legend.qpp-lbl { margin-bottom:6px; }
 .qpp-sub { min-width:0; font-size:13px; color:var(--muted); }
 .qpp-pageseg button { padding:6px 14px; font-size:13px; }
 .qpp-preview { position:relative; flex:1 1 auto; min-height:0; }
-.qpp-frame { display:block; width:100%; height:100%; border:none; background:var(--soft); }
+.qpp-frame { display:block; width:100%; height:100%; border:none; background:var(--soft); color-scheme:light; }   /* the A4 preview stays white paper in every theme */
 .qpp-msg { position:absolute; top:14px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; max-width:calc(100% - 40px); padding:8px 14px; border-radius:9px; background:var(--surface); color:var(--ink); font-size:13px; font-weight:600; box-shadow:0 2px 10px rgba(30,42,51,.18); }
 .qpp-msg.err { background:var(--uq-orange-tint); color:var(--uq-orange-ink); box-shadow:inset 0 0 0 1px var(--uq-orange), 0 2px 10px rgba(30,42,51,.18); }
 .qpp-msg-btn { border:1px solid currentColor; background:var(--surface); border-radius:7px; padding:4px 10px; font-size:12.5px; font-weight:700; color:inherit; cursor:pointer; }
@@ -753,7 +753,7 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 html[data-pg-theme="dark"] #qwp-overlay {
   --page:#1E1F27; --panel:#24252F; --surface:#374151; --canvas:#1E1F27; --raised:#24252F;
   --hover:#2B2D38; --soft:#313543; --line:#3A3D4A; --line-soft:#33363F; --line2:#4B5060;
-  --ink:#F4F1E8; --muted:#A8ADB8; --faint:#8A8F9B;
+  --ink:#F4F1E8; --muted:#8E94A2; --faint:#6F7584;
   --accent:#C9CCD3; --accent-weak:#2E3140; --accent-line:#4B5060;
   --uq-blue-ink:#8B5CF6; --uq-blue-tint:#352C55; --uq-cyan-tint:#2E3B2A;
   --uq-orange-tint:#3A2E17; --uq-orange-ink:#F8C15A;

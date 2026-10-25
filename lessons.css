@@ -253,7 +253,7 @@ html.qwl-locked { overflow: hidden; }
 .qwl-mbody .qwl-thead { top: -10px; background: var(--surface); border-radius: 10px 10px 0 0; }
 .qwl-row.qwl-row6 { grid-template-columns: 34px minmax(160px, 1fr) 54px 92px 74px minmax(110px, 200px); gap: 10px; padding: 7px 12px; }
 .qwl-row.qwl-row6:not(.qwl-thead) { cursor: pointer; }
-.qwl-row.open, .qwl-row.open:hover { background: var(--uq-blue-tint); box-shadow: inset 3px 0 0 var(--uq-blue); }
+.qwl-row.open, .qwl-row.open:hover { background: var(--uq-blue-tint); }
 .qwl-c-goals { display: flex; gap: 3px; }
 .qwl-thead .qwl-c-goals { display: block; }
 .qwl-gsq { width: 18px; height: 18px; border-radius: 4px; font-size: 9.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; background: var(--soft); color: var(--faint); }
@@ -262,7 +262,7 @@ html.qwl-locked { overflow: hidden; }
 
 /* Side sheet: the full fiche editor next to the table */
 .qwl-sheet { flex: 0 0 400px; width: 400px; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--line); }
-.qwl-sheet-hd { flex: 0 0 auto; padding: 12px 16px; border-top: 4px solid var(--line2); border-bottom: 1px solid var(--line); }
+.qwl-sheet-hd { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .qwl-sheet-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qwl-sheet-title { font-size: 16px; font-weight: 700; color: var(--ink); }
 .qwl-sheet-bd { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 16px; }
@@ -276,7 +276,7 @@ html.qwl-locked { overflow: hidden; }
 /* The Op.Stap web component brings its own styles (shadow DOM); this only gives it room. */
 .qwl-opstap { display: block; margin: 4px 0; }
 .qwl-modal-box.qwl-newfiche { width: min(1180px, 94vw); height: 90vh; }
-.qwl-modal-box.qwl-newfiche .qwl-modal-hd { border-top: 4px solid var(--uq-amber); }
+.qwl-modal-box.qwl-newfiche .qwl-modal-hd { }
 .qwl-modal-box.qwl-newfiche .qwl-modal-bd { flex: 1 1 auto; min-height: 0; padding: 18px 22px; }
 .qwl-nf-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; align-items: start; }
 .qwl-nf-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -287,7 +287,7 @@ html.qwl-locked { overflow: hidden; }
 html[data-pg-theme="dark"] #qwl-overlay, html[data-pg-theme="dark"] .qwl-mounted {
   --page:#1E1F27; --panel:#24252F; --surface:#374151; --canvas:#1E1F27; --raised:#24252F;
   --hover:#2B2D38; --soft:#313543; --line:#3A3D4A; --line-soft:#33363F; --line2:#4B5060;
-  --ink:#F4F1E8; --muted:#A8ADB8; --faint:#8A8F9B;
+  --ink:#F4F1E8; --muted:#8E94A2; --faint:#6F7584;
   --accent:#C9CCD3; --accent-weak:#2E3140; --accent-line:#4B5060;
   --uq-blue-ink:#8B5CF6; --uq-blue-tint:#352C55; --uq-cyan-tint:#2E3B2A;
   --uq-orange-tint:#3A2E17; --uq-orange-ink:#F8C15A;

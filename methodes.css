@@ -25,7 +25,7 @@ html.qwm-locked, html.qwm-locked body { overflow: hidden !important; }
 }
 #qwm-overlay.qwm-show { display: block; }
 
-.qwm-page { position:absolute; inset:0; background:var(--canvas); display:flex; flex-direction:column; border-top:3px solid var(--accent); }
+.qwm-page { position:absolute; inset:0; background:var(--canvas); display:flex; flex-direction:column; }
 
 /* Header */
 .qwm-header { display:flex; align-items:center; gap:12px; padding:11px 18px; background:var(--surface); border-bottom:1px solid var(--line); }
@@ -109,7 +109,7 @@ html.qwm-locked, html.qwm-locked body { overflow: hidden !important; }
 .qwm-row.drop-before { box-shadow:inset 0 2px 0 var(--accent); }
 .qwm-row.drop-after { box-shadow:inset 0 -2px 0 var(--accent); }
 
-.qwm-gap { margin:2px 0 2px 46px; padding:4px 9px; border-left:2px solid var(--thema-line); background:var(--thema-weak); color:var(--thema); font-size:11.5px; font-weight:600; border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+.qwm-gap { margin:2px 0 2px 46px; padding:4px 9px; border-radius:6px; background:var(--thema-weak); color:var(--thema); font-size:11.5px; font-weight:600; border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
 
 .qwm-pill { display:inline-flex; align-items:center; border-radius:999px; padding:3px 10px; font-size:11.5px; font-weight:700; border:1px solid; cursor:pointer; font-family:inherit; line-height:1.45; }
 .qwm-pill.given { background:var(--change-weak); border-color:var(--change-line); color:var(--change); }
@@ -145,7 +145,7 @@ html.qwm-locked, html.qwm-locked body { overflow: hidden !important; }
 .qwm-pickrow { padding:9px 12px; border-bottom:1px solid var(--line-soft); cursor:pointer; display:flex; flex-direction:column; gap:2px; }
 .qwm-pickrow:last-child { border-bottom:0; }
 .qwm-pickrow:hover { background:var(--raised); }
-.qwm-pickrow.on { background:var(--accent-weak); box-shadow:inset 3px 0 0 var(--accent); }
+.qwm-pickrow.on { background:var(--accent-weak); }
 .qwm-pickrow-t { font-size:13px; font-weight:600; display:flex; align-items:center; gap:7px; }
 .qwm-pickrow-d { font-size:11.5px; color:var(--faint); }
 .qwm-graderow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -156,7 +156,7 @@ html.qwm-locked, html.qwm-locked body { overflow: hidden !important; }
 html[data-pg-theme="dark"] #qwm-overlay {
   --page:#1E1F27; --panel:#24252F; --surface:#374151; --canvas:#1E1F27; --raised:#24252F;
   --hover:#2B2D38; --soft:#313543; --line:#3A3D4A; --line-soft:#33363F; --line2:#4B5060;
-  --ink:#F4F1E8; --muted:#A8ADB8; --faint:#8A8F9B;
+  --ink:#F4F1E8; --muted:#8E94A2; --faint:#6F7584;
   --accent:#C9CCD3; --accent-weak:#2E3140; --accent-line:#4B5060;
   --uq-blue-ink:#8B5CF6; --uq-blue-tint:#352C55; --uq-cyan-tint:#2E3B2A;
   --uq-orange-tint:#3A2E17; --uq-orange-ink:#F8C15A;

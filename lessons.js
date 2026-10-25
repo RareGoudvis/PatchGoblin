@@ -534,7 +534,7 @@
       ]);
       if (active && kind !== "view" && color) {
         if (depth === 0) { el.style.background = color; el.style.color = S().goalsInkOn(color); }
-        else el.style.background = "color-mix(in srgb, " + color + " 24%, #fff)";
+        else el.style.background = "color-mix(in srgb, " + color + " 26%, var(--surface))";
       }
       return el;
     }
@@ -1071,7 +1071,7 @@
     mgr.sheetFid = f.id;
     sh.innerHTML = ""; sh.style.display = "";
     var top = (mgr.tagChips[f.id] || []).map(function (tid) { return S().topTagIdOf ? S().topTagIdOf(tid) : tid; })[0];
-    var hd = h("div", { class: "qwl-sheet-hd", style: "border-top-color:" + (top != null ? tagHex(top) : "#c9d2d7") }, [
+    var hd = h("div", { class: "qwl-sheet-hd" }, [
       h("div", { class: "qwl-sheet-kicker", text: (mgr.tagChips[f.id] || []).map(tagName).join(" · ") || "Lesfiche" }),
       h("div", { class: "qwl-sheet-title", text: (mgr.pending[f.id] && mgr.pending[f.id].subject != null) ? mgr.pending[f.id].subject : ficheName(f) })
     ]);

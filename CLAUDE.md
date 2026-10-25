@@ -29,7 +29,10 @@ ground-truth request/response captures live in `reference/questi-api-samples.md`
    CSS goes through tokens (`--page --panel --surface --hover --soft --line --line2 --ink --muted
    --faint` + the `--uq-*` brand ones), each stylesheet ends with its dark token block — never a
    hard-coded white or grey. The print documents in `planner.js` keep their own literal colours and
-   stay white in both themes. All CSS namespaced under the module's overlay id.
+   stay white in both themes (the preview iframe is `color-scheme: light`). No decorative accent
+   stripes: no coloured left edges, top strips or underline markers on cards, rows, menus or
+   notes — state shows through fill or text (the user rejects that look). All CSS namespaced under
+   the module's overlay id.
 6. **Dutch UI strings.** Code, comments and commits in English.
 7. **Reuse before writing.** Check `__QWP_SHARED` and the sibling modules first — a helper for
    what you need usually already exists. (A duplicate `fetchAllFichesByTag` once shadowed the
