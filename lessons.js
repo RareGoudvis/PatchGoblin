@@ -1318,6 +1318,13 @@
   }
   // After the shared Controleer: redraw whatever host is active (new ids, cleared badges).
   function afterSharedWrite() { if (overlayOpen()) { renderTagBar(); applyFilter(); } }
+  // The shared Controleer's trash: drop staged tags/fiche edits without writing them.
+  function discardPending(o) {
+    (o.ficheKeys || []).forEach(function (k) { delete mgr.pending[k]; });
+    var drop = {}; (o.tagKeys || []).forEach(function (k) { drop[k] = true; });
+    mgr.pendingTags = mgr.pendingTags.filter(function (x) { return !drop[x.key]; });
+    afterSharedWrite(); notifyPending();
+  }
 
   // ------------------------------------------------------------------------
   //  Mass-edit tags — tri-state picker + create-tag → STAGES into pending
@@ -1901,6 +1908,6 @@
     open: open, close: close, openPicker: openPicker, runSequential: runSequential, createUserTag: createUserTag,
     mount: mount, unmount: unmount, isMounted: isMounted,
     pendingCount: pendingCount, pendingSummary: pendingSummary, backupPending: backupPending,
-    writeTags: writeTags, writeFiches: writeFiches, afterSharedWrite: afterSharedWrite
+    writeTags: writeTags, writeFiches: writeFiches, afterSharedWrite: afterSharedWrite, discardPending: discardPending
   };
 })();

@@ -1012,6 +1012,7 @@
     all.forEach(function (s) {
       if (!s || s.isFullday || s.isGym || s.ficheContentId || !s.isEditable || s.idCalendar === "cal_holidays") return;
       if (!s.themaFiche) return;
+      if (s.keepTitle && s.title === s.origTitle) return;   // change thrown away in Controleer
       // Stored title not read yet — or the week's bars are still loading, so their themafiche is unknown.
       if (isUnhydrated(s) || all.some(function (x) { return x.isFullday && x._pending && x.weekIdx === s.weekIdx; })) return;
       var top = topTagIdOf(s.vak);
@@ -1088,6 +1089,15 @@
     var top = topTagIdOf(slot.vak);
     return top != null ? ((anyTagTitle(top) || "").trim()) : "";
   }
+  // The description as it will be stored. A lesuur whose vak is unknown (no Lesrooster vak, no fiche
+  // vak, stored description matches no tag) keeps its stored description: "don't know" must never
+  // wipe what is there. Gym (null) still clears on purpose.
+  function descHtml(s) {
+    if (s.descKeep && s.descKeep.vak === s.vak && (s.title || "") === (s.origTitle || "") && (s.ficheContentId || null) === (s.origFicheContentId || null)) return s.origDescription || "";
+    var d = descFor(s);
+    if (d === "" && !s.isFullday) return s.origDescription || "";
+    return toHtmlDesc(d);
+  }
   function toHtmlDesc(t) { if (t == null) return ""; return String(t).replace(/\n/g, "<br />"); }
   function stripHtml(s) { return String(s == null ? "" : s).replace(/<br \/>/g, "").replace(/<[^>]*>/g, "").trim(); }
   function weekdayIdx(iso) { if (!iso) return -1; var d = new Date(iso); if (isNaN(d.getTime())) return -1; return (d.getDay() + 6) % 7; }
@@ -1101,7 +1111,7 @@
     // Its stored title/description/fiche are not known yet (or could not be read): never a change.
     if (isUnhydrated(s)) return false;
     // "Vak als beschrijving schrijven" off → a description difference is never a reason to write.
-    var descChanged = writesDescriptions() && toHtmlDesc(descFor(s)) !== (s.origDescription || "");
+    var descChanged = writesDescriptions() && descHtml(s) !== (s.origDescription || "");
     var titleChanged = (s.title || "") !== (s.origTitle || "");
     var ficheChanged = (s.ficheContentId || null) !== (s.origFicheContentId || null);
     return descChanged || titleChanged || ficheChanged;
@@ -1224,7 +1234,6 @@
     // Occurrence window = the loaded week window (same range used to GET /cal/items).
     var range = currentWeekRange();
     return slots.filter(function (s) { return s.isEditable && s.idCalendar !== "cal_holidays" && computeDirty(s); }).map(function (s) {
-      var nd = descFor(s);
       var grps = writeGroupObjs(s.groups);
       // Questi rejects an empty title — keep a safe fallback for emptied slots.
       var title = s.title || "Lesuur";
@@ -1237,7 +1246,7 @@
       if (s.isFullday) {
         // Full-day/thema item: is_fullday_item TRUE, keep the date span, NO times.
         body = {
-          calendarId: s.idCalendar || ctx.calendarId, title: title, description: toHtmlDesc(nd), is_fullday_item: true,
+          calendarId: s.idCalendar || ctx.calendarId, title: title, description: descHtml(s), is_fullday_item: true,
           startdate: startDay, enddate: s.enddate ? String(s.enddate).slice(0, 10) : startDay,
           is_published_students: false, is_published_parents: false, groups: grps, participants: []
         };
@@ -1246,7 +1255,7 @@
         var st = s.starttime || (timeFromISO(s.startdate) ? timeFromISO(s.startdate) + ":00" : undefined);
         var et = s.endtime || (timeFromISO(s.enddate) ? timeFromISO(s.enddate) + ":00" : undefined);
         body = {
-          calendarId: s.idCalendar || ctx.calendarId, title: title, description: toHtmlDesc(nd), is_fullday_item: false,
+          calendarId: s.idCalendar || ctx.calendarId, title: title, description: descHtml(s), is_fullday_item: false,
           startdate: startDay, enddate: startDay,
           starttime: st, endtime: et,
           is_published_students: false, is_published_parents: false, groups: grps, participants: []
@@ -1329,7 +1338,8 @@
     alles: '<path stroke-width="3.4" d="M5 12h.01M12 12h.01M19 12h.01"></path>',
     inst: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle>',
     debug: '<path d="M8 2l1.9 1.9M14.1 3.9L16 2M9 7.1V6a3 3 0 1 1 6 0v1.1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M21 5c0 2.1-1.6 3.8-3.5 4M22 13h-4M17.2 17c2.1.1 3.8 1.9 3.8 4"></path>',
-    check: '<path d="M20 6L9 17l-5-5"></path>'
+    check: '<path d="M20 6L9 17l-5-5"></path>',
+    trash: '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"></path>'
   };
   // Constant markup only (never data), parsed in the SVG namespace.
   function svgIcon(name, size, stroke) {
@@ -5031,6 +5041,19 @@
     var d = s.startdate ? ddmm(String(s.startdate).slice(0, 10), 0) : (view.weekStart ? ddmm(view.weekStart, (s.weekIdx || 0) * 7 + (s.dayIdx || 0)) : "");
     return (DAY_ABBR[s.dayIdx] || "") + " " + d + (s.time ? " " + s.time : "") + (vak ? " · " + vak : "");
   }
+  // Week number from the slot's own date: a kept slot from another week has no row in this window.
+  function slotWeekNo(s) { return s.startdate ? isoWeekNo(String(s.startdate).slice(0, 10)) : weekNoOf(s.weekIdx || 0); }
+  // Throw a staged lesuur change away: back to what Questi has stored. Nothing is written. The stored
+  // description is pinned (descKeep) until the lesuur is changed again, because some stored
+  // descriptions match no rule and would otherwise show up as a change again on the next paint.
+  function discardSlot(s) {
+    setSlotVakOverride(s, null);
+    s.title = s.origTitle || ""; s.ficheContentId = s.origFicheContentId || null; s.ficheTitle = s.origFicheTitle || "";
+    s.isGym = !s.isFullday && !s.ficheContentId && isGymTitle(s.title);
+    s.autoThemaTitle = false; s.keepTitle = true; delete s.vakReset;
+    applyStoredVakken([s]);
+    s.descKeep = { vak: s.vak };
+  }
   function slotByItemId(id) {
     var all = commitSlots().slots;
     for (var i = 0; i < all.length; i++) if (String(all[i].itemId) === String(id)) return all[i];
@@ -5056,11 +5079,16 @@
     function textBlock(lines) { return h("span", { class: "qwp-cr-lines" }, lines.filter(Boolean).map(function (l) { return typeof l === "string" ? h("span", { text: l }) : l; })); }
     function row(kind, key, what, where, oldLines, newLines, note) {
       var cb = h("input", { type: "checkbox", "aria-label": what + " — " + where + " meenemen" }); cb.checked = true;
+      // Trash: throw this change away (nothing is written). A Fiche-versie row is not a change of
+      // its own — unticking it is enough, so it gets no trash.
+      var del = kind === "bump" ? h("span") : h("button", { class: "qwp-cr-del", type: "button", title: "Deze wijziging weggooien (wordt niet weggeschreven)", "aria-label": "Weggooien: " + what + " — " + where,
+        onclick: function (e) { e.preventDefault(); e.stopPropagation(); discardRows([{ kind: kind, key: key }]); } }, [svgIcon("trash", 16)]);
       var el = h("label", { class: "qwp-cr-row" }, [
         cb,
         h("span", { class: "qwp-cr-what" }, [h("b", { text: what }), h("span", { text: where })]),
         h("span", { class: "qwp-cr-old" }, [textBlock(oldLines)]),
-        h("span", { class: "qwp-cr-new" }, [textBlock(newLines), note ? h("span", { class: "qwp-cr-note", text: note }) : null])
+        h("span", { class: "qwp-cr-new" }, [textBlock(newLines), note ? h("span", { class: "qwp-cr-note", text: note }) : null]),
+        del
       ]);
       cb.addEventListener("change", function () { if (cb.checked) delete excl[kind][key]; else excl[kind][key] = true; sync(); });
       rows.push({ kind: kind, key: key, cb: cb, el: el });
@@ -5092,14 +5120,14 @@
       if ((p.old.title || "") !== (p.neu.title || "")) what.push("Titel");
       if (stripHtml(p.old.desc) !== stripHtml(p.neu.desc)) what.push("Vak");
       if (!what.length) what.push("Lesuur");
-      if (s) { var wn = weekNoOf(s.weekIdx || 0); weekCount[wn] = (weekCount[wn] || 0) + 1; }
+      if (s) { var wn = slotWeekNo(s); weekCount[wn] = (weekCount[wn] || 0) + 1; }
       var pf = follows[p.itemId];
       return row("cal", p.itemId, what.join(" · "), s ? slotWhere(s) : p.label,
         [p.old.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.old.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (stripHtml(p.old.desc) || "—") : null],
         [p.neu.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.neu.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (stripHtml(p.neu.desc) || "—") : null],
         pf ? "krijgt de nieuwe versie van deze fiche" : (p.descEcho ? "beschrijving wordt eerst gelezen en ongewijzigd teruggeschreven" : null));
     }).concat(bumps.map(function (b) {
-      var s = b.slot, wn = weekNoOf(s.weekIdx || 0); weekCount[wn] = (weekCount[wn] || 0) + 1;
+      var s = b.slot, wn = slotWeekNo(s); weekCount[wn] = (weekCount[wn] || 0) + 1;
       return row("bump", s.itemId, "Fiche-versie", slotWhere(s), [(s.ficheTitle || b.fiche.title) + " (oud)"], [b.fiche.title + " (nieuw)"], "lesuur blijft verder ongewijzigd");
     }));
     if (calRows.length) {
@@ -5122,6 +5150,28 @@
     var masterCb = h("input", { type: "checkbox", "aria-label": "Alles aangevinkt" }); masterCb.checked = true;
     var sub = h("span", { class: "qwp-cr-sub" });
     var goBtn = h("button", { class: "qwp-cr-go", onclick: approve });
+    var delBtn = h("button", { class: "qwp-cr-delall", type: "button", title: "De aangevinkte wijzigingen weggooien (worden niet weggeschreven)",
+      onclick: function () {
+        var list = chosen().filter(function (r) { return r.kind !== "bump"; });
+        if (!list.length) return;
+        var ok = true; try { ok = window.confirm(list.length + (list.length === 1 ? " wijziging" : " wijzigingen") + " weggooien? Ze worden niet naar Questi geschreven; lesuren krijgen terug wat er nu in Questi staat."); } catch (e) {}
+        if (ok) discardRows(list.map(function (r) { return { kind: r.kind, key: r.key }; }));
+      } });
+    // Discard → back to the stored state, then reopen the review on what is left.
+    function discardRows(list) {
+      var tagKeys = [], ficheKeys = [], nCal = 0;
+      list.forEach(function (r) {
+        if (r.kind === "tag") tagKeys.push(r.key);
+        else if (r.kind === "fiche") ficheKeys.push(r.key);
+        else if (r.kind === "cal") { var s = slotByItemId(r.key); if (s) { discardSlot(s); nCal++; } }
+      });
+      if ((tagKeys.length || ficheKeys.length) && L && L.discardPending) L.discardPending({ tagKeys: tagKeys, ficheKeys: ficheKeys });
+      modal.remove();
+      renderTimetable();
+      var n = tagKeys.length + ficheKeys.length + nCal;
+      setStatus(n + (n === 1 ? " wijziging" : " wijzigingen") + " weggegooid — niets naar Questi geschreven.");
+      if (totalStagedCount()) openReview();
+    }
     masterCb.addEventListener("change", function () { rows.forEach(function (r) { if (!r.cb.disabled) { r.cb.checked = masterCb.checked; r.cb.dispatchEvent(new Event("change")); } }); });
     function chosen() { return rows.filter(function (r) { return r.cb.checked && !r.cb.disabled; }); }
     function sync() {
@@ -5133,8 +5183,10 @@
         r.cb.disabled = off; r.el.classList.toggle("dis", off);
       });
       rows.forEach(function (r) { r.el.classList.toggle("off", !r.cb.checked || r.cb.disabled); });
-      var n = chosen().length;
+      var n = chosen().length, nDel = chosen().filter(function (r) { return r.kind !== "bump"; }).length;
       goBtn.textContent = "Wegschrijven (" + n + ")"; goBtn.disabled = n ? null : "true";
+      delBtn.innerHTML = ""; delBtn.appendChild(svgIcon("trash", 15)); delBtn.appendChild(document.createTextNode(" Weggooien (" + nDel + ")"));
+      delBtn.disabled = nDel ? null : "true";
       var away = offscreenStaged().length - cs.held.length;
       sub.textContent = rows.length + (rows.length === 1 ? " wijziging" : " wijzigingen") + (away > 0 ? " (" + away + " uit andere weken)" : "") + (n !== rows.length ? " · " + n + " aangevinkt" : "") + " · nog niets is naar Questi gestuurd" +
         (cs.held.length ? " · " + cs.held.length + " uit andere weken wacht: zelfde reeks als een lesuur hier, schrijf eerst deze weg" : "");
@@ -5158,6 +5210,7 @@
           h("button", { class: "qwp-navarrow", "aria-label": "Terug", title: "Terug, nog niets doen", onclick: function () { modal.remove(); }, text: "←" }),
           h("div", { class: "qwp-cr-titles" }, [h("span", { class: "qwp-cr-title", text: "Controleer & wegschrijven" }), sub]),
           h("span", { class: "qwp-spacer" }),
+          delBtn,
           h("label", { class: "qwp-cr-all" }, [masterCb, h("span", { text: "Alles aangevinkt" })])
         ]),
         h("div", { class: "qwp-cr-main" }, [h("div", { class: "qwp-cr-secs" }, secs), aside])

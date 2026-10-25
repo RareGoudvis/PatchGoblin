@@ -208,6 +208,12 @@ renders as a bar, and `reloadWeek` loads one more week at a time (`grow`, max `H
 until the target is met. Loops over weeks keep using `view.weeks`; the status line says which weeks
 were skipped (`holidayNote`).
 
+**Descriptions are never wiped by "don't know".** `descHtml(s)` is what gets stored: a lesuur with
+no known vak keeps its stored description (gym still clears on purpose). Controleer's trash
+(`discardSlot`, `L.discardPending`) puts a lesuur back to its stored state and pins the stored
+description (`s.descKeep`) until the lesuur is changed again; `s.keepTitle` stops
+`applyThemaLesuurTitles` from re-staging a thrown-away title.
+
 **Thema rows** (whole-week full-day items: WO, Godsdienst, …). One row per distinct `themaKey`,
 so a third thema needs no code change. **Identity must survive a commit**, because the commit
 rewrites the item title to the fiche title (`assignFiche`, and again from the attachment POST
