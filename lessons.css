@@ -272,7 +272,7 @@ html.qwl-locked { overflow: hidden; }
 .qwl-mounted .qwl-x { width: 34px; height: 34px; border: 1px solid var(--line2); border-radius: 8px; background: var(--surface); cursor: pointer; color: var(--muted); font-size: 15px; }
 
 /* New fiche */
-.qwl-mbtn.qwl-mbtn-new { background: var(--uq-amber); border-color: var(--uq-amber); color: var(--ink); }
+.qwl-mbtn.qwl-mbtn-new { background: var(--uq-amber); border-color: var(--uq-amber); color:#1E1F27; }
 /* The Op.Stap web component brings its own styles (shadow DOM); this only gives it room. */
 .qwl-opstap { display: block; margin: 4px 0; }
 .qwl-modal-box.qwl-newfiche { width: min(1180px, 94vw); height: 90vh; }

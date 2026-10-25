@@ -4482,7 +4482,7 @@
     var lbl = h("div", { class: "qwp-commit-count", id: "qwp-commit-count", text: "0 / " + total });
     var ov = h("div", { class: "qwp-commit-overlay", id: "qwp-commit-overlay" }, [
       h("div", { class: "qwp-commit-card" }, [
-        h("div", { class: "qwp-spinner" }),
+        goblinImg("goblin-full.png", "qwp-spinner qwp-goblin-work") || h("div", { class: "qwp-spinner" }),   // the goblin at work; replaced by the still one when done
         h("div", { class: "qwp-commit-msg", id: "qwp-commit-msg", text: "Bezig met wegschrijven — even geduld, niet bewerken. Herhalende lesuren kunnen traag zijn." }),
         h("div", { class: "qwp-progress" }, [bar]),
         lbl

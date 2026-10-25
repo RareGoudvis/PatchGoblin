@@ -86,7 +86,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: var(--radius-sm); padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 #qws-overlay .qws-btn:hover:not([disabled]) { background: var(--accent-weak); }
 #qws-overlay .qws-btn.ghost { border-color: var(--line-strong); }
-#qws-overlay .qws-btn.primary { background: var(--uq-amber); color: var(--ink); border-color: var(--uq-amber); font-weight: 700; }
+#qws-overlay .qws-btn.primary { background: var(--uq-amber); color:#1E1F27; border-color: var(--uq-amber); font-weight: 700; }
 #qws-overlay .qws-btn.primary:hover:not([disabled]) { background: var(--primary-hover); border-color: var(--primary-hover); }
 #qws-overlay .qws-btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 #qws-overlay .qws-btn.icon { padding: 2px 7px; min-width: 26px; border-color: transparent; color: var(--faint); font-size: 14px; }
@@ -183,7 +183,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-step.cur { background: rgba(255,255,255,.18); }
 #qws-overlay .qws-step[disabled] { cursor: default; }
 #qws-overlay .qws-step-dot { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; background: rgba(255,255,255,.18); color: #fff; }
-#qws-overlay .qws-step.cur .qws-step-dot { background: var(--uq-amber); color: var(--ink); }
+#qws-overlay .qws-step.cur .qws-step-dot { background: var(--uq-amber); color:#1E1F27; }
 #qws-overlay .qws-step.done .qws-step-dot { background: var(--surface); color: var(--ink); }
 #qws-overlay .qws-step-txt { display: flex; flex-direction: column; min-width: 0; }
 #qws-overlay .qws-step-t { font-size: 14.5px; font-weight: 700; }
