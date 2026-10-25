@@ -3941,21 +3941,35 @@
       : ensureFiches(p.source, p.filterTagId);
     prom.then(function () { p.loading = false; ready(); });
   }
-  // Right after a vak is picked: open on the first subtag (blok 1, blok 2 … in order) that still
-  // holds a fiche not used this school year and not planned in the loaded weeks — "where you are"
-  // in the methode. The chosen chip shows it and the status line says so; "Alle" brings back the
-  // whole vak. A vak without subtags, or with everything used, stays on "Alle".
+  // Right after a vak is picked: open on the subtag where you ARE in the methode. That is the
+  // subtag of the most recently touched fiche — planned in the loaded weeks beats any use, else the
+  // latest last_used_date within this school year — since lessons get skipped, "first block with
+  // something left" would land too early. If that subtag has nothing open (unused and unplanned),
+  // the next subtag in order that does is chosen; with nothing used yet, the first open one. The
+  // chosen chip shows it and the status line says why; "Alle" brings back the whole vak. Uses the
+  // lists the union load already cached — no requests.
   function autoPickBlock(pi) {
     var p = view.panels[pi]; if (!p.unionMode) return;
     var kids = childTags(p.filterVak, p.source); if (!kids.length) return;
     var planned = plannedFicheDates();
-    for (var i = 0; i < kids.length; i++) {
-      var list = view.ficheCache[cacheKey(p.source, kids[i].id)] || [];
-      var open = list.some(function (f) { var c = ficheDateInfo(f, planned).cls; return c === "never" || c === "old"; });
-      if (!open) continue;
+    function lists(k) { return view.ficheCache[cacheKey(p.source, k.id)] || []; }
+    function isOpen(f) { var c = ficheDateInfo(f, planned).cls; return c === "never" || c === "old"; }
+    // Recency key: "2" + date for planned, "1" + date for used this school year, "" otherwise.
+    function touched(f) {
+      var pd = planned[String(f.id)]; if (pd) return "2" + pd;
+      return usedThisYear(f) ? "1" + String(f.last_used_date).slice(0, 10) : "";
+    }
+    var latestIdx = -1, latestKey = "";
+    kids.forEach(function (k, i) {
+      lists(k).forEach(function (f) { var t = touched(f); if (t && t > latestKey) { latestKey = t; latestIdx = i; } });
+    });
+    var start = latestIdx < 0 ? 0 : latestIdx;
+    for (var i = start; i < kids.length; i++) {
+      if (!lists(kids[i]).some(isOpen)) continue;
       p.unionMode = false; p.filterTagId = kids[i].id;
       renderSubcats(pi);
-      setStatus("“" + (kids[i].title || "").trim() + "” gekozen: daar staat je eerstvolgende les. Kies ‘Alle’ voor het hele vak.");
+      var name = (kids[i].title || "").trim();
+      setStatus("“" + name + "” gekozen: " + (latestIdx < 0 ? "hier begint het vak" : (i === latestIdx ? "hier gaf je het laatst les" : "het blok na waar je het laatst les gaf")) + ". Kies ‘Alle’ voor het hele vak.");
       return;
     }
   }
