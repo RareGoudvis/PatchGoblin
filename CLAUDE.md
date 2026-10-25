@@ -446,7 +446,9 @@ template's text fields, WEET/KEN/KAN and leerplandoelen. It is staged as `mgr.pe
 (`writeNewFiche`: POST, read back, one PATCH if Questi dropped the WEET/KEN/KAN extras). A
 `methods` field has no captured create shape and is left out, said in the sheet. Op.Stap
 leerplandoelen use Katholiek Onderwijs Vlaanderen's own `<op-stap-selector>` web component, which
-Questi loads on every page (`op-stap-selector.latest.js`): `opstapSelector` places it (mode FULL,
+Questi loads only once its own editor opened (`op-stap-selector.latest.js`); the bridge loads that same
+script on the extension's `uq-opstap-load` event and marks `<html data-uq-opstap>` once it is defined
+(`ensureOpstap`). `opstapSelector` places it (mode FULL,
 marked `data-uq`) and reads `OpStapSelectionChanged` `{ selectedKeys: ["/content/<uuid>"] }`. The
 event detail does not reach the isolated world, so **`opstap-bridge.js` runs in the page world**
 (second manifest content-script entry, `"world": "MAIN"`) and copies it to `data-uq-sel`. Skip the

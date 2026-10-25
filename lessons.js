@@ -1348,20 +1348,26 @@
           section(fld.title || "Tekst", [ta]);
         } else if (fld.type === "goals") {
           var ver = goalsVersionOf(fld);
-          var head = (fld.title || "Leerplandoelen") + (ver ? " (" + (ver.format === "opstap" ? "Op.Stap" : String(ver.format).toUpperCase()) + ")" : "");
-          if (ver && ver.format === "opstap" && opstapAvailable()) {
-            // The real Op.Stap picker; the count below follows every saved selection (no redraw —
-            // that would rebuild the component and close its modal).
+          var fmt = ver ? (ver.format === "opstap" ? "Op.Stap" : String(ver.format).toUpperCase()) : "";
+          var head = (fld.title || "Leerplandoelen") + (fmt && !/op\.?stap|zill/i.test(fld.title || "") ? " (" + fmt + ")" : "");
+          if (ver && ver.format === "opstap") {
+            // The real Op.Stap picker. The element may be placed before its script is loaded: it
+            // upgrades once defined. The count follows every saved selection (no redraw — that
+            // would rebuild the component and close its modal).
             (function (fid) {
               var cnt = h("span", { class: "qwl-note" });
               function syncCnt() { var n = (st.selected[fid] || []).length; cnt.textContent = n ? n + " doel(en) gekozen" : "nog geen doelen gekozen"; }
+              var box = h("div", { class: "qwl-opstap" }, [opstapSelector(st.selected[fid] || [], function (ids) { st.selected[fid] = ids; syncCnt(); })]);
+              var wait = opstapAvailable() ? null : h("div", { class: "qwl-note", text: "Op.Stap-kiezer laden…" });
               syncCnt();
-              section(head, [h("div", { class: "qwl-opstap" }, [opstapSelector(st.selected[fid] || [], function (ids) { st.selected[fid] = ids; syncCnt(); })]), cnt]);
+              section(head, [wait, box, cnt]);
+              if (wait) ensureOpstap(function (ok) {
+                wait.textContent = ok ? "" : "De Op.Stap-kiezer kon niet geladen worden. Open één keer een fiche in Questi's eigen editor (dat laadt hem) en probeer opnieuw, of kies de doelen later in Questi.";
+                if (ok) wait.remove();
+              });
             })(fld.id);
           } else {
-            section(head, [h("div", { class: "qwl-note", text: ver && ver.format === "opstap"
-              ? "De Op.Stap-kiezer van Questi is op deze pagina niet geladen. Herlaad Questi, of kies de doelen later in Questi zelf."
-              : "Leerplandoelen van dit (oudere) sjabloon kies je voorlopig in Questi zelf; de fiche wordt zonder doelen aangemaakt." })]);
+            section(head, [h("div", { class: "qwl-note", text: "Leerplandoelen van dit (oudere) sjabloon kies je voorlopig in Questi zelf; de fiche wordt zonder doelen aangemaakt." })]);
           }
         } else if (fld.type === "methods") {
           section((fld.title || "Methode") + " (methode)", [h("div", { class: "qwl-note", text: "Dit veld hoort bij een methode" + (fld.method && fld.method.name ? " (" + fld.method.name + ")" : "") + ". Methodedoelen kies je voorlopig in Questi; de fiche wordt zonder dit veld aangemaakt." })]);
@@ -1447,7 +1453,17 @@
   // { selectedKeys: [], version: null } — those are skipped, or opening would wipe the selection.
   // Questi stores the bare uuids in selected_goals (POST captured).
   var OPSTAP_PREFIX = "/content/";
-  function opstapAvailable() { return !!document.querySelector('script[src*="op-stap-selector"]'); }
+  // Defined = the bridge saw customElements define it (it marks <html data-uq-opstap>).
+  function opstapAvailable() { return document.documentElement.getAttribute("data-uq-opstap") === "1"; }
+  // Questi only loads the component once its own editor opened: ask the bridge to load the same
+  // script, then call back true (defined) or false (not within 10 s).
+  function ensureOpstap(cb) {
+    if (opstapAvailable()) { cb(true); return; }
+    var done = false, mo = new MutationObserver(function () { if (opstapAvailable() && !done) { done = true; mo.disconnect(); cb(true); } });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-uq-opstap"] });
+    setTimeout(function () { if (!done) { done = true; mo.disconnect(); cb(false); } }, 10000);
+    document.dispatchEvent(new Event("uq-opstap-load"));
+  }
   function opstapSelector(selectedIds, onChange) {
     var el = document.createElement("op-stap-selector");
     el.setAttribute("data-uq", "1");
@@ -2107,7 +2123,10 @@
       // Niets in de extensie heeft ooit de INHOUD van een methodefiche gelezen. Zonder dat is
       // kopiëren onmogelijk. Deze checks lezen alleen en beantwoorden de vraag definitief.
       function () { return probeMethodLesson(addRow); },
-      function () { var ok = opstapAvailable(); addRow({ status: ok ? "OK" : "WARN", name: "Op.Stap-kiezer", detail: ok ? "op-stap-selector geladen door Questi" : "script niet gevonden op deze pagina", next: ok ? null : "Nieuwe fiche: leerplandoelen kiezen werkt pas als Questi de Op.Stap-kiezer laadt." }); },
+      function () { return new Promise(function (res) { ensureOpstap(function (ok) {
+        addRow({ status: ok ? "OK" : "WARN", name: "Op.Stap-kiezer", detail: ok ? "op-stap-selector beschikbaar" : "kon niet geladen worden (10 s)", next: ok ? null : "Nieuwe fiche: open één keer een fiche in Questi's editor en probeer opnieuw." });
+        res();
+      }); }); },
       function () { var t = S().xsrfToken(); addRow({ status: t ? "OK" : "WARN", name: "XSRF-token", detail: t ? "cookie leesbaar" : "leeg", next: t ? null : "Schrijfacties (PATCH/POST/DELETE) hebben x-xsrf-token nodig." }); }
     ];
     var i = 0;
