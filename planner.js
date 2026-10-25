@@ -1362,14 +1362,15 @@
         var p = view.panels[0]; p.gradeFilter = e.target.value || null; state.panels[0].gradeFilter = p.gradeFilter; saveState(); renderPickList(0);
       } })]),
       h("label", { class: "qwp-flbl" }, ["Sorteren", sortSel]),
-      h("label", { class: "qwp-fchk wide" }, [hideChk, h("span", { text: "Verberg al gebruikt dit schooljaar" })]),
-      h("div", { class: "qwp-flbl wide qwp-subwrap" }, ["Subtag", h("div", { class: "qwp-subcats", id: "qwp-subcats-0" })])
+      h("label", { class: "qwp-fchk wide" }, [hideChk, h("span", { text: "Verberg al gebruikt dit schooljaar" })])
     ]);
     var filterBtn = h("button", { class: "qwp-filterbtn", id: "qwp-filterbtn", "aria-expanded": "false", onclick: toggleFilter }, [svgIcon("filter", 14, "2"), h("span", { id: "qwp-filterbtn-t", text: "Filter" })]);
     var side = h("aside", { class: "qwp-side", id: "qwp-side" }, [
       h("div", { class: "qwp-side-top" }, [
         tabs,
         h("div", { class: "qwp-vaktoggle qwp-plan-only", id: "qwp-vaktoggle-0" }),
+        // Subtags of the chosen vak (blok 1, blok 2 …): always in view, never folded into Filter.
+        h("div", { class: "qwp-subcats qwp-plan-only", id: "qwp-subcats-0", role: "group", "aria-label": "Subtags" }),
         h("div", { class: "qwp-ownerrow qwp-plan-only" }, [h("div", { class: "qwp-ownerseg", id: "qwp-source-0", role: "group", "aria-label": "Eigenaar" }), h("span", { class: "qwp-spacer" }), filterBtn]),
         filter
       ]),
@@ -1572,7 +1573,7 @@
   function toggleFilter() { state.filterOpen = !state.filterOpen; saveState(); applyFilterFold(); }
   // A folded filter that still hides fiches must say so on its button — never a silently short list.
   function filterActive(p) {
-    return !!((p.search && p.search.trim()) || p.gradeFilter || p.hideUsed || (!p.unionMode && p.filterTagId != null && String(p.filterTagId) !== String(p.filterVak)));
+    return !!((p.search && p.search.trim()) || p.gradeFilter || p.hideUsed);
   }
   function applyFilterFold() {
     var f = elId("qwp-filter"), b = elId("qwp-filterbtn"), t = elId("qwp-filterbtn-t"); if (!f || !b) return;
@@ -3837,6 +3838,24 @@
   // "Alle vakken" tile on top browses Questi's own all-fiches bucket; which tags show is chosen in
   // Instellingen → Vakken ("Tonen"), linked right under the grid with the number hidden.
   function capFirst(t) { t = (t || "").trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
+  // Short label for a vak: the user's own (state.vakAbbr[id], Instellingen → Vakken) or a default
+  // from a small table of common Flemish vakken, else the first three letters in capitals.
+  var VAK_ABBR_DEFAULT = [
+    [/^wereld/i, "WO"], [/^wisk|^reken/i, "WIS"], [/^nederl|^taal/i, "TAAL"], [/^spel/i, "SPE"], [/^schrift|^schrijf/i, "SCHR"],
+    [/^godsd|^rk|^religie/i, "GOD"], [/^lichamelijk|^lo$|^gym|^bewegings/i, "LO"], [/^muzi|^muvo|^muzo/i, "MUVO"], [/^frans/i, "FR"],
+    [/^engels/i, "EN"], [/^media/i, "MED"], [/^lezen/i, "LEZ"], [/^zwem/i, "ZWEM"], [/^techniek/i, "TECH"], [/^verkeer/i, "VERK"]
+  ];
+  function vakAbbr(t) {
+    if (!t) return "";
+    var own = state.vakAbbr && state.vakAbbr[String(t.id)]; if (own) return own;
+    var title = (t.title || "").trim();
+    for (var i = 0; i < VAK_ABBR_DEFAULT.length; i++) if (VAK_ABBR_DEFAULT[i][0].test(title)) return VAK_ABBR_DEFAULT[i][1];
+    return title.length <= 4 ? title.toUpperCase() : title.slice(0, 3).toUpperCase();
+  }
+  // How the vak picker looks (state.vakView): "tiles" (default, 2 columns, full names), "compact"
+  // (small chips with abbreviations, full name on hover) or "select" (one dropdown).
+  function vakView() { var v = state.vakView; return v === "compact" || v === "select" ? v : "tiles"; }
+  function setVakView(v) { state.vakView = v; saveState(); renderVakToggle(0); }
   function renderVakToggle(pi) {
     var wrap = elId("qwp-vaktoggle-" + pi); if (!wrap) return; wrap.innerHTML = "";
     var p = view.panels[pi], own = isOwnSource(p.source);
@@ -3856,13 +3875,35 @@
       return h("button", { class: "qwp-vakbtn" + (on ? " active" : "") + (extra || ""), type: "button", "aria-pressed": on ? "true" : "false", title: label, onclick: function () { pick(id); } },
         [bar, h("span", { class: "qwp-vakname", text: label })]);
     }
-    if (allId != null) wrap.appendChild(tile(allId, "Alle vakken", null, " all"));
-    tops.forEach(function (t) { wrap.appendChild(tile(t.id, capFirst(t.title), t.color, "")); });
+    var mode = vakView();
+    wrap.className = "qwp-vaktoggle qwp-plan-only vv-" + mode;
+    if (mode === "select") {
+      var sel = h("select", { class: "qwp-fsel qwp-vaksel", "aria-label": "Vak" },
+        (allId != null ? [h("option", { value: String(allId), text: "Alle vakken" })] : []).concat(tops.map(function (t) { return h("option", { value: String(t.id), text: capFirst(t.title) }); })));
+      sel.value = p.filterVak != null ? String(p.filterVak) : "";
+      sel.addEventListener("change", function () { pick(sel.value); });
+      var cur = tops.filter(function (t) { return String(t.id) === String(p.filterVak); })[0];
+      var swatch = h("span", { class: "qwp-vaksw" }); if (cur && cur.color) swatch.style.background = cur.color;
+      wrap.appendChild(h("div", { class: "qwp-vakselrow" }, [swatch, sel]));
+    } else {
+      if (allId != null) wrap.appendChild(tile(allId, mode === "compact" ? "Alle" : "Alle vakken", null, " all"));
+      tops.forEach(function (t) {
+        var b = tile(t.id, mode === "compact" ? vakAbbr(t) : capFirst(t.title), t.color, "");
+        if (mode === "compact") b.title = capFirst(t.title);
+        wrap.appendChild(b);
+      });
+    }
+    // View switch (Tegels · Compact · Lijst) on the same line as the settings link.
+    var vs = h("div", { class: "qwp-vakviews", role: "group", "aria-label": "Weergave vakken" }, [["tiles", "Tegels", "Tegels met de volledige naam"], ["compact", "Compact", "Kleine knoppen met afkortingen"], ["select", "Lijst", "Eén keuzelijst"]].map(function (o) {
+      return h("button", { type: "button", class: mode === o[0] ? "active" : "", "aria-pressed": mode === o[0] ? "true" : "false", title: o[2], text: o[1], onclick: function () { setVakView(o[0]); } });
+    }));
+    var foot = h("div", { class: "qwp-vakfoot" }, [vs]);
+    wrap.appendChild(foot);
     if (own) {
       var hidden = (topTagsForOwner(ownTagsList(), ctx.ownerId) || []).filter(isSubjectTag).length - tops.length;
-      wrap.appendChild(h("button", { class: "qwp-vakmore", type: "button", title: "Kies in Instellingen welke tags als vak getoond worden", onclick: function () {
+      foot.insertBefore(h("button", { class: "qwp-vakmore", type: "button", title: "Kies in Instellingen welke tags als vak getoond worden en hun afkortingen", onclick: function () {
         if (window.__UQ_SETTINGS && typeof window.__UQ_SETTINGS.open === "function") window.__UQ_SETTINGS.open("vakken"); else openSettings();
-      }, text: "Vakken kiezen…" + (hidden > 0 ? " · " + hidden + " verborgen" : "") }));
+      }, text: "Vakken kiezen…" + (hidden > 0 ? " · " + hidden + " verborgen" : "") }), vs);
     }
   }
   // "Ik | Collega ▾": Ik = own fiches; the second half names the chosen colleague/methode and
@@ -5600,7 +5641,7 @@
     fetchMethods: fetchMethods, fetchMethodLessons: fetchMethodLessons,
     fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet,
     // Lesdoelen in the fiche (lessons.js goals mode, print)
-    ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread,
+    ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread, vakAbbr: vakAbbr, refreshVakPicker: function () { renderVakToggle(0); renderSubcats(0); },
     mapLimit: mapLimit,
     // Settings module (settings.js). `state`/`view` are shared BY REFERENCE: settings edits the
     // planner's own qwp_state_v6 object and persists it through saveState, never a copy.

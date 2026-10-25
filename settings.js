@@ -150,7 +150,7 @@
     var P = S();
     if (ui.plannerDirty) {
       ui.plannerDirty = false;
-      try { P.reloadSlotVakLabels(); P.ensureThemaKeys(P.view.slots); if (plannerShown()) P.renderTimetable(); } catch (e) { console.warn("[UQS] planner verversen:", e); }
+      try { P.reloadSlotVakLabels(); P.ensureThemaKeys(P.view.slots); if (plannerShown()) { P.renderTimetable(); if (P.refreshVakPicker) P.refreshVakPicker(); } } catch (e) { console.warn("[UQS] planner verversen:", e); }
     }
     if (ui.sourcesDirty) {
       ui.sourcesDirty = false;
@@ -351,11 +351,35 @@
     ]));
   }
 
+  // Abbreviation shown in the planner's compact vak view (state.vakAbbr[tag id]); empty = the
+  // planner's default, which is shown as the placeholder.
+  function abbrInput(t) {
+    var s = st(), cur = (s.vakAbbr && s.vakAbbr[String(t.id)]) || "";
+    var dflt = "";
+    if (S().vakAbbr) { var keep = s.vakAbbr; s.vakAbbr = null; try { dflt = S().vakAbbr(t); } finally { s.vakAbbr = keep; } }
+    var inp = h("input", { class: "qws-input qws-abbr", type: "text", maxlength: "6", value: cur, placeholder: dflt, "aria-label": "Afkorting voor " + tagName(t) });
+    inp.addEventListener("change", function () {
+      var v = (inp.value || "").trim().toUpperCase();
+      s.vakAbbr = s.vakAbbr || {};
+      if (v) s.vakAbbr[String(t.id)] = v; else delete s.vakAbbr[String(t.id)];
+      inp.value = v; save(); ui.plannerDirty = true;
+    });
+    return inp;
+  }
+  // Tegels (full names, 2 columns) · Compact (abbreviations) · Lijst (one dropdown) → state.vakView.
+  function viewChoice() {
+    var s = st(), cur = s.vakView === "compact" || s.vakView === "select" ? s.vakView : "tiles";
+    return h("div", { class: "qws-radios" }, [["tiles", "Tegels", "volledige namen, twee kolommen"], ["compact", "Compact", "afkortingen, veel per rij"], ["select", "Lijst", "één keuzelijst, het kleinst"]].map(function (o) {
+      var r = h("input", { type: "radio", name: "qws-vakview", value: o[0] }); r.checked = cur === o[0];
+      r.addEventListener("change", function () { if (r.checked) { s.vakView = o[0]; save(); ui.plannerDirty = true; } });
+      return h("label", { class: "qws-radio" }, [r, h("span", {}, [h("b", { text: o[1] }), h("span", { class: "qws-muted", text: " — " + o[2] })])]);
+    }));
+  }
   // ---------- Vakken ----------
   function secVakken(body) {
     var s = st(), tops = vakTops(true);
     var table = h("div", { class: "qws-vaktable" }, [
-      h("div", { class: "qws-vakrow hd" }, [h("span", { text: "Volgorde" }), h("span", { text: "Kleur" }), h("span", { text: "Tag" }), h("span", { text: "Subtags" }), h("span", { text: "Tonen" })])
+      h("div", { class: "qws-vakrow hd" }, [h("span", { text: "Volgorde" }), h("span", { text: "Kleur" }), h("span", { text: "Tag" }), h("span", { text: "Afkorting" }), h("span", { text: "Subtags" }), h("span", { text: "Tonen" })])
     ]);
     if (!tops.length) table.appendChild(note("Geen eigen hoofdtags gevonden. Maak hieronder een vak aan, of controleer de Zelftest.", "warn"));
     tops.forEach(function (t, i) {
@@ -374,6 +398,7 @@
         ]),
         h("span", { class: "qws-swatch", style: "background:" + tagHex(t), title: "Kleur uit Questi: " + (t.color || "geen") }),
         h("span", { class: "qws-vakname", text: tagName(t) }),
+        abbrInput(t),
         h("span", { class: "qws-muted", text: String(childrenOf(t.id).length) }),
         chk
       ]));
@@ -399,6 +424,7 @@
     body.appendChild(h("div", { class: "qws-two" }, [
       card([table, addRow, h("div", { class: "qws-bar" }, [btn("Volgorde terug alfabetisch", function () { s.vakOrder = null; save(); renderSection(); }, "ghost")])]),
       h("div", { class: "qws-stack" }, [
+        card([cardTitle("Weergave in Plannen", "Hoe de vakken bovenaan de lijst staan."), viewChoice()]),
         card([cardTitle("Wat is een vak?"), h("p", { class: "qws-p", text: "Een hoofdtag uit Questi die je hier aanvinkt. Overal waar je een vak kiest of op vak filtert, zie je enkel deze — in deze volgorde, ook in de legende op papier." }),
           note("Een lesuur dat al een tag heeft die je hier uitvinkt, houdt die tag; je ziet ze dan nog als keuze bij dat lesuur.")]),
         card([cardTitle("Kleur"), h("p", { class: "qws-p", text: "Kleuren komen uit Questi en zijn hier alleen-lezen. Een kleur wijzigen is een schrijfactie in Questi; dat kan deze versie nog niet." })])

@@ -697,3 +697,19 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 #qwp-overlay.qwp-resizing, #qwp-overlay.qwp-resizing * { cursor:col-resize !important; user-select:none !important; }
 .qwp-ttinner { display:flex; flex-direction:column; gap:14px; min-width:0; }
 .qwp-fitseg button { padding:5px 12px; font-size:13px; }
+
+/* Vak picker views (state.vakView) + footer line, and subtags shown right under it. */
+.qwp-vakfoot { grid-column:1 / -1; display:flex; align-items:center; gap:8px; min-width:0; }
+.qwp-vakfoot .qwp-vakmore { margin-right:auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qwp-vakviews { display:flex; flex:0 0 auto; margin-left:auto; background:var(--soft); border-radius:999px; padding:2px; }
+.qwp-vakviews button { border:none; background:transparent; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:700; color:var(--accent); cursor:pointer; }
+.qwp-vakviews button.active { background:var(--uq-blue-ink); color:#fff; }
+.qwp-vaktoggle.vv-compact { grid-template-columns:repeat(auto-fill, minmax(56px, 1fr)); gap:4px; }
+.qwp-vaktoggle.vv-compact .qwp-vakbtn { height:26px; gap:6px; padding-right:6px; font-size:11.5px; letter-spacing:.02em; }
+.qwp-vaktoggle.vv-compact .qwp-vakbtn.all { grid-column:auto; padding-left:8px; }
+.qwp-vaktoggle.vv-compact .qwp-vakbar { flex-basis:4px; }
+.qwp-vaktoggle.vv-select { grid-template-columns:minmax(0, 1fr); }
+.qwp-vakselrow { display:flex; align-items:center; gap:8px; min-width:0; }
+.qwp-vaksw { flex:0 0 8px; height:24px; border-radius:3px; background:var(--line2); }
+.qwp-vaksel { flex:1 1 auto; min-width:0; }
+.qwp-side-top .qwp-subcats { padding:0; max-height:none; }

@@ -134,7 +134,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 
 /* ---------- Vakken ---------- */
 #qws-overlay .qws-vaktable { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); overflow: hidden; }
-#qws-overlay .qws-vakrow { display: grid; grid-template-columns: 64px 30px minmax(0, 1fr) 70px 50px; gap: 10px; align-items: center; padding: 7px 12px; border-bottom: 1px solid var(--line-soft); }
+#qws-overlay .qws-vakrow { display: grid; grid-template-columns: 64px 30px minmax(0, 1fr) 76px 64px 50px; gap: 10px; align-items: center; padding: 7px 12px; border-bottom: 1px solid var(--line-soft); }
 #qws-overlay .qws-vakrow:last-child { border-bottom: none; }
 #qws-overlay .qws-vakrow.hd { background: var(--raised); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 #qws-overlay .qws-vakrow.off { background: var(--raised); }
@@ -218,3 +218,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
   #qws-overlay .qws-setup-body { padding: 20px 16px; }
   #qws-overlay .qws-setup-ft { padding: 12px 16px; }
 }
+#qws-overlay .qws-abbr { width: 100%; box-sizing: border-box; padding: 4px 6px; text-transform: uppercase; font-weight: 700; }
+#qws-overlay .qws-radios { display: flex; flex-direction: column; gap: 6px; }
+#qws-overlay .qws-radio { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+#qws-overlay .qws-radio input { accent-color: var(--uq-blue); }
