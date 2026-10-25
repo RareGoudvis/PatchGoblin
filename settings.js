@@ -355,7 +355,7 @@
   function secVakken(body) {
     var s = st(), tops = vakTops(true);
     var table = h("div", { class: "qws-vaktable" }, [
-      h("div", { class: "qws-vakrow hd" }, [h("span", { text: "Volgorde" }), h("span", { text: "Kleur" }), h("span", { text: "Tag" }), h("span", { text: "Subtags" }), h("span", { text: "Vak?" })])
+      h("div", { class: "qws-vakrow hd" }, [h("span", { text: "Volgorde" }), h("span", { text: "Kleur" }), h("span", { text: "Tag" }), h("span", { text: "Subtags" }), h("span", { text: "Tonen" })])
     ]);
     if (!tops.length) table.appendChild(note("Geen eigen hoofdtags gevonden. Maak hieronder een vak aan, of controleer de Zelftest.", "warn"));
     tops.forEach(function (t, i) {

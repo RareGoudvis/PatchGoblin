@@ -19,6 +19,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
   --line:#e3e9ec; --line-soft:#eef1f5; --line2:#d5dbdf; --soft:#eef2f4; --band-line:#e7cf94;
   /* UnQuesti brand palette ("Glowing horizon"). --uq-blue for borders/fills/tints; --uq-blue-ink
      (a step deeper, ~5.7:1 against white) wherever blue carries text. --uq-cyan is never a text colour. */
+  --qwp-side-w:360px; /* sidebar width; the user drags it (state.sideWidth → inline style) */
   --uq-blue:#4272FF; --uq-blue-ink:#2D5BE3; --uq-blue-tint:#edf2ff; --uq-amber:#FFB343; --uq-orange:#FF7E42; --uq-orange-tint:#fff1e9; --uq-orange-ink:#8a3b12; --uq-cyan:#42EAFF; --uq-cyan-tint:#e9fcff;
   --surface:#ffffff; --canvas:#ffffff; --raised:#fbfcfe;
   /* Questi brand tokens (from their Angular-Material theme): primary slate #304651,
@@ -359,16 +360,22 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-main { flex:1; display:flex; min-height:0; }
 
 /* ---- Sidebar ---- */
-.qwp-side { flex:0 0 360px; width:360px; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--line); }
+.qwp-side { position:relative; flex:0 0 var(--qwp-side-w); width:var(--qwp-side-w); min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--line); }
 .qwp-side-top { flex:0 0 auto; padding:14px 16px 10px; display:flex; flex-direction:column; gap:10px; border-bottom:1px solid var(--line); }
 .qwp-tabs { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:3px; background:var(--soft); border-radius:10px; padding:3px; }
 .qwp-tab { border:none; background:transparent; border-radius:8px; padding:6px 0; font-size:14px; font-weight:700; color:var(--accent); cursor:pointer; }
 .qwp-tab:hover { background:#e2e8eb; }
 .qwp-tab.active, .qwp-tab.active:hover { background:var(--uq-blue-ink); color:#fff; cursor:default; }
-.qwp-vaktoggle { display:flex; flex-wrap:wrap; gap:6px; }
-.qwp-vakbtn { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line2); background:var(--surface); border-radius:999px; padding:4px 10px; font-size:12px; font-weight:600; color:var(--ink); cursor:pointer; }
+/* Vak filter: two equal columns of tiles, colour bar left; "Alle vakken" and the settings link span both. */
+.qwp-vaktoggle { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:5px; }
+.qwp-vakbtn { display:flex; align-items:center; gap:8px; min-width:0; height:32px; border:1px solid var(--line2); background:var(--surface); border-radius:7px; padding:0 9px 0 0; overflow:hidden; font-size:12.5px; font-weight:600; color:var(--ink); cursor:pointer; text-align:left; }
+.qwp-vakbtn.all { grid-column:1 / -1; padding-left:10px; }
+.qwp-vakbar { flex:0 0 5px; align-self:stretch; background:var(--line2); }
+.qwp-vakbtn.all .qwp-vakbar { display:none; }
+.qwp-vakname { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qwp-vakbtn:hover { border-color:var(--accent-line); }
 .qwp-vakbtn.active { background:var(--uq-blue-tint); border-color:var(--uq-blue); box-shadow:inset 0 0 0 1px var(--uq-blue); }
+.qwp-vakmore { grid-column:1 / -1; justify-self:start; border:none; background:transparent; padding:2px 0; font-size:12px; font-weight:600; color:var(--uq-blue-ink); text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .qwp-vakdot { width:9px; height:9px; border-radius:50%; background:var(--line2); flex:0 0 auto; }
 .qwp-ownerrow { display:flex; align-items:center; gap:8px; }
 .qwp-ownerseg { display:flex; min-width:0; border:1px solid var(--line2); border-radius:8px; overflow:hidden; }
@@ -413,20 +420,26 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-selbar { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid var(--line); background:var(--uq-blue-tint); }
 .qwp-pick-count { font-size:12px; font-weight:600; color:var(--ink); }
 
-.qwp-side-status { flex:0 0 auto; display:flex; flex-direction:column; gap:2px; padding:6px 14px; border-top:1px solid var(--line); }
+.qwp-right { flex:1 1 auto; min-width:0; min-height:0; display:flex; flex-direction:column; }
+/* Status strip under the main column: one line, note first, retry button inline. */
+.qwp-side-status { flex:0 0 auto; display:flex; align-items:center; gap:12px; min-height:26px; padding:3px 16px; border-top:1px solid var(--line); background:var(--surface); }
+.qwp-side-status .qwp-side-note, .qwp-side-status .qwp-status { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qwp-side-status .qwp-status { flex:1 1 auto; }
 .qwp-side-note { font-size:11.5px; color:var(--accent); font-weight:600; line-height:1.35; }
 .qwp-side-note:empty { display:none; }
 .qwp-retry { align-self:flex-start; margin-top:2px; border:1px solid var(--uq-orange); background:var(--uq-orange-tint); color:var(--uq-orange-ink); border-radius:999px; padding:3px 10px; font:700 11.5px/1.3 inherit; cursor:pointer; }
 .qwp-retry:hover { background:#ffe2d1; }
 .qwp-status { font-size:11.5px; color:var(--muted); line-height:1.35; }
 
-.qwp-actions { flex:0 0 auto; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px; padding:10px; border-top:1px solid var(--line); background:#fafbfb; }
-.qwp-actbtn { position:relative; display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 4px; border:none; border-radius:8px; background:transparent; color:var(--accent); font-size:11.5px; font-weight:600; cursor:pointer; }
+.qwp-actions { flex:0 0 auto; display:flex; gap:6px; padding:8px 10px; border-top:1px solid var(--line); background:#fafbfb; }
+.qwp-actbtn { position:relative; flex:0 0 38px; height:36px; display:flex; align-items:center; justify-content:center; gap:8px; padding:0; border:none; border-radius:8px; background:transparent; color:var(--accent); font-size:13px; font-weight:700; cursor:pointer; }
+.qwp-actbtn:not(.primary) .qwp-actlbl { display:none; }
+.qwp-actbtn.primary { flex:1 1 auto; }
 .qwp-actbtn:hover { background:var(--soft); }
 .qwp-actbtn.primary { background:var(--uq-amber); color:var(--ink); box-shadow:2px 2px 0 var(--ink); }
 .qwp-actbtn.primary:hover { background:#ffa61f; }
 .qwp-actbtn.primary:active { box-shadow:none; transform:translate(2px, 2px); }
-.qwp-actbadge { position:absolute; top:4px; right:10px; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--ink); color:var(--uq-amber); font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+.qwp-actbadge { position:static; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--ink); color:var(--uq-amber); font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
 /* On-open health check failed → Debug glows red (still clickable). */
 .qwp-actbtn.qwp-alert { color:var(--danger); box-shadow:inset 0 0 0 1px var(--danger); animation:qwp-glow 1.4s ease-in-out infinite; }
 @keyframes qwp-glow { 0%,100% { box-shadow:inset 0 0 0 1px var(--danger), 0 0 0 0 rgba(179,38,30,.45); } 50% { box-shadow:inset 0 0 0 1px var(--danger), 0 0 7px 3px rgba(179,38,30,.35); } }
@@ -439,9 +452,9 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-navarrow:hover, .qwp-navbtn:hover { background:var(--soft); }
 .qwp-range { font-size:17px; font-weight:700; color:var(--ink); white-space:nowrap; font-variant-numeric:tabular-nums; }
 .qwp-range-sub { font-size:14px; font-weight:500; color:var(--muted); }
-.qwp-modeseg { display:flex; background:var(--soft); border-radius:999px; padding:3px; }
-.qwp-modeseg button { border:none; background:transparent; border-radius:999px; padding:5px 16px; font-size:14px; font-weight:700; color:var(--accent); cursor:pointer; }
-.qwp-modeseg button.active { background:var(--uq-blue-ink); color:#fff; }
+.qwp-modeseg, .qwp-fitseg { display:flex; background:var(--soft); border-radius:999px; padding:3px; }
+.qwp-modeseg button, .qwp-fitseg button { border:none; background:transparent; border-radius:999px; padding:5px 16px; font-size:14px; font-weight:700; color:var(--accent); cursor:pointer; }
+.qwp-modeseg button.active, .qwp-fitseg button.active { background:var(--uq-blue-ink); color:#fff; }
 .qwp-staged { display:inline-flex; align-items:center; gap:6px; border:none; background:transparent; padding:4px 2px; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; text-decoration:underline; text-decoration-color:var(--uq-blue); text-decoration-thickness:2px; text-underline-offset:3px; }
 .qwp-staged-dot { width:8px; height:8px; border-radius:50%; background:var(--uq-blue); }
 .qwp-goalcount { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; border:1px solid var(--uq-orange); background:var(--uq-orange-tint); color:var(--uq-orange-ink); font-size:12.5px; font-weight:700; }
@@ -534,7 +547,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-mfoot { display:flex; align-items:center; gap:8px; margin-top:6px; padding:10px 10px 2px; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
 
 /* Popovers (collega's, methodes, balans, zoeken) sit just right of the sidebar. */
-.qwp-pop { top:80px; left:372px; }
+.qwp-pop { top:80px; left:calc(var(--qwp-side-w) + 12px); }
 .qwp-pop.qwp-pop-wide { width:440px; }
 .qwp-pop-hd { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .qwp-pop-x { border:none; background:transparent; color:var(--muted); font-size:18px; line-height:1; cursor:pointer; padding:0 2px; }
@@ -547,9 +560,9 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
  * Afdrukken tab (buildPrintPanel): print settings in a 360px sidebar | live A4 preview.
  * Swapped with the Plannen columns through .qwp-main.tab-print (showTab).
  * ===================================================================== */
-.qwp-main.tab-print > .qwp-side, .qwp-main.tab-print > .qwp-content { display:none; }
-.qwp-main:not(.tab-print) > .qpp-side, .qwp-main:not(.tab-print) > .qpp-main { display:none; }
-.qpp-side { flex:0 0 360px; width:360px; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--line); }
+.qwp-main.tab-print .qwp-side, .qwp-main.tab-print .qwp-content { display:none; }
+.qwp-main:not(.tab-print) .qpp-side, .qwp-main:not(.tab-print) .qpp-main { display:none; }
+.qpp-side { position:relative; flex:0 0 var(--qwp-side-w); width:var(--qwp-side-w); min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--line); }
 .qpp-top { flex:0 0 auto; padding:14px 16px 12px; border-bottom:1px solid var(--line); }
 .qpp-body { flex:1 1 auto; min-height:0; overflow:auto; padding:14px 16px; display:flex; flex-direction:column; gap:16px; }
 .qpp-sec { display:flex; flex-direction:column; gap:8px; min-width:0; }
@@ -611,8 +624,8 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 
 /* Narrower screens: a slimmer sidebar, header wraps. */
 @media (max-width: 1100px) {
-  .qwp-side, .qpp-side { flex-basis:300px; width:300px; }
-  .qwp-pop { left:312px; }
+  /* default only: a width the user dragged (inline --qwp-side-w) wins */
+  #qwp-overlay:not([style*="--qwp-side-w"]) { --qwp-side-w:300px; }
   .qwp-ttwrap { padding:10px 12px 14px; }
 }
 
@@ -676,3 +689,11 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-cr-result { margin:0; padding-left:18px; text-align:left; font-size:13px; line-height:1.5; color:var(--ink); align-self:stretch; }
 .qwp-cr-result li.warn { color:var(--danger); }
 .qwp-commit-card:has(.qwp-cr-result) { width:620px; }
+
+/* Sidebar resize handle (right edge of either sidebar) + fit/scroll for the two weeks. */
+.qwp-sizer { position:absolute; top:0; right:-4px; width:8px; height:100%; cursor:col-resize; z-index:6; }
+.qwp-sizer::after { content:""; position:absolute; top:0; bottom:0; left:3px; width:2px; background:transparent; transition:background .15s; }
+.qwp-sizer:hover::after, #qwp-overlay.qwp-resizing .qwp-sizer::after { background:var(--uq-blue); }
+#qwp-overlay.qwp-resizing, #qwp-overlay.qwp-resizing * { cursor:col-resize !important; user-select:none !important; }
+.qwp-ttinner { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.qwp-fitseg button { padding:5px 12px; font-size:13px; }

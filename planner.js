@@ -1330,7 +1330,9 @@
     return s;
   }
   function actBtn(id, icon, label, onclick, extraCls, title) {
-    return h("button", { class: "qwp-actbtn" + (extraCls ? " " + extraCls : ""), id: id, title: title || null, onclick: onclick }, [svgIcon(icon, 20, icon === "check" ? "2" : "1.8"), h("span", { text: label })]);
+    // Compact bar: Alles/Instellingen/Debug are icon buttons (name in the tooltip and for screen
+    // readers); only the primary Controleer shows its label (CSS hides the others' text).
+    return h("button", { class: "qwp-actbtn" + (extraCls ? " " + extraCls : ""), id: id, title: title || label, "aria-label": label, onclick: onclick }, [svgIcon(icon, 18, icon === "check" ? "2" : "1.8"), h("span", { class: "qwp-actlbl", text: label })]);
   }
   // The three tabs, drawn at the top of whichever sidebar is showing (Plannen's or Afdrukken's).
   // Plannen and Afdrukken swap the window's two columns (showTab); Lesfiches opens the manager.
@@ -1383,10 +1385,6 @@
           h("button", { class: "qwp-btn qwp-sm", id: "qwp-addsel-0", title: "Zet de aangevinkte fiches in lege lesuren (eerst de gekozen doel-lesuren)", onclick: function () { openMassAdd(0); }, text: "Toevoegen aan rooster" })
         ])
       ]),
-      h("div", { class: "qwp-side-status" }, [
-        h("div", { class: "qwp-side-note", id: "qwp-side-note", text: "" }),
-        h("div", { class: "qwp-status", id: "qwp-status", text: "Laden…" })
-      ]),
       h("nav", { class: "qwp-actions", "aria-label": "Acties" }, [
         actBtn("qwp-alles", "alles", "Alles", function (e) { openAlles(e.currentTarget); }, null, "Alle hulpmiddelen"),
         actBtn("qwp-inst", "inst", "Instellingen", openSettings, null, "Instellingen"),
@@ -1413,6 +1411,10 @@
         h("button", { "data-m": "plan", onclick: function () { setMainMode("plan"); }, text: "Plannen" }),
         h("button", { "data-m": "doelen", onclick: function () { setMainMode("doelen"); }, title: "Lesdoelen per lesuur (alleen lezen)", text: "Doelen" })
       ]),
+      h("div", { class: "qwp-fitseg", id: "qwp-fitseg", role: "group", "aria-label": "Weergave" }, [
+        h("button", { "data-f": "fit", onclick: function () { setWeekFit("fit"); }, title: "Beide weken passend op het scherm (verkleint indien nodig)", text: "Passend" }),
+        h("button", { "data-f": "scroll", onclick: function () { setWeekFit("scroll"); }, title: "Ware grootte, met een schuifbalk als het niet past", text: "Ruim" })
+      ]),
       h("button", { class: "qwp-staged", id: "qwp-staged", style: "display:none", title: "Nog niet weggeschreven — klik om te controleren", onclick: openReview }),
       betaPill(),
       h("button", { class: "qwp-topx", onclick: hide, title: "Sluiten", text: "✕" })
@@ -1422,7 +1424,15 @@
     var lfMain = h("main", { class: "qwp-lf-main qwp-lf-only", id: "qwp-lf-main" });
 
     var pp = buildPrintPanel();
-    var main = h("div", { class: "qwp-main", id: "qwp-mainwrap" }, [side, content, lfMain, pp.side, pp.main]);
+    // Status strip: one thin line under whichever main column is showing (all three tabs), so the
+    // sidebar keeps its height for the fiche list. Keeps the qwp-side-status class (retry button).
+    var statusStrip = h("div", { class: "qwp-side-status qwp-statusbar", role: "status" }, [
+      h("div", { class: "qwp-side-note", id: "qwp-side-note", text: "" }),
+      h("div", { class: "qwp-status", id: "qwp-status", text: "Laden…" })
+    ]);
+    var right = h("div", { class: "qwp-right" }, [content, lfMain, pp.main, statusStrip]);
+    side.appendChild(sideResizer()); pp.side.appendChild(sideResizer());
+    var main = h("div", { class: "qwp-main", id: "qwp-mainwrap" }, [side, pp.side, right]);
 
     var page = h("div", { class: "qwp-page", id: "qwp-page" }, [main]);
     var overlay = h("div", { class: "qwp-overlay", id: "qwp-overlay" }, [page]);
@@ -1506,6 +1516,55 @@
     state.mainMode = m === "doelen" ? "doelen" : "plan"; saveState();
     renderTimetable();
   }
+  // ---- Sidebar width + week fit (state.sideWidth px | null, state.weekFit "fit" | "scroll") ----
+  // The sidebar is dragged wider/narrower by its right edge (double-click = back to default); the
+  // width lives in --qwp-side-w on the overlay, so Plannen, Lesfiches and Afdrukken share it.
+  var SIDE_MIN = 260, SIDE_MAX = 760;
+  function applySideWidth() {
+    if (!els.root) return;
+    if (state.sideWidth) els.root.style.setProperty("--qwp-side-w", state.sideWidth + "px");
+    else els.root.style.removeProperty("--qwp-side-w");
+  }
+  function sideResizer() {
+    var hd = h("div", { class: "qwp-sizer", role: "separator", "aria-orientation": "vertical", "aria-label": "Breedte zijbalk", title: "Sleep om de zijbalk breder of smaller te maken · dubbelklik = standaard" });
+    hd.addEventListener("mousedown", function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      var left = hd.parentNode.getBoundingClientRect().left, w = null;
+      els.root.classList.add("qwp-resizing");
+      function move(ev) {
+        w = Math.round(Math.max(SIDE_MIN, Math.min(Math.min(SIDE_MAX, window.innerWidth * 0.6), ev.clientX - left)));
+        els.root.style.setProperty("--qwp-side-w", w + "px");
+      }
+      function up() {
+        document.removeEventListener("mousemove", move, true); document.removeEventListener("mouseup", up, true);
+        els.root.classList.remove("qwp-resizing");
+        if (w != null) { state.sideWidth = w; saveState(); }
+        fitWeeks(); if (view.tab === "print") fitPrintFrame();
+      }
+      document.addEventListener("mousemove", move, true); document.addEventListener("mouseup", up, true);
+    });
+    hd.addEventListener("dblclick", function () { state.sideWidth = null; saveState(); applySideWidth(); fitWeeks(); if (view.tab === "print") fitPrintFrame(); });
+    return hd;
+  }
+  // Passend: scale the weeks down (never up) until they fit the visible height — on a big screen
+  // nothing changes; on a laptop both weeks stay in view. Ruim: true size plus a scroll bar.
+  function weekFit() { return state.weekFit === "scroll" ? "scroll" : "fit"; }
+  function setWeekFit(v) { state.weekFit = v; saveState(); syncFitSeg(); fitWeeks(); }
+  function syncFitSeg() {
+    var seg = elId("qwp-fitseg"); if (!seg) return;
+    Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("active", b.getAttribute("data-f") === weekFit()); });
+  }
+  function fitWeeks() {
+    var wrap = elId("qwp-ttwrap"), inner = elId("qwp-ttinner"); if (!wrap || !inner) return;
+    inner.style.zoom = "";
+    syncFitSeg();
+    if (weekFit() !== "fit") return;
+    var cs = getComputedStyle(wrap), avail = wrap.clientHeight - parseFloat(cs.paddingTop || 0) - parseFloat(cs.paddingBottom || 0);
+    var need = inner.scrollHeight;
+    if (avail > 0 && need > avail + 1) inner.style.zoom = String(Math.max(0.5, avail / need).toFixed(3));
+  }
+  window.addEventListener("resize", function () { fitWeeks(); });
   function syncModeSeg() {
     var seg = elId("qwp-modeseg"); if (!seg) return;
     Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("active", b.getAttribute("data-m") === mainMode()); });
@@ -3156,11 +3215,13 @@
     renderRange(); syncModeSeg();
     var doel = mainMode() === "doelen";
     wrap.classList.toggle("qwp-doelen", doel);
-    var keys = themaRowKeys();
+    var keys = themaRowKeys(), inner = h("div", { class: "qwp-ttinner", id: "qwp-ttinner" });
+    wrap.appendChild(inner);
     for (var w = 0; w < view.weeks; w++) {
-      if (doel && w !== doelenWeek()) wrap.appendChild(weekBar(w));
-      else wrap.appendChild(weekSection(w, keys, doel));
+      if (doel && w !== doelenWeek()) inner.appendChild(weekBar(w));
+      else inner.appendChild(weekSection(w, keys, doel));
     }
+    fitWeeks();
     wrap.scrollTop = keepScroll;
     renderBalance();
     refreshUndoBtn();
@@ -3656,8 +3717,10 @@
   // order (state.vakOrder, rest as topTagsForOwner sorts). Used wherever the user PICKS a vak or
   // browses by vak. Resolving an existing slot's vak still accepts any top tag, so a lesuur that was
   // given a tag before it was un-ticked keeps it (the vak popup adds it back as an option).
+  // Questi's own buckets ("Alle eigen lesfiches", "Zonder tag", …) are never a vak.
+  function isSubjectTag(t) { return !!t && t.type !== "default" && !/alle.*lesfiches/i.test(t.title || ""); }
   function vakTops() {
-    var tops = topTagsForOwner(ownTagsList(), ctx.ownerId) || [], list = state.vakTags, order = state.vakOrder || [];
+    var tops = (topTagsForOwner(ownTagsList(), ctx.ownerId) || []).filter(isSubjectTag), list = state.vakTags, order = state.vakOrder || [];
     if (Array.isArray(list)) tops = tops.filter(function (t) { return list.some(function (x) { return String(x) === String(t.id); }); });
     function rank(t) { for (var i = 0; i < order.length; i++) if (String(order[i]) === String(t.id)) return i; return 1e6; }
     return tops.map(function (t, i) { return { t: t, i: i }; })
@@ -3770,20 +3833,37 @@
     var p = view.panels[pi]; var c = tagColor(p.source, p.filterVak);
     el.style.setProperty("--vak-accent", c || "var(--line)");
   }
+  // Vak filter: a two-column grid of equal tiles (colour bar + name). For your own fiches an
+  // "Alle vakken" tile on top browses Questi's own all-fiches bucket; which tags show is chosen in
+  // Instellingen → Vakken ("Tonen"), linked right under the grid with the number hidden.
+  function capFirst(t) { t = (t || "").trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
   function renderVakToggle(pi) {
     var wrap = elId("qwp-vaktoggle-" + pi); if (!wrap) return; wrap.innerHTML = "";
-    var p = view.panels[pi];
+    var p = view.panels[pi], own = isOwnSource(p.source);
     var tops = panelTopTags(p.source);
-    if (p.filterVak == null && tops.length) { p.filterVak = tops[0].id; p.filterTagId = p.filterVak; p.unionMode = true; }
-    tops.forEach(function (t) {
-      var dot = h("span", { class: "qwp-vakdot" }); if (t.color) dot.style.background = t.color;
-      wrap.appendChild(h("button", {
-        class: "qwp-vakbtn" + (String(p.filterVak) === String(t.id) ? " active" : ""), onclick: function () {
-          p.filterVak = t.id; p.filterTagId = t.id; p.unionMode = true; state.panels[pi].filterVak = t.id; saveState();
-          renderVakToggle(pi); renderSubcats(pi); applyPanelAccent(pi); loadAndRenderList(pi);
-        }
-      }, [dot, h("span", { text: (t.title || "").trim() })]));
-    });
+    var allId = own && ctx.ownDefaultTagId != null ? ctx.ownDefaultTagId : null;
+    if (p.filterVak == null) {
+      var first = allId != null ? allId : (tops.length ? tops[0].id : null);
+      if (first != null) { p.filterVak = first; p.filterTagId = first; p.unionMode = true; }
+    }
+    function pick(id) {
+      p.filterVak = id; p.filterTagId = id; p.unionMode = true; state.panels[pi].filterVak = id; saveState();
+      renderVakToggle(pi); renderSubcats(pi); applyPanelAccent(pi); loadAndRenderList(pi);
+    }
+    function tile(id, label, color, extra) {
+      var on = String(p.filterVak) === String(id);
+      var bar = h("span", { class: "qwp-vakbar" }); if (color) bar.style.background = color;
+      return h("button", { class: "qwp-vakbtn" + (on ? " active" : "") + (extra || ""), type: "button", "aria-pressed": on ? "true" : "false", title: label, onclick: function () { pick(id); } },
+        [bar, h("span", { class: "qwp-vakname", text: label })]);
+    }
+    if (allId != null) wrap.appendChild(tile(allId, "Alle vakken", null, " all"));
+    tops.forEach(function (t) { wrap.appendChild(tile(t.id, capFirst(t.title), t.color, "")); });
+    if (own) {
+      var hidden = (topTagsForOwner(ownTagsList(), ctx.ownerId) || []).filter(isSubjectTag).length - tops.length;
+      wrap.appendChild(h("button", { class: "qwp-vakmore", type: "button", title: "Kies in Instellingen welke tags als vak getoond worden", onclick: function () {
+        if (window.__UQ_SETTINGS && typeof window.__UQ_SETTINGS.open === "function") window.__UQ_SETTINGS.open("vakken"); else openSettings();
+      }, text: "Vakken kiezen…" + (hidden > 0 ? " · " + hidden + " verborgen" : "") }));
+    }
   }
   // "Ik | Collega ▾": Ik = own fiches; the second half names the chosen colleague/methode and
   // opens a menu of the owners picked under Alles (state.colleagues, methodes included).
@@ -5476,6 +5556,7 @@
     });
     loadState().then(function () {
       view.weeks = 2;   // Plannen always shows this week + next; state.weeks stays the print default
+      applySideWidth();
       [0, 1, 2].forEach(function (i) { if (state.panels[i]) view.panels[i] = Object.assign(view.panels[i], state.panels[i]); });
       applyFilterFold(); syncModeSeg();
       setStatus("Questi-context detecteren…");
