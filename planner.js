@@ -4556,11 +4556,18 @@
     // 3. Context resolves
     checks.push(wrap("Context-ids (school/cal/group/owner)", "context", function () {
       var found = "school:" + ctx.schoolId + " cal:" + ctx.calendarId + " group:" + ctx.groupId + " owner:" + ctx.ownerId;
-      var calOk = !ctx.calendarId || (shared.items || []).some(function (x) { return x.id_calendar === ctx.calendarId; });
-      var grpOk = ctx.groupId == null || (shared.items || []).some(function (x) { return (x.groups || []).some(function (g) { return String(g.groupId) === String(ctx.groupId); }); });
+      var items = shared.items || [];
+      var calOk = !ctx.calendarId || items.some(function (x) { return x.id_calendar === ctx.calendarId; });
+      // Groups come as {groupId}, {id} or a raw id, and the week LIST often carries none (the detail
+      // does) — so also look in the details already read for the grid, and only judge what exists.
+      function gidOf(g) { return g != null && typeof g === "object" ? (g.groupId != null ? g.groupId : g.id) : g; }
+      var groupLists = items.map(function (x) { return x.groups || []; })
+        .concat((view.slots || []).map(function (s) { return s.groups || []; }))
+        .filter(function (l) { return l.length; });
+      var grpOk = ctx.groupId == null || !groupLists.length || groupLists.some(function (l) { return l.some(function (g) { return String(gidOf(g)) === String(ctx.groupId); }); });
       if (!ctx.schoolId) return { status: STAT.FAIL, found: found, next: "detectContext() — schoolId niet gevonden." };
-      if (!calOk || !grpOk) return { status: STAT.WARN, expected: "cal/group in live items", found: found, next: "calendar/group id mogelijk gerold — detectContext controleren." };
-      return { expected: "alle ids gedetecteerd + teruggevonden", found: found };
+      if (!calOk || !grpOk) return { status: STAT.WARN, expected: "cal/group in live items", found: found + " · niet teruggevonden: " + [calOk ? "" : "cal", grpOk ? "" : "group"].filter(Boolean).join("+"), next: "calendar/group id mogelijk gerold — detectContext controleren." };
+      return { expected: "alle ids gedetecteerd + teruggevonden", found: found + (groupLists.length ? "" : " (group niet in de weeklijst — enkel in detail, ok)") };
     }));
     checks.push(wrap("Vak → live tag mapping (enkel voor oude instellingen)", "context", function () {
       // This map now ONLY migrates legacy Instellingen (old string-based "vast vak per lesuur")
