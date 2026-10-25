@@ -444,10 +444,15 @@ newest own fiche with the same title, and marks the card "nieuwere versie".
 template's text fields, WEET/KEN/KAN and leerplandoelen. It is staged as `mgr.pending["new:N"]`
 (`isNew`, `draft`, `template`) and created by Controleer before any edit or calendar write
 (`writeNewFiche`: POST, read back, one PATCH if Questi dropped the WEET/KEN/KAN extras). A
-`methods` field has no captured create shape and is left out, said in the sheet. The goal tree's
-endpoint is NOT captured: `loadGoalTree` tries `goalTreeCandidates` (reads, one at a time) and the
-Zelftest row "Leerplandoelen-bron" reports what each returned. Replace the candidates with the
-captured route as soon as it is known.
+`methods` field has no captured create shape and is left out, said in the sheet. Op.Stap
+leerplandoelen use Katholiek Onderwijs Vlaanderen's own `<op-stap-selector>` web component, which
+Questi loads on every page (`op-stap-selector.latest.js`): `opstapSelector` places it (mode FULL,
+marked `data-uq`) and reads `OpStapSelectionChanged` `{ selectedKeys: ["/content/<uuid>"] }`. The
+event detail does not reach the isolated world, so **`opstap-bridge.js` runs in the page world**
+(second manifest content-script entry, `"world": "MAIN"`) and copies it to `data-uq-sel`. Skip the
+`{ selectedKeys: [], version: null }` events the modal fires on open. Goal ids are UUID strings —
+never cast them. ZILL templates: no picker, said in the sheet. Keep the MAIN-world entry when
+releasing (beta→stable only touches the CSS list).
 
 **Full fiche editor.** Double-click opens every field of the edit view. Editable: title, tags
 (pill picker, full-set replace), all text fields (`fieldKey`), new extra text fields (`opts.newFields`).

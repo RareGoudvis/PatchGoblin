@@ -51,6 +51,17 @@
         "content.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.questi.com/*",
+        "*://questi.com/*"
+      ],
+      "js": [
+        "opstap-bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
     }
   ],
   "version_name": "1.4.0 beta 1"

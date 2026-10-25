@@ -1347,16 +1347,22 @@
           ta.addEventListener("input", function () { st.text[fld.id] = ta.value; });
           section(fld.title || "Tekst", [ta]);
         } else if (fld.type === "goals") {
-          var ver = goalsVersionOf(fld), chosen = (st.selected[fld.id] || []);
-          var lbl = h("span", { class: "qwl-note", text: chosen.length ? chosen.length + " doel(en) gekozen" : "nog geen doelen gekozen" });
-          var btn = h("button", { class: "qwl-btn qwl-ghost", type: "button", text: "Doelen kiezen…", onclick: function () {
-            openGoalPicker(ver, tpl, st.selected[fld.id] || [], function (ids, names) { st.selected[fld.id] = ids; st.selectedNames = st.selectedNames || {}; st.selectedNames[fld.id] = names; draw(); });
-          } });
-          var names = (st.selectedNames && st.selectedNames[fld.id]) || [];
-          section((fld.title || "Leerplandoelen") + (ver ? " (" + (ver.format === "opstap" ? "Op.Stap" : ver.format.toUpperCase()) + ")" : ""), [
-            h("div", { class: "qwl-goalpick-row" }, [btn, lbl]),
-            names.length ? h("ul", { class: "qwl-goalpick-sel" }, names.slice(0, 12).map(function (n) { return h("li", { text: n }); }).concat(names.length > 12 ? [h("li", { text: "+ " + (names.length - 12) + " meer" })] : [])) : null
-          ]);
+          var ver = goalsVersionOf(fld);
+          var head = (fld.title || "Leerplandoelen") + (ver ? " (" + (ver.format === "opstap" ? "Op.Stap" : String(ver.format).toUpperCase()) + ")" : "");
+          if (ver && ver.format === "opstap" && opstapAvailable()) {
+            // The real Op.Stap picker; the count below follows every saved selection (no redraw —
+            // that would rebuild the component and close its modal).
+            (function (fid) {
+              var cnt = h("span", { class: "qwl-note" });
+              function syncCnt() { var n = (st.selected[fid] || []).length; cnt.textContent = n ? n + " doel(en) gekozen" : "nog geen doelen gekozen"; }
+              syncCnt();
+              section(head, [h("div", { class: "qwl-opstap" }, [opstapSelector(st.selected[fid] || [], function (ids) { st.selected[fid] = ids; syncCnt(); })]), cnt]);
+            })(fld.id);
+          } else {
+            section(head, [h("div", { class: "qwl-note", text: ver && ver.format === "opstap"
+              ? "De Op.Stap-kiezer van Questi is op deze pagina niet geladen. Herlaad Questi, of kies de doelen later in Questi zelf."
+              : "Leerplandoelen van dit (oudere) sjabloon kies je voorlopig in Questi zelf; de fiche wordt zonder doelen aangemaakt." })]);
+          }
         } else if (fld.type === "methods") {
           section((fld.title || "Methode") + " (methode)", [h("div", { class: "qwl-note", text: "Dit veld hoort bij een methode" + (fld.method && fld.method.name ? " (" + fld.method.name + ")" : "") + ". Methodedoelen kies je voorlopig in Questi; de fiche wordt zonder dit veld aangemaakt." })]);
         }
@@ -1431,120 +1437,33 @@
     });
   }
 
-  // ---- Leerplandoelen picker (Op.Stap / ZILL) ----
-  // Where Questi serves the goal tree has not been captured. Candidates are tried in order, all
-  // reads, one at a time; the first that yields a tree wins and is remembered for this session.
-  // Zelftest "Leerplandoelen-bron" reports what each candidate returned.
-  var _goalTrees = {};
-  function goalTreeCandidates(ver) {
-    var id = ver && ver.id;
-    return [
-      { name: "/lessons/goals/" + id, url: api() + "/lessons/goals/" + id + "?" + qs({ schoolId: sid() }) },
-      { name: "/lessons/goals?version=" + id, url: api() + "/lessons/goals?" + qs({ schoolId: sid(), version: id }) },
-      { name: "/goals/" + id, url: api() + "/goals/" + id + "?" + qs({ schoolId: sid() }) }
-    ];
-  }
-  // Normalise any of the shapes seen for goal trees ({ goals:[…] }, { content:{ goals:[…] } }, a bare array).
-  function goalNodesOf(j) {
-    var r = (j && j.result !== undefined) ? j.result : j;
-    if (Array.isArray(r)) return r;
-    if (r && Array.isArray(r.goals)) return r.goals;
-    if (r && r.content && Array.isArray(r.content.goals)) return r.content.goals;
-    if (r && Array.isArray(r.children)) return r.children;
-    return null;
-  }
-  function loadGoalTree(ver) {
-    var k = ver ? ver.format + ":" + ver.id : "?";
-    if (_goalTrees[k]) return Promise.resolve(_goalTrees[k]);
-    var cands = goalTreeCandidates(ver), i = 0;
-    function next() {
-      if (i >= cands.length) return Promise.resolve(null);
-      var c = cands[i++];
-      return fetch(c.url, { credentials: "include", headers: { "Accept": "application/json" } })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { var n = j && j.status !== "error" ? goalNodesOf(j) : null; if (n && n.length) { _goalTrees[k] = { nodes: n, source: c.name }; return _goalTrees[k]; } return next(); })
-        .catch(function () { return next(); });
+  // ---- Leerplandoelen: Katholiek Onderwijs Vlaanderen's own Op.Stap picker ----
+  // Questi loads the <op-stap-selector> web component (opstap.katholiekonderwijs.vlaanderen/webcomponent/
+  // op-stap-selector.latest.js) on every page and only wraps it. In mode FULL it renders its own
+  // "select" button, modal and selected list. We place the same element, marked data-uq, and read
+  // the selection from "OpStapSelectionChanged" { selectedKeys: ["/content/<uuid>", …] }. The detail
+  // object does not cross into this isolated world, so opstap-bridge.js (page world) copies it to
+  // the element's data-uq-sel attribute. Captured 2026-10-25: opening the modal first fires
+  // { selectedKeys: [], version: null } — those are skipped, or opening would wipe the selection.
+  // Questi stores the bare uuids in selected_goals (POST captured).
+  var OPSTAP_PREFIX = "/content/";
+  function opstapAvailable() { return !!document.querySelector('script[src*="op-stap-selector"]'); }
+  function opstapSelector(selectedIds, onChange) {
+    var el = document.createElement("op-stap-selector");
+    el.setAttribute("data-uq", "1");
+    el.setAttribute("mode", "FULL");
+    el.setAttribute("readonly", "false");
+    el.setAttribute("keys", JSON.stringify((selectedIds || []).map(function (id) { return OPSTAP_PREFIX + id; })));
+    function take(detail) {
+      if (!detail || !Array.isArray(detail.selectedKeys)) return;
+      if (!detail.selectedKeys.length && Object.prototype.hasOwnProperty.call(detail, "version")) return;   // modal opening, not a choice
+      onChange(detail.selectedKeys.map(function (k) { return String(k).indexOf(OPSTAP_PREFIX) === 0 ? String(k).slice(OPSTAP_PREFIX.length) : String(k); }));
     }
-    return next();
-  }
-  function goalLabel(n) { return ((n.code ? n.code + " " : "") + stripTags(n.title || n.description || n.name || "")).trim() || ("doel " + n.id); }
-  function isGoalNode(n) { return n.is_goal === true || n.is_goal === 1 || (!(n.children && n.children.length) && n.id != null); }
-  function openGoalPicker(ver, tpl, selectedIds, onDone) {
-    var sel = {}; (selectedIds || []).forEach(function (id) { sel[String(id)] = id; });   // key → the id in its own type
-    var names = {};
-    var search = h("input", { class: "qwl-input", type: "search", placeholder: "Zoek op code of woord…" });
-    var count = h("span", { class: "qwl-note" });
-    var tree = h("div", { class: "qwl-goaltree" }, [h("div", { class: "qwl-loading", text: "Leerplandoelen laden…" })]);
-    var m = modal("Leerplandoelen kiezen" + (ver ? " · " + (ver.format === "opstap" ? "Op.Stap" : String(ver.format).toUpperCase()) : ""), [h("div", { class: "qwl-goalpick-top" }, [search, count]), tree], [], "wide");
-    var ftEl = m.querySelector(".qwl-modal-ft");
-    ftEl.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
-    ftEl.appendChild(h("button", { class: "qwl-btn", onclick: function () {
-      var ids = Object.keys(sel).map(function (k) { return sel[k]; });
-      onDone(ids, ids.map(function (id) { return names[String(id)] || ("doel " + id); }));
-      m.close();
-    }, text: "Klaar" }));
-    function syncCount() { var n = Object.keys(sel).length; count.textContent = n + " gekozen"; }
-    syncCount();
-    loadGoalTree(ver).then(function (t) {
-      tree.innerHTML = "";
-      if (!t) {
-        tree.appendChild(h("div", { class: "qwl-note", text: "UnQuesti vond de lijst met leerplandoelen nog niet bij Questi. Kies de doelen voorlopig in Questi zelf, of draai Diagnose en stuur het rapport door: dan kan dit afgewerkt worden." }));
-        return;
-      }
-      var flat = [];
-      (function walk(list, path) { (list || []).forEach(function (n) { var lbl = goalLabel(n); if (isGoalNode(n) && n.id != null) { names[String(n.id)] = lbl; flat.push({ n: n, lbl: lbl, path: path }); } walk(n.children, path.concat(lbl)); }); })(t.nodes, []);
-      function goalRow(n, lbl, path) {
-        var c = h("input", { type: "checkbox" }); c.checked = !!sel[String(n.id)];
-        c.addEventListener("change", function () { if (c.checked) sel[String(n.id)] = n.id; else delete sel[String(n.id)]; syncCount(); });
-        return h("label", { class: "qwl-goal" }, [c, h("span", {}, [h("span", { text: lbl }), path ? h("small", { text: path }) : null])]);
-      }
-      // Tree view: branches open lazily (Op.Stap is large); leaves are the pickable goals.
-      function branch(n) {
-        var kids = n.children || [];
-        if (!kids.length) return isGoalNode(n) && n.id != null ? goalRow(n, goalLabel(n)) : h("div", { class: "qwl-note", text: goalLabel(n) });
-        var d = h("details", { class: "qwl-goalbranch" }, [h("summary", { text: goalLabel(n) })]);
-        d.addEventListener("toggle", function () { if (!d.open || d.getAttribute("data-built")) return; d.setAttribute("data-built", "1"); kids.forEach(function (k) { d.appendChild(branch(k)); }); });
-        if (isGoalNode(n) && n.id != null) d.insertBefore(goalRow(n, goalLabel(n)), d.children[1] || null);
-        return d;
-      }
-      var treeView = h("div", {}, t.nodes.map(branch));
-      var results = h("div", { style: "display:none" });
-      tree.appendChild(treeView); tree.appendChild(results);
-      tree.appendChild(h("div", { class: "qwl-note", text: flat.length + " doelen · bron " + t.source }));
-      search.addEventListener("input", function () {
-        var q = search.value.trim().toLowerCase();
-        if (!q) { results.style.display = "none"; treeView.style.display = ""; return; }
-        var hits = flat.filter(function (x) { return x.lbl.toLowerCase().indexOf(q) >= 0; }).slice(0, 200);
-        results.innerHTML = "";
-        results.appendChild(h("div", {}, hits.map(function (x) { return goalRow(x.n, x.lbl, x.path.join(" › ")); })));
-        if (!hits.length) results.appendChild(h("div", { class: "qwl-note", text: "Niets gevonden." }));
-        results.style.display = ""; treeView.style.display = "none";
-      });
-    });
-  }
-  // Zelftest: which candidate serves the goal tree, and in what shape (keys only, read-only).
-  function probeGoalTrees(addRow) {
-    return fetchTemplates().then(function (list) {
-      var vers = {}; (list || []).forEach(function (t) { var g = goalsVersionOf(templateGoalsField(t)); if (g) vers[g.format + ":" + g.id] = g; });
-      var keys = Object.keys(vers);
-      if (!keys.length) { addRow({ status: "SKIP", name: "Leerplandoelen-bron", detail: "geen sjabloon met een doelenveld" }); return; }
-      return runSequential(keys, function (k) {
-        var ver = vers[k], cands = goalTreeCandidates(ver), found = [];
-        return runSequential(cands, function (c) {
-          return fetch(c.url, { credentials: "include", headers: { "Accept": "application/json" } }).then(function (r) {
-            return r.json().catch(function () { return null; }).then(function (j) {
-              var n = goalNodesOf(j), r0 = j && j.result !== undefined ? j.result : j;
-              found.push(c.name + " → HTTP " + r.status + (j && j.status === "error" ? " (" + (j.error_msg || "fout") + ")" : "") +
-                (n ? " · " + n.length + " knopen, sleutels: " + Object.keys(n[0] || {}).join(",") : (r0 && typeof r0 === "object" ? " · sleutels: " + Object.keys(r0).slice(0, 12).join(",") : "")));
-            });
-          }).catch(function (e) { found.push(c.name + " → " + ((e && e.message) || e)); });
-        }).then(function () {
-          var ok = found.some(function (x) { return / knopen/.test(x); });
-          addRow({ status: ok ? "OK" : "WARN", name: "Leerplandoelen-bron " + k, detail: found.join(" | "),
-            next: ok ? null : "Geen bron gevonden — open in Questi een fiche-editor, klik de doelenkiezer open en stuur de netwerk-aanvraag door." });
-        });
-      });
-    });
+    new MutationObserver(function () {
+      var raw = el.getAttribute("data-uq-sel"); if (!raw) return;
+      try { take(JSON.parse(raw)); } catch (e) {}
+    }).observe(el, { attributes: true, attributeFilter: ["data-uq-sel"] });
+    return el;
   }
 
   // ------------------------------------------------------------------------
@@ -2188,7 +2107,7 @@
       // Niets in de extensie heeft ooit de INHOUD van een methodefiche gelezen. Zonder dat is
       // kopiëren onmogelijk. Deze checks lezen alleen en beantwoorden de vraag definitief.
       function () { return probeMethodLesson(addRow); },
-      function () { return probeGoalTrees(addRow); },
+      function () { var ok = opstapAvailable(); addRow({ status: ok ? "OK" : "WARN", name: "Op.Stap-kiezer", detail: ok ? "op-stap-selector geladen door Questi" : "script niet gevonden op deze pagina", next: ok ? null : "Nieuwe fiche: leerplandoelen kiezen werkt pas als Questi de Op.Stap-kiezer laadt." }); },
       function () { var t = S().xsrfToken(); addRow({ status: t ? "OK" : "WARN", name: "XSRF-token", detail: t ? "cookie leesbaar" : "leeg", next: t ? null : "Schrijfacties (PATCH/POST/DELETE) hebben x-xsrf-token nodig." }); }
     ];
     var i = 0;
