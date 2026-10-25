@@ -1,4 +1,56 @@
-# Questi Weekplanner
+# UnQuesti
+
+**Doing the job their UI designer was paid for.**
+
+UnQuesti is the lightweight addon that strips away the user-hostile layout, bypasses the clumsy
+navigation, and restores sanity to your workflow. Because life is too short for a terrible UI.
+
+> **Beta.** UnQuesti is the successor of the *Questi Weekplanner* and is being rebuilt right now.
+> Everything below "Handleiding" still describes the current version; it gets rewritten as each
+> part of the new design lands.
+>
+> UnQuesti is an independent, unofficial project. It is not made, endorsed or supported by Questi.
+
+---
+
+## Wat het doet
+
+UnQuesti legt één venster over je Questi-agenda, bereikbaar met één knop in de werkbalk
+(of **Alt + P**). Daarin:
+
+- **Plannen** — deze week en volgende week onder elkaar. Sleep lesfiches uit de lijst links op je
+  lesuren; de lijst toont wat je al gaf en wat nog niet.
+- **Doelen** — schakel naar één week en zie per les **WEET / KEN / KAN**. De doelen staan in de
+  lesfiche zelf, dus ook op je andere computer en bij je collega's.
+- **Lesfiches** — je hele bibliotheek: titels, tags, leerjaren en doelen in één tabel, met een
+  volledige editor per fiche.
+- **Afdrukken** — je week op papier, met schrijflijnen voor de lesdoelen, in de kleuren van je vakken.
+- **Eén keer controleren** — niets gaat naar Questi voor je alle wijzigingen samen nakijkt en
+  goedkeurt. Een lesuur dat deel is van een reeks wordt nooit als hele reeks aangepast.
+
+| Onderdeel | Status |
+|---|---|
+| Weekplanner, Lesfiche-manager, Lesdoelen-afdruk, Methodevoortgang | werkt (v1.2) |
+| Eén UnQuesti-knop met snelmenu | in aanbouw |
+| Snellere start | in aanbouw |
+| Nieuw venster: Plannen · Lesfiches · Afdrukken | gepland |
+| Eerste installatie, instellingen delen (.json) | gepland |
+
+## Voor wie
+
+Leerkrachten die hun lessen in Questi plannen. Werkt met je **eigen** Questi-account en je
+**eigen** tags: bij de eerste start duid je aan welke tags je vakken zijn en welk vak je op welk
+lesuur geeft. Een collega van je school kan jouw instellingen als bestand overnemen.
+
+## Hulp nodig?
+
+Open **Debug** (onderaan links) en klik **Opslaan als .json**. Stuur dat bestand mee met je vraag.
+Het bevat geen wachtwoord, cookies of sessie — wel je schoolnaam, tags, titels van lesfiches
+(kan je weglaten) en de laatste foutmeldingen.
+
+---
+
+# Handleiding (huidige versie)
 
 Een browserextensie die bovenop de **Questi**-agenda een volledig scherm-weekplanner legt.
 Plan in één overzicht een (of twee) volledige lesweken: sleep lesfiches in je lesuren,
@@ -215,7 +267,8 @@ datums worden élke keer opnieuw opgehaald, zodat de tabel nooit uit de pas loop
 ## Privacy
 
 De extensie draait volledig in je eigen browser en praat enkel met `questi.com` via je eigen
-login. Er worden geen gegevens naar derden gestuurd.
+login, plus `raw.githubusercontent.com` om te kijken of er een nieuwe versie is. Er worden geen
+gegevens naar derden gestuurd, er is geen eigen server en er wordt niets gevolgd.
 
 ---
 
