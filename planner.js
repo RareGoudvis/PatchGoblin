@@ -5538,6 +5538,12 @@
       h("span", { class: "qwp-wkbar-s", text: shortRange(w, w) + " · " + (names.length ? names.join(", ") + " — " : "") + "geen lesuren, overgeslagen" })
     ]);
   }
+  // Hints ("Wiskunde?") only exist because the Lesrooster has no vak for those hours — say so.
+  function roosterNote() {
+    var n = view.slots.filter(function (s) { return !s.isFullday && s.idCalendar !== "cal_holidays" && !s.vak && !s.ficheContentId && !s.isGym && vakHintFor(s); }).length;
+    if (!n) return "";
+    return " " + n + " lesuur/lesuren tonen een gok (vak met ?) omdat je Lesrooster daar nog leeg is — bewaar het in Instellingen → Lesrooster.";
+  }
   function holidayNote() {
     var skipped = [];
     for (var w = 0; w < view.weeks; w++) if (isHolidayWeek(w)) skipped.push(weekNoOf(w));
@@ -5601,7 +5607,7 @@
     }).then(function (current) {
       if (!current) return;
       var nt = view.slots.filter(function (s2) { return s2.autoThemaTitle && computeDirty(s2); }).length;
-      setStatus((nt ? (nt + " WO/Godsdienst-lesuur/lesuren krijgen de themafiche als titel en het vak als beschrijving — controleer bij Wijzigingen.") : "Rooster geladen.") + holidayNote() + hydrateFailNote());
+      setStatus((nt ? (nt + " WO/Godsdienst-lesuur/lesuren krijgen de themafiche als titel en het vak als beschrijving — controleer bij Wijzigingen.") : "Rooster geladen.") + holidayNote() + roosterNote() + hydrateFailNote());
       // Then, without blocking the paint, find out which fiches disagree with their lesuur's vak.
       resolveFicheVakken(view.slots, function (changed) {
         var n = applyStoredVakken(view.slots);
