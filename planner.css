@@ -377,7 +377,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-vakbtn.active { background:var(--uq-blue-tint); border-color:var(--uq-blue); box-shadow:inset 0 0 0 1px var(--uq-blue); }
 .qwp-vakmore { grid-column:1 / -1; justify-self:start; border:none; background:transparent; padding:2px 0; font-size:12px; font-weight:600; color:var(--uq-blue-ink); text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .qwp-vakdot { width:9px; height:9px; border-radius:50%; background:var(--line2); flex:0 0 auto; }
-.qwp-ownerrow { display:flex; align-items:center; gap:8px; }
+.qwp-ownerrow { display:flex; align-items:center; gap:6px; min-width:0; }
 .qwp-ownerseg { display:flex; min-width:0; border:1px solid var(--line2); border-radius:8px; overflow:hidden; }
 .qwp-ownerseg button { display:flex; align-items:center; min-width:0; border:none; background:var(--surface); color:var(--accent); padding:6px 12px; font-size:12.5px; font-weight:600; cursor:pointer; }
 .qwp-ownerseg button + button { border-left:1px solid var(--line2); }
@@ -713,3 +713,11 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-vaksw { flex:0 0 8px; height:24px; border-radius:3px; background:var(--line2); }
 .qwp-vaksel { flex:1 1 auto; min-width:0; }
 .qwp-side-top .qwp-subcats { padding:0; max-height:none; }
+
+/* Owner row: Ik | Collega · Alle · search · filter icon. */
+.qwp-allbtn { flex:0 0 auto; height:32px; border:1px solid var(--line2); background:var(--surface); border-radius:8px; padding:0 10px; font-size:12.5px; font-weight:700; color:var(--accent); cursor:pointer; }
+.qwp-allbtn:hover { border-color:var(--accent-line); }
+.qwp-allbtn.active { background:var(--uq-blue-tint); border-color:var(--uq-blue); box-shadow:inset 0 0 0 1px var(--uq-blue); color:var(--ink); }
+.qwp-rowsearch { flex:1 1 60px; min-width:0; height:32px; box-sizing:border-box; }
+.qwp-ownerrow .qwp-filterbtn { position:relative; height:32px; padding:0 9px; }
+.qwp-filterdot { position:absolute; top:4px; right:4px; width:7px; height:7px; border-radius:50%; background:var(--uq-orange); }

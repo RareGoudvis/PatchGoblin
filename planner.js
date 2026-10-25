@@ -1357,21 +1357,23 @@
       var p = view.panels[0]; p.hideUsed = !!e.target.checked; state.panels[0].hideUsed = p.hideUsed; saveState(); renderPickList(0);
     } });
     var filter = h("div", { class: "qwp-filter qwp-plan-only", id: "qwp-filter" }, [
-      h("label", { class: "qwp-flbl wide" }, ["Zoeken", h("input", { class: "qwp-finp", id: "qwp-search-0", type: "text", placeholder: "titel bevat…", oninput: function (e) { view.panels[0].search = e.target.value; renderPickList(0); } })]),
       h("label", { class: "qwp-flbl" }, ["Leerjaar", h("select", { class: "qwp-fsel", id: "qwp-grade-0", onchange: function (e) {
         var p = view.panels[0]; p.gradeFilter = e.target.value || null; state.panels[0].gradeFilter = p.gradeFilter; saveState(); renderPickList(0);
       } })]),
       h("label", { class: "qwp-flbl" }, ["Sorteren", sortSel]),
       h("label", { class: "qwp-fchk wide" }, [hideChk, h("span", { text: "Verberg al gebruikt dit schooljaar" })])
     ]);
-    var filterBtn = h("button", { class: "qwp-filterbtn", id: "qwp-filterbtn", "aria-expanded": "false", onclick: toggleFilter }, [svgIcon("filter", 14, "2"), h("span", { id: "qwp-filterbtn-t", text: "Filter" })]);
+    var filterBtn = h("button", { class: "qwp-filterbtn", id: "qwp-filterbtn", "aria-expanded": "false", "aria-label": "Filter: leerjaar, sorteren, verberg gebruikt", onclick: toggleFilter }, [svgIcon("filter", 15, "2"), h("span", { class: "qwp-filterdot", id: "qwp-filterbtn-t" })]);
+    // One row under the vakken: owner · Alle (all own fiches) · text search · filter icon.
+    var allBtn = h("button", { class: "qwp-allbtn", id: "qwp-allbtn-0", type: "button", title: "Alle eigen lesfiches, elk vak", text: "Alle" });
+    var searchInp = h("input", { class: "qwp-finp qwp-rowsearch", id: "qwp-search-0", type: "search", placeholder: "Zoek…", "aria-label": "Zoek in de titels", oninput: function (e) { view.panels[0].search = e.target.value; renderPickList(0); } });
     var side = h("aside", { class: "qwp-side", id: "qwp-side" }, [
       h("div", { class: "qwp-side-top" }, [
         tabs,
         h("div", { class: "qwp-vaktoggle qwp-plan-only", id: "qwp-vaktoggle-0" }),
         // Subtags of the chosen vak (blok 1, blok 2 …): always in view, never folded into Filter.
         h("div", { class: "qwp-subcats qwp-plan-only", id: "qwp-subcats-0", role: "group", "aria-label": "Subtags" }),
-        h("div", { class: "qwp-ownerrow qwp-plan-only" }, [h("div", { class: "qwp-ownerseg", id: "qwp-source-0", role: "group", "aria-label": "Eigenaar" }), h("span", { class: "qwp-spacer" }), filterBtn]),
+        h("div", { class: "qwp-ownerrow qwp-plan-only" }, [h("div", { class: "qwp-ownerseg", id: "qwp-source-0", role: "group", "aria-label": "Eigenaar" }), allBtn, searchInp, filterBtn]),
         filter
       ]),
       // Lesfiches tab: lessons.js mounts its tag tree here (setTab → __QWP_LESSONS.mount).
@@ -1573,7 +1575,7 @@
   function toggleFilter() { state.filterOpen = !state.filterOpen; saveState(); applyFilterFold(); }
   // A folded filter that still hides fiches must say so on its button — never a silently short list.
   function filterActive(p) {
-    return !!((p.search && p.search.trim()) || p.gradeFilter || p.hideUsed);
+    return !!(p.gradeFilter || p.hideUsed);
   }
   function applyFilterFold() {
     var f = elId("qwp-filter"), b = elId("qwp-filterbtn"), t = elId("qwp-filterbtn-t"); if (!f || !b) return;
@@ -1581,8 +1583,8 @@
     f.style.display = open ? "" : "none";
     b.classList.toggle("open", open); b.classList.toggle("on", on && !open);
     b.setAttribute("aria-expanded", open ? "true" : "false");
-    if (t) t.textContent = open ? "Filter ▴" : (on ? "Filter •" : "Filter");
-    b.title = on ? "Er staat een filter aan — niet alle fiches worden getoond" : "Zoeken, leerjaar, sorteren";
+    if (t) t.style.display = on && !open ? "" : "none";
+    b.title = on ? "Er staat een filter aan (leerjaar of verberg gebruikt) — niet alle fiches worden getoond" : "Leerjaar, sorteren, verberg gebruikt";
   }
   // Same selection buildCommitPlan writes, without building the bodies.
   function stagedCount() {
@@ -3877,6 +3879,13 @@
     }
     var mode = vakView();
     wrap.className = "qwp-vaktoggle qwp-plan-only vv-" + mode;
+    var ab = elId("qwp-allbtn-" + pi);
+    if (ab) {
+      ab.style.display = allId != null ? "" : "none";
+      var allOn = allId != null && String(p.filterVak) === String(allId);
+      ab.classList.toggle("active", allOn); ab.setAttribute("aria-pressed", allOn ? "true" : "false");
+      ab.onclick = function () { if (allId != null) pick(allId); };
+    }
     if (mode === "select") {
       var sel = h("select", { class: "qwp-fsel qwp-vaksel", "aria-label": "Vak" },
         (allId != null ? [h("option", { value: String(allId), text: "Alle vakken" })] : []).concat(tops.map(function (t) { return h("option", { value: String(t.id), text: capFirst(t.title) }); })));
@@ -3886,25 +3895,13 @@
       var swatch = h("span", { class: "qwp-vaksw" }); if (cur && cur.color) swatch.style.background = cur.color;
       wrap.appendChild(h("div", { class: "qwp-vakselrow" }, [swatch, sel]));
     } else {
-      if (allId != null) wrap.appendChild(tile(allId, mode === "compact" ? "Alle" : "Alle vakken", null, " all"));
       tops.forEach(function (t) {
         var b = tile(t.id, mode === "compact" ? vakAbbr(t) : capFirst(t.title), t.color, "");
         if (mode === "compact") b.title = capFirst(t.title);
         wrap.appendChild(b);
       });
     }
-    // View switch (Tegels · Compact · Lijst) on the same line as the settings link.
-    var vs = h("div", { class: "qwp-vakviews", role: "group", "aria-label": "Weergave vakken" }, [["tiles", "Tegels", "Tegels met de volledige naam"], ["compact", "Compact", "Kleine knoppen met afkortingen"], ["select", "Lijst", "Eén keuzelijst"]].map(function (o) {
-      return h("button", { type: "button", class: mode === o[0] ? "active" : "", "aria-pressed": mode === o[0] ? "true" : "false", title: o[2], text: o[1], onclick: function () { setVakView(o[0]); } });
-    }));
-    var foot = h("div", { class: "qwp-vakfoot" }, [vs]);
-    wrap.appendChild(foot);
-    if (own) {
-      var hidden = (topTagsForOwner(ownTagsList(), ctx.ownerId) || []).filter(isSubjectTag).length - tops.length;
-      foot.insertBefore(h("button", { class: "qwp-vakmore", type: "button", title: "Kies in Instellingen welke tags als vak getoond worden en hun afkortingen", onclick: function () {
-        if (window.__UQ_SETTINGS && typeof window.__UQ_SETTINGS.open === "function") window.__UQ_SETTINGS.open("vakken"); else openSettings();
-      }, text: "Vakken kiezen…" + (hidden > 0 ? " · " + hidden + " verborgen" : "") }), vs);
-    }
+    // View (Tegels · Compact · Lijst) and which tags show are chosen in Instellingen → Vakken.
   }
   // "Ik | Collega ▾": Ik = own fiches; the second half names the chosen colleague/methode and
   // opens a menu of the owners picked under Alles (state.colleagues, methodes included).
@@ -4032,7 +4029,7 @@
     var items = pickListItems(pi);
     renderListHead(pi, items.length);
     if (!items.length) {
-      list.appendChild(h("div", { class: "qwp-empty", text: filterActive(p) ? "Geen lesfiches voor dit filter." : "Geen lesfiches in dit vak." }));
+      list.appendChild(h("div", { class: "qwp-empty", text: (filterActive(p) || (p.search && p.search.trim())) ? "Geen lesfiches voor dit filter of deze zoekterm." : "Geen lesfiches in dit vak." }));
       updatePickCount(pi); return;
     }
     var col = tagColor(p.source, p.filterVak);
