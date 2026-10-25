@@ -145,7 +145,7 @@ fiche-bibliotheek** (los van de kalender).
   blijven altijd behouden.
 - **Verwijderen** is definitief: typ `VERWIJDER`, test eerst met één fiche, dan de rest.
 - **1/2 kolommen** en **Diagnose** (zelftest) staan links. **Importeren** komt binnenkort (OPSTAP).
-- **Lesdoelen invullen** (BETA). Links → **Lesdoelen invullen** zet de lijst om in een invulblad:
+- **Lesdoelen invullen**. Links → **Lesdoelen invullen** zet de lijst om in een invulblad:
   per fiche **Titel · WEET · KEN · KAN**. **Tab** = volgende vak, **Enter** = zelfde kolom, volgende
   fiche (**Shift+Enter** = nieuwe regel). Ook de titel pas je hier aan. De doelen worden **in de
   lesfiche zelf** bewaard (drie extra tekstvelden WEET / KEN / KAN, zichtbaar in Questi en voor je
@@ -311,7 +311,7 @@ Per-key semantics (learned the hard way — see the gotchas):
 back as `{ id, type:"text", title, description, content, template_field_id:null }`: the **value is
 `content`**, `description` is the ⓘ helper text. Questi's own editor updates one as `{ id, content }`
 (no `template_field_id` key) and adds one as `{ field_type:"text", title, description, order,
-content }`. The beta stores lesdoelen in three such fields titled `WEET` / `KEN` / `KAN`, matched by
+content }`. The Lesfiche-manager stores lesdoelen in three such fields titled `WEET` / `KEN` / `KAN`, matched by
 title; `buildPatch` echoes every extra field as `{ id, content }` so a rename never drops them.
 
 **Delete** — `DELETE /cal/lessons?schoolId&lessons[]=<id>[&lessons[]=<id>…]`

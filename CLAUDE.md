@@ -76,7 +76,7 @@ consumer that planner already has is a bug — export the existing one instead.
 `__QWP_SHARED` currently exposes: `ctx, API, API_ROOT, jget, qs, xsrfToken, writeHeaders,
 fetchTags, fetchOwnTags, fetchSharedTags, invalidateOwnTags, topTagsForOwner, childTags, tagTitle,
 tagColor, ownerName, h, detectContext, fetchMethods, fetchMethodLessons, fetchAllFichesByTag,
-storeGet, storeSet, ficheGoalFields, goalText, IS_BETA, betaPill`.
+storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`.
 
 ## UI conventions
 
@@ -101,7 +101,7 @@ storeGet, storeSet, ficheGoalFields, goalText, IS_BETA, betaPill`.
 | `qwp_state_v6` | planner | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), weeks, panels, split ratio, manual overrides |
 | `qwp_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
-| `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and pre-beta text (own fiches now keep goals in the fiche) |
+| `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
 | `qwp_threads_v1` | planner (print) + lessons | fiche lineage `{ "<thread>": newest fiche id seen }` — learned from every edit view read/written (the list has no `thread`) |
 | `qwp_goalcache_v1` | lessons (goals mode) + print | goals per fiche VERSION `{ "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }` — exact forever (an id never changes content), so a seen fiche costs no request |
 | `qwp_print_v1` | planner (print) | print window choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool }` |
@@ -273,7 +273,7 @@ because both would need a write: whether `attachments: []` on a fiche PATCH wipe
 attachments, and where the write-side `attachmentId` comes from (it matches neither `content.id`
 nor `id_attachment`). Test those by hand on a throwaway fiche.
 
-**Lesdoelen in the fiche (beta).** WEET/KEN/KAN are three per-fiche **extra** text fields (Questi
+**Lesdoelen in the fiche.** WEET/KEN/KAN are three per-fiche **extra** text fields (Questi
 editor "+ toevoegen → Tekst"): `template_field_id: null`, value in `content`, `description` = the ⓘ
 helper text. Matched by **title** (`ficheGoalFields`), never by id — field ids change with every fiche
 version. `buildPatch` sends every extra field exactly as Questi's editor does, `{ id, content }`, and
@@ -285,22 +285,13 @@ max 4 in flight) and print caps its reads at 4 (`mapLimit`) — keep Questi traf
 follows the fiche's `thread` (same for every version; `qwp_threads_v1`) to the newest version, then the
 newest own fiche with the same title, and marks the card "nieuwere versie".
 
-**Full fiche editor (beta).** Double-click opens every field of the edit view. Editable: title, tags
+**Full fiche editor.** Double-click opens every field of the edit view. Editable: title, tags
 (pill picker, full-set replace), all text fields (`fieldKey`), new extra text fields (`opts.newFields`).
 `grades`/`visibility` are a **trial** — the create call's keys, never captured on PATCH — so writePending
 reads the new version back and reports a mismatch instead of trusting it. Template, attachments,
 methode doelen and leerplandoelen are read-only (goal tree + attachment upload are not built).
 Traffic rules: fiche reads are viewport-driven and cached per version (`qwp_goalcache_v1` carries goals
 AND tags), parallel reads go through `mapLimit(…, 4)`, `ficheEditTags` is memoised per id.
-
-**Beta channel.** Branch `beta`, sideloaded from its own folder (git worktree) next to the stable
-addon. Manifest name contains `BETA` — that one string drives everything: `IS_BETA` in content.js,
-planner.js and background.js. The beta has **no manifest CSS**; the worker inserts it on first use
-(`QWP_INSERT_CSS`) so it never styles the stable overlay. content.js detects the stable copy by probing
-for its CSS (`.qwp-banner` is `display:flex`) and then stays dormant with a visible notice; its chips use
-`data-qwpb-*` attributes; shortcut Alt+Shift+P; update check + `update.bat` follow the `beta` branch.
-Keep beta-only differences in manifest/icons/version.json/update.bat so feature commits cherry-pick
-cleanly onto `dev`.
 
 ## Working on this repo
 
