@@ -578,3 +578,64 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
   .qwp-pop { left:312px; }
   .qwp-ttwrap { padding:10px 12px 14px; }
 }
+
+/* =====================================================================
+ * Lesfiches tab — lessons.js mounts into #qwp-lf-side / #qwp-lf-main.
+ * The tab switch only toggles .qwp-tab-lf on the overlay; the bottom bar
+ * (Alles · Instellingen · Debug · Controleer) stays on both tabs.
+ * ===================================================================== */
+#qwp-overlay .qwp-lf-only { display:none; }
+#qwp-overlay.qwp-tab-lf .qwp-lf-only { display:flex; }
+#qwp-overlay.qwp-tab-lf .qwp-plan-only { display:none !important; }
+.qwp-lf-side { flex:1 1 auto; min-height:0; flex-direction:column; }
+.qwp-lf-main { flex:1 1 auto; min-width:0; min-height:0; flex-direction:column; }
+
+/* =====================================================================
+ * Shared Controleer (Controleer.dc.html): tags → lesfiches → agenda.
+ * ===================================================================== */
+.qwp-modal.qwp-cr { align-items:stretch; justify-content:stretch; }
+.qwp-cr-box { flex:1; display:flex; flex-direction:column; min-height:0; background:#f4f6f7; }
+.qwp-cr-hd { flex:0 0 auto; display:flex; align-items:center; gap:12px; padding:14px 28px; background:#fff; border-bottom:1px solid var(--line); }
+.qwp-cr-titles { display:flex; flex-direction:column; }
+.qwp-cr-title { font-size:20px; font-weight:700; color:var(--ink); }
+.qwp-cr-sub { font-size:13px; color:var(--muted); }
+.qwp-cr-all { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; }
+.qwp-cr-all input, .qwp-cr-row input, .qwp-cr-backup input { width:16px; height:16px; margin:0; accent-color:var(--uq-blue); }
+.qwp-cr-main { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:20px; padding:18px 28px; }
+.qwp-cr-secs { min-height:0; overflow:auto; display:flex; flex-direction:column; gap:16px; align-content:start; }
+.qwp-cr-sec { flex:0 0 auto; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.qwp-cr-sechd { display:flex; align-items:center; gap:10px; padding:10px 14px; background:#fafbfb; border-bottom:1px solid var(--line); }
+.qwp-cr-n { width:24px; height:24px; border-radius:50%; background:var(--uq-blue-ink); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+.qwp-cr-t { font-size:15px; font-weight:700; color:var(--ink); }
+.qwp-cr-d { font-size:13px; color:var(--muted); }
+.qwp-cr-row { display:grid; grid-template-columns:24px 190px minmax(0, 1fr) minmax(0, 1fr); gap:12px; align-items:start; padding:9px 14px; border-bottom:1px solid var(--soft); cursor:pointer; }
+.qwp-cr-row:last-child { border-bottom:none; }
+.qwp-cr-row.off .qwp-cr-what, .qwp-cr-row.off .qwp-cr-old, .qwp-cr-row.off .qwp-cr-new { opacity:.45; }
+.qwp-cr-row.dis { cursor:not-allowed; }
+.qwp-cr-what { display:flex; flex-direction:column; min-width:0; }
+.qwp-cr-what b { font-size:13px; color:var(--ink); }
+.qwp-cr-what span { font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+.qwp-cr-lines { display:flex; flex-direction:column; gap:2px; }
+.qwp-cr-old { font-size:13px; color:#8a4b45; text-decoration:line-through; text-decoration-color:rgba(138,75,69,.5); overflow-wrap:anywhere; }
+.qwp-cr-new { font-size:13px; color:#1d3fae; font-weight:600; overflow-wrap:anywhere; display:flex; flex-direction:column; gap:3px; }
+.qwp-cr-lbl { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+.qwp-cr-lbl i { font-style:normal; }
+.qwp-cr-note { font-size:11.5px; font-weight:600; color:var(--muted); }
+.qwp-cr-tag { display:inline-flex; align-items:center; gap:6px; }
+.qwp-cr-dot { width:10px; height:10px; border-radius:3px; flex:0 0 auto; }
+.qwp-cr-grid { padding:10px 14px; border-top:1px solid var(--line); }
+.qwp-cr-grid > summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--uq-blue-ink); }
+.qwp-cr-aside { min-height:0; overflow:auto; display:flex; flex-direction:column; gap:12px; }
+.qwp-cr-aside .qwp-spacer { flex:1 1 auto; }
+.qwp-cr-card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--ink); }
+.qwp-cr-card ol { margin:0; padding-left:18px; line-height:1.6; color:#4a5a63; }
+.qwp-cr-muted { font-size:12.5px; color:var(--muted); font-weight:500; }
+.qwp-cr-backup { flex-direction:row; align-items:center; gap:10px; cursor:pointer; }
+.qwp-cr-warn { background:var(--uq-orange-tint); border:1px solid var(--uq-orange); border-radius:12px; padding:12px 14px; font-size:13px; color:var(--uq-orange-ink); line-height:1.5; }
+.qwp-cr-go { border:none; background:var(--uq-amber); color:var(--ink); border-radius:10px; padding:14px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:2px 2px 0 var(--ink); }
+.qwp-cr-go:hover { background:#ffa61f; }
+.qwp-cr-go:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
+.qwp-cr-back { border:none; background:transparent; font-size:13.5px; font-weight:600; color:var(--accent); text-decoration:underline; cursor:pointer; }
+.qwp-cr-result { margin:0; padding-left:18px; text-align:left; font-size:13px; line-height:1.5; color:var(--ink); align-self:stretch; }
+.qwp-cr-result li.warn { color:var(--danger); }
+.qwp-commit-card:has(.qwp-cr-result) { width:620px; }

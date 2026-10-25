@@ -4,8 +4,16 @@
  * tags · bulk delete). Isolated from the planner: own overlay (#qwl-overlay) + own
  * storage key. Reuses the planner's ctx + helpers via window.__QWP_SHARED.
  *
- * Layout: header(title · search · ✕) / main[ left sidebar (actions) | content(
- * top tag bar + fiche list) ].
+ * Two hosts for the same manager state (`mgr`):
+ *  - MOUNTED (normal use): the planner's "Lesfiches" tab calls mount(sideEl, mainEl) — a tag tree
+ *    in the planner's sidebar, a header + table + side-sheet editor in its main column. Staged
+ *    edits are written through the planner's ONE shared Controleer (pendingSummary / writeTags /
+ *    writeFiches below), never from here.
+ *  - STANDALONE overlay (#qwl-overlay): header(title · search · ✕) / main[ left sidebar (actions) |
+ *    content( top tag bar + fiche list) ]. Used by openPicker (Methodevoortgang, read-only) and by
+ *    a direct open(); it keeps its own "Wijzigingen controleren" gate.
+ *  While the standalone overlay is up over a mounted manager, the mounted list state is stashed
+ *  and restored afterwards (enterStandalone / leaveStandalone).
  *
  * SAFETY: title/text/tag edits are STAGED locally and written only via the single
  * "Wijzigingen controleren" gate. Fiche edits use REPLACE semantics on tags[] (echo
@@ -59,6 +67,12 @@
   // ---------- Runtime state ----------
   var mgr = {
     built: false, els: {},
+    elsStandalone: null,        // the #qwl-overlay host (pick mode / direct open)
+    elsMounted: null,           // the planner-tab host (mount)
+    mountOpts: null,            // { onClose }
+    stash: null,                // mounted list state, kept while the standalone overlay is up
+    sheetToken: 0,              // guards the side sheet against a late read of a previous fiche
+    pendingTags: [],            // [{ key, title, color, parent }] — tags to CREATE, written by the shared Controleer
     ownTags: [], fiches: [], filtered: [],
     selected: {},              // ficheId -> true
     pending: {},               // ficheId -> { fiche, edit, subject?, text?{}, tags?[], createTags?[], changes[] }
@@ -196,13 +210,26 @@
   }
 
   // ========================================================================
-  //  Overlay shell
+  //  Hosts — standalone overlay (pick mode / direct open) and the mounted planner tab.
+  //  Both hosts use the same element ids, so every lookup goes through E(), which only
+  //  searches the ACTIVE host (mgr.els.scopes) — never the whole document.
   // ========================================================================
+  function E(id) {
+    var sc = (mgr.els && mgr.els.scopes) || [];
+    for (var i = 0; i < sc.length; i++) { var e = sc[i] && sc[i].querySelector("#" + id); if (e) return e; }
+    return null;
+  }
+  function isMounted() { return !!(mgr.elsMounted && mgr.els === mgr.elsMounted); }
+  function searchInput() {
+    return h("input", { class: "qwl-search", id: "qwl-search", type: "text", placeholder: "Zoek in titels…", oninput: function (e) { mgr.search = e.target.value || ""; applyFilter(); } });
+  }
+  function gradeSelect() {
+    return h("select", { class: "qwl-gradesel", id: "qwl-gradesel", onchange: function (e) { mgr.gradeFilter = e.target.value || ""; applyFilter(); } },
+      [h("option", { value: "", text: "Alle leerjaren" })].concat(GRADES.map(function (g) { return h("option", { value: g, text: g }); })));
+  }
   function build() {
     if (mgr.built) return;
-    var search = h("input", { class: "qwl-search", id: "qwl-search", type: "text", placeholder: "Zoek in titels…", oninput: function (e) { mgr.search = e.target.value || ""; applyFilter(); } });
-    var gradeSel = h("select", { class: "qwl-gradesel", id: "qwl-gradesel", onchange: function (e) { mgr.gradeFilter = e.target.value || ""; applyFilter(); } },
-      [h("option", { value: "", text: "Alle leerjaren" })].concat(GRADES.map(function (g) { return h("option", { value: g, text: g }); })));
+    var search = searchInput(), gradeSel = gradeSelect();
     var header = h("div", { class: "qwl-header" }, [
       h("div", { class: "qwl-title", id: "qwl-title", text: "Lesfiches beheren" }),
       S().betaPill ? S().betaPill() : null,
@@ -241,16 +268,62 @@
     var page = h("div", { class: "qwl-page" }, [header, main]);
     var overlay = h("div", { class: "qwl-overlay", id: "qwl-overlay" }, [page]);
     document.body.appendChild(overlay);
-    mgr.els = { root: overlay, page: page, tagbar: tagbar, list: listWrap };
+    mgr.elsStandalone = { root: overlay, page: page, tagbar: tagbar, list: listWrap, scopes: [overlay] };
+    if (!mgr.els || !mgr.els.root) mgr.els = mgr.elsStandalone;
     mgr.built = true;
   }
-  function setStatus(t) { var s = document.getElementById("qwl-status"); if (s) s.textContent = t || ""; }
+
+  // Mounted host: the planner's Lesfiches tab (Lesfiches.dc.html). Sidebar = tag tree with
+  // "+ Tag"; main = header (tag · count · search · leerjaar · Lijst|Doelen invullen), a selection
+  // bar, the table, and a side sheet with the full fiche editor. No review button of its own —
+  // the planner's Controleer covers fiche edits and tags to create.
+  function buildMounted(sideHost, mainHost) {
+    var tree = h("div", { class: "qwl-tree", id: "qwl-tree", role: "tree", "aria-label": "Tags" });
+    var side = h("div", { class: "qwl-mounted qwl-mside" }, [
+      h("div", { class: "qwl-mside-hd" }, [
+        h("span", { class: "qwl-mside-t", text: "Tags" }),
+        h("span", { class: "qwl-hspacer" }),
+        h("button", { class: "qwl-mbtn", onclick: openAddTagModal, title: "Nieuwe tag klaarzetten — wordt aangemaakt bij Controleer", text: "+ Tag" }),
+        h("button", { class: "qwl-mbtn qwl-mbtn-danger", onclick: openRemoveTagModal, title: "Een tag verwijderen (vraagt bevestiging)", text: "− Tag" })
+      ]),
+      tree
+    ]);
+    var seg = h("div", { class: "qwl-seg", id: "qwl-modeseg", role: "group", "aria-label": "Weergave" }, [
+      h("button", { "data-m": "list", onclick: function () { if (mgr.goalsMode) toggleGoalsMode(); }, text: "Lijst" }),
+      h("button", { "data-m": "goals", onclick: function () { if (!mgr.goalsMode) toggleGoalsMode(); }, title: "WEET / KEN / KAN per fiche invullen — wordt in de lesfiche zelf bewaard", text: "Doelen invullen" })
+    ]);
+    var header = h("header", { class: "qwl-mhdr" }, [
+      h("div", { class: "qwl-mtitle" }, [h("span", { id: "qwl-title", text: "Lesfiches" }), h("span", { class: "qwl-msub", id: "qwl-count", text: "" })]),
+      h("span", { class: "qwl-status", id: "qwl-status", text: "" }),
+      h("span", { class: "qwl-hspacer" }),
+      searchInput(), gradeSelect(), seg,
+      h("button", { class: "qwl-mbtn", id: "qwl-cols", onclick: toggleCols, text: "" }),
+      h("button", { class: "qwl-mbtn", onclick: reload, title: "Deze tag opnieuw uit Questi laden", text: "Vernieuwen" }),
+      h("button", { class: "qwl-mbtn qwl-mbtn-muted", onclick: openDiag, title: "Zelftest — leest alleen", text: "Diagnose" }),
+      h("button", { class: "qwl-x", onclick: closeMounted, title: "Sluiten", text: "✕" })
+    ]);
+    var selbar = h("div", { class: "qwl-selbar" }, [
+      h("span", { class: "qwl-selcount", id: "qwl-selcount", text: "0 geselecteerd" }),
+      h("button", { class: "qwl-mbtn", id: "qwl-selall", onclick: toggleSelectAll, text: "Alles selecteren" }),
+      h("button", { class: "qwl-mbtn", id: "qwl-tags", onclick: openTagsModal, text: "Tags bewerken" }),
+      h("button", { class: "qwl-mbtn qwl-mbtn-danger", id: "qwl-del", onclick: openDeleteModal, text: "Verwijderen" }),
+      h("button", { class: "qwl-mbtn", id: "qwl-goalsimport", onclick: importLocalGoals, title: "Doelen die je eerder in het afdrukvoorbeeld typte (alleen in deze browser) in de fiches zetten", text: "Lokale doelen overnemen" }),
+      h("span", { class: "qwl-hspacer" }),
+      h("span", { class: "qwl-mnote", text: "Klaargezet wordt pas weggeschreven via Controleer." })
+    ]);
+    var listWrap = h("div", { class: "qwl-listwrap", id: "qwl-listwrap" });
+    var sheet = h("aside", { class: "qwl-sheet", id: "qwl-sheet", "aria-label": "Fiche bewerken", style: "display:none" });
+    var main = h("div", { class: "qwl-mounted qwl-mmain" }, [header, selbar, h("div", { class: "qwl-mbody" }, [listWrap, sheet])]);
+    sideHost.appendChild(side); mainHost.appendChild(main);
+    mgr.elsMounted = { root: main, side: side, page: main, tree: tree, list: listWrap, sheet: sheet, scopes: [main, side] };
+  }
+
+  function setStatus(t) { var s = E("qwl-status"); if (s) s.textContent = t || ""; }
   function show() { mgr.els.root.classList.add("qwl-show"); document.documentElement.classList.add("qwl-locked"); }
 
-  function open() {
-    if (!window.__QWP_SHARED) { console.warn("[QWL] __QWP_SHARED ontbreekt — planner niet geladen."); return; }
-    build(); show(); applyPickMode();
-    loadState().then(function () {
+  // Load lstate and either the tags or the list the active host should show.
+  function startHost() {
+    return loadState().then(function () {
       mgr.cols = lstate.cols || 1; mgr.sortKey = lstate.sortKey || null; mgr.sortDir = lstate.sortDir || "asc";
       // A picker always opens on its own tag — including on a warm manager, which would
       // otherwise keep showing whatever tag was last browsed.
@@ -259,48 +332,107 @@
         var go = function () { renderTagBar(); return loadListUnion(startPick); };
         return mgr.ownTags.length ? go() : S().fetchOwnTags().then(function (tags) { mgr.ownTags = tags || []; return go(); });
       }
-      if (mgr.ownTags.length) { renderTagBar(); applyFilter(); return; }
+      if (mgr.ownTags.length && mgr.fiches.length) { renderTagBar(); applyFilter(); return; }
       setStatus("Tags laden…");
       return S().fetchOwnTags().then(function (tags) {
         mgr.ownTags = tags || [];
         renderTagBar();
         var startTag = lstate.lastTagId != null ? lstate.lastTagId : allOwnTagId();
-        return loadList(startTag);
+        if (mgr.tagFilter != null) startTag = mgr.tagFilter;
+        return (mgr.unionParent != null ? loadListUnion(mgr.unionParent) : loadList(startTag));
       });
     });
   }
+  // The standalone overlay borrows mgr: keep the mounted tab's list, selection and mode aside.
+  function enterStandalone() {
+    build();
+    if (isMounted() && !mgr.stash) {
+      closeSheet();
+      mgr.stash = { tagFilter: mgr.tagFilter, unionParent: mgr.unionParent, expandedTop: mgr.expandedTop, fiches: mgr.fiches,
+        filtered: mgr.filtered, selected: mgr.selected, goalsMode: mgr.goalsMode, search: mgr.search, gradeFilter: mgr.gradeFilter, lastTagId: lstate.lastTagId };
+      mgr.selected = {}; mgr.fiches = []; mgr.filtered = []; mgr.search = ""; mgr.gradeFilter = "";
+    }
+    mgr.els = mgr.elsStandalone;
+    var si = E("qwl-search"); if (si) si.value = mgr.search || "";
+    var gs = E("qwl-gradesel"); if (gs) gs.value = mgr.gradeFilter || "";
+  }
+  function leaveStandalone() {
+    if (!mgr.stash || !mgr.elsMounted) return;
+    var st = mgr.stash; mgr.stash = null;
+    mgr.tagFilter = st.tagFilter; mgr.unionParent = st.unionParent; mgr.expandedTop = st.expandedTop; mgr.fiches = st.fiches;
+    mgr.filtered = st.filtered; mgr.selected = st.selected; mgr.goalsMode = st.goalsMode; mgr.search = st.search; mgr.gradeFilter = st.gradeFilter;
+    lstate.lastTagId = st.lastTagId; saveState();
+    mgr.els = mgr.elsMounted;
+    renderTagBar(); applyFilter();
+  }
+
+  function open() {
+    if (!window.__QWP_SHARED) { console.warn("[QWL] __QWP_SHARED ontbreekt — planner niet geladen."); return; }
+    enterStandalone(); show(); applyPickMode();
+    startHost();
+  }
   function close() {
     if (mgr.pick) { pickCancel(); return; }
-    if (mgr.els.root) mgr.els.root.classList.remove("qwl-show");
+    if (mgr.elsStandalone) mgr.elsStandalone.root.classList.remove("qwl-show");
     var planner = document.getElementById("qwp-overlay");
     if (!(planner && planner.classList.contains("qwp-show"))) document.documentElement.classList.remove("qwl-locked");
     // Mirror the planner: if we wrote anything (tags/fiches), reload so Questi's SPA reflects it.
-    if (mgr.dirtyWrites) { try { location.reload(); } catch (e) {} }
+    if (mgr.dirtyWrites) { try { location.reload(); } catch (e) {} return; }
+    leaveStandalone();
+  }
+
+  // ---- Mounted host API (the planner's Lesfiches tab) ----
+  // mount(sideEl, mainEl, { onClose }) builds into the planner's sidebar slot + main column once,
+  // then just re-shows. The planner hides/shows the hosts on tab switches; unmount() only stops
+  // background work (the goal-read queue checks hostVisible() itself, too).
+  function mount(sideHost, mainHost, opts) {
+    if (!window.__QWP_SHARED) { console.warn("[QWL] __QWP_SHARED ontbreekt — planner niet geladen."); return; }
+    if (!sideHost || !mainHost) return;
+    mgr.mountOpts = opts || {};
+    if (!mgr.elsMounted || !mgr.elsMounted.root.isConnected) buildMounted(sideHost, mainHost);
+    // A standalone picker that is still up keeps mgr until it closes (leaveStandalone restores).
+    if (mgr.stash || mgr.pick) return;
+    mgr.els = mgr.elsMounted;
+    startHost();
+  }
+  function unmount() {
+    closeSheet();
+    if (_goalObserver) _goalObserver.disconnect();
+    _goalQueue = [];
+  }
+  // ✕ in the mounted header: the planner closes. Live tag/fiche deletes need Questi's own page to
+  // refetch, exactly like the standalone close.
+  function closeMounted() {
+    if (mgr.dirtyWrites) { try { location.reload(); } catch (e) {} return; }
+    if (mgr.mountOpts && mgr.mountOpts.onClose) mgr.mountOpts.onClose();
   }
 
   // ========================================================================
   //  Pick mode — the Methodes panel borrows this overlay to select fiches.
   //  Strictly read-only: every write affordance is hidden while mgr.pick is set,
   //  so a picker can never delete a fiche or stage a tag change by accident.
+  //  Staged edits (mgr.pending) are NOT touched — they belong to the shared Controleer.
   // ========================================================================
   // opts: { title, preselected:[ficheId…], startTagId?, onDone(fiches), onCancel? }
   function openPicker(opts) {
     if (!window.__QWP_SHARED) { console.warn("[QWL] __QWP_SHARED ontbreekt — planner niet geladen."); return; }
+    enterStandalone();
     mgr.pick = opts || {};
-    mgr.selected = {}; mgr.pickStore = {}; mgr.pending = {};
-    (opts.preselected || []).forEach(function (id) { mgr.selected[String(id)] = true; });
-    if (opts.startTagId != null) lstate.lastTagId = opts.startTagId;
-    open();
+    mgr.selected = {}; mgr.pickStore = {};
+    (mgr.pick.preselected || []).forEach(function (id) { mgr.selected[String(id)] = true; });
+    if (mgr.pick.startTagId != null) lstate.lastTagId = mgr.pick.startTagId;
+    show(); applyPickMode();
+    startHost();
   }
   function applyPickMode() {
     var on = !!mgr.pick;
-    var t = document.getElementById("qwl-title");
+    var t = E("qwl-title");
     if (t) t.textContent = on ? (mgr.pick.title || "Fiches kiezen") : "Lesfiches beheren";
     // Hide everything that writes, plus the now-meaningless separators/labels.
     if (on) mgr.goalsMode = false;
     ["qwl-tags", "qwl-del", "qwl-import", "qwl-review", "qwl-tagadd", "qwl-tagdel", "qwl-taglbl", "qwl-sep2", "qwl-goalsmode", "qwl-goalsimport"]
-      .forEach(function (id) { var e = document.getElementById(id); if (e) e.style.display = on ? "none" : ""; });
-    ["qwl-pickok", "qwl-pickcancel"].forEach(function (id) { var e = document.getElementById(id); if (e) e.style.display = on ? "" : "none"; });
+      .forEach(function (id) { var e = E(id); if (e) e.style.display = on ? "none" : ""; });
+    ["qwl-pickok", "qwl-pickcancel"].forEach(function (id) { var e = E(id); if (e) e.style.display = on ? "" : "none"; });
   }
   // Keep the full fiche object for anything ticked, so switching tags never loses a selection.
   function rememberPicked(f) { if (mgr.selected[f.id]) mgr.pickStore[String(f.id)] = f; else delete mgr.pickStore[String(f.id)]; }
@@ -318,11 +450,12 @@
   function endPick() {
     mgr.pick = null; mgr.selected = {}; mgr.pickStore = {};
     applyPickMode();
-    if (mgr.els.root) mgr.els.root.classList.remove("qwl-show");
+    if (mgr.elsStandalone) mgr.elsStandalone.root.classList.remove("qwl-show");
     var planner = document.getElementById("qwp-overlay");
     if (!(planner && planner.classList.contains("qwp-show"))) document.documentElement.classList.remove("qwl-locked");
+    leaveStandalone();
   }
-  function reload() { loadList(mgr.tagFilter != null ? mgr.tagFilter : allOwnTagId()); }
+  function reload() { if (mgr.unionParent != null) loadListUnion(mgr.unionParent); else loadList(mgr.tagFilter != null ? mgr.tagFilter : allOwnTagId()); }
   function toggleCols() { mgr.cols = (mgr.cols === 2 ? 1 : 2); lstate.cols = mgr.cols; saveState(); renderList(); }
 
   // ========================================================================
@@ -337,6 +470,7 @@
   }
   function isSubjectTop(t) { return !(t.type === "default" || /alle.*lesfiches/i.test(t.title || "")); }
   function renderTagBar() {
+    if (mgr.els.tree) { renderTagTree(); return; }
     var bar = mgr.els.tagbar; if (!bar) return; bar.innerHTML = "";
     var tops = S().topTagsForOwner(mgr.ownTags, ctx().ownerId);
     var row1 = h("div", { class: "qwl-tagrow" });
@@ -366,6 +500,55 @@
         bar.appendChild(row2);
       }
     }
+  }
+  // Mounted host: the same choices as a tree in the planner's sidebar. Buckets (Alle eigen
+  // lesfiches, Zonder tag) first, then each vak; the active vak unfolds its subtags. Tags staged
+  // for creation show greyed with "nieuw" — they exist only after Controleer.
+  function renderTagTree() {
+    var tree = mgr.els.tree; if (!tree) return; tree.innerHTML = "";
+    function node(label, color, depth, active, onclick, extra) {
+      return h("button", { class: "qwl-tnode d" + depth + (active ? " active" : "") + (onclick ? "" : " off"), role: "treeitem", "aria-selected": active ? "true" : "false", onclick: onclick || null, disabled: onclick ? null : "true" }, [
+        h("span", { class: "qwl-tsq", style: "background:" + (color || "#c9d2d7") }),
+        h("span", { class: "qwl-tlbl", text: label }),
+        extra || null
+      ]);
+    }
+    function newBadge() { return h("span", { class: "qwl-tnew", text: "nieuw" }); }
+    function pendingUnder(parentId) {
+      return mgr.pendingTags.filter(function (p) { return String(p.parent || "") === String(parentId || ""); });
+    }
+    var tops = S().topTagsForOwner(mgr.ownTags, ctx().ownerId);
+    var buckets = tops.filter(function (t) { return !isSubjectTop(t); }), subjects = tops.filter(isSubjectTop);
+    buckets.forEach(function (t) {
+      tree.appendChild(node((t.title || "").trim(), t.color || null, 0, String(mgr.tagFilter) === String(t.id) && mgr.unionParent == null, function () { mgr.expandedTop = null; loadList(t.id); }));
+    });
+    var zt = ownTagById(1) || { id: 1, title: "Zonder tag" };
+    tree.appendChild(node((zt.title || "Zonder tag").trim(), null, 0, String(mgr.tagFilter) === "1", function () { mgr.expandedTop = null; loadList(1); }));
+    subjects.forEach(function (t) {
+      var open = String(mgr.expandedTop) === String(t.id);
+      tree.appendChild(node((t.title || "").trim(), t.color, 0, String(mgr.unionParent) === String(t.id), function () { loadListUnion(t.id); },
+        h("span", { class: "qwl-tcaret", text: open ? "▾" : "▸" })));
+      if (!open) return;
+      mgr.ownTags.filter(function (k) { return String(k.parent) === String(t.id); })
+        .sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); })
+        .forEach(function (k) {
+          tree.appendChild(node((k.title || "").trim(), k.color || t.color, 1, String(mgr.tagFilter) === String(k.id) && mgr.unionParent == null, function () { loadList(k.id); }));
+        });
+      pendingUnder(t.id).forEach(function (p) { tree.appendChild(node(p.title, p.color, 1, false, function () { dropPendingTag(p); }, newBadge())); });
+    });
+    // Staged tags under a vak that is folded, or without a parent: never hidden.
+    mgr.pendingTags.forEach(function (p) {
+      if (p.parent && String(mgr.expandedTop) === String(p.parent)) return;
+      var par = p.parent ? ownTagById(p.parent) : null;
+      tree.appendChild(node((par ? (par.title || "").trim() + " › " : "") + p.title, p.color, 0, false, function () { dropPendingTag(p); }, newBadge()));
+    });
+  }
+  // A staged tag is not a list yet — clicking it offers to take it back out of Controleer.
+  function dropPendingTag(p) {
+    var ok = true; try { ok = window.confirm("De klaargezette tag '" + p.title + "' bestaat nog niet in Questi. Weghalen uit Controleer?"); } catch (e) {}
+    if (!ok) return;
+    mgr.pendingTags = mgr.pendingTags.filter(function (x) { return x.key !== p.key; });
+    renderTagBar(); notifyPending(); setStatus("Klaargezette tag weggehaald.");
   }
 
   // ========================================================================
@@ -464,24 +647,43 @@
     });
     var curTitle = (pending && mgr.pending[f.id].subject != null) ? mgr.pending[f.id].subject : ficheName(f);
     var subjectCell = h("div", { class: "qwl-c-subject" });
-    var txt = h("span", { class: "qwl-c-subject-txt", text: curTitle, title: picking ? "Klik om te (de)selecteren" : "Klik om de titel te bewerken" });
+    var mounted = isMounted();
+    var txt = h("span", { class: "qwl-c-subject-txt", text: curTitle, title: picking ? "Klik om te (de)selecteren" : (mounted ? "Klik om te bewerken" : "Klik om de titel te bewerken") });
     // In pick mode the title must not become an editor — the whole row just toggles selection.
-    if (!picking) txt.addEventListener("click", function (e) { e.stopPropagation(); startInlineTitle(f, subjectCell, ficheName(f)); });
+    // Mounted: the whole row opens the side sheet, which has the title field.
+    if (!picking && !mounted) txt.addEventListener("click", function (e) { e.stopPropagation(); startInlineTitle(f, subjectCell, ficheName(f)); });
     subjectCell.appendChild(txt);
     if (pending) subjectCell.appendChild(h("span", { class: "qwl-badge", text: "gewijzigd" }));
-    var row = h("div", { class: "qwl-row" + (checked ? " sel" : "") + (pending ? " pend" : ""), "data-fid": String(f.id), title: picking ? "" : "Dubbelklik om volledig te bewerken" }, [
+    // Mounted: W/K/K squares from the goal cache (filled as each row's fiche info arrives).
+    var goalsCell = mounted ? h("div", { class: "qwl-c-goals" }) : null;
+    function fillGoals(entry) {
+      if (!goalsCell) return; goalsCell.innerHTML = "";
+      var g = entry && entry.g, pg = mgr.pending[f.id] && mgr.pending[f.id].goals;
+      [["weet", "W"], ["ken", "K"], ["kan", "K"]].forEach(function (k) {
+        var v = (pg && Object.prototype.hasOwnProperty.call(pg, k[0])) ? pg[k[0]] : (g ? g[k[0]] : "");
+        goalsCell.appendChild(h("span", { class: "qwl-gsq" + (v ? " on" : "") + (g ? "" : " unk"), title: k[0].toUpperCase() + (g ? (v ? ": " + v : ": leeg") : ": nog niet gelezen"), text: k[1] }));
+      });
+    }
+    fillGoals(_goalCache && _goalCache[f.id]);
+    var row = h("div", { class: "qwl-row" + (mounted ? " qwl-row6" : "") + (checked ? " sel" : "") + (pending ? " pend" : "") + (mounted && String(mgr.sheetFid) === String(f.id) ? " open" : ""), "data-fid": String(f.id), title: picking ? "" : (mounted ? "Klik om te bewerken" : "Dubbelklik om volledig te bewerken") }, [
       h("label", { class: "qwl-cbcell" }, [cb]),
       subjectCell,
       h("div", { class: "qwl-c-grades", text: gradesOf(f) }),
       h("div", { class: "qwl-c-used", text: usedOf(f) }),
+      goalsCell,
       tagsCell
     ]);
-    mgr.rowFill[f.id] = function () { tagsCell.innerHTML = ""; chipEls().forEach(function (c) { tagsCell.appendChild(c); }); };
+    mgr.rowFill[f.id] = function (entry) { tagsCell.innerHTML = ""; chipEls().forEach(function (c) { tagsCell.appendChild(c); }); fillGoals(entry); };
     if (picking) {
       row.addEventListener("click", function (e) {
         if (e.target === cb) return;            // the checkbox fires its own change event
         cb.checked = !cb.checked;
         cb.dispatchEvent(new Event("change"));
+      });
+    } else if (mounted) {
+      row.addEventListener("click", function (e) {
+        if (e.target === cb || (e.target.closest && e.target.closest(".qwl-cbcell"))) return;
+        openEditModal(f);
       });
     } else {
       row.addEventListener("dblclick", function () { openEditModal(f); });
@@ -507,11 +709,13 @@
   function makeTable(items) {
     if (mgr.goalsMode) return makeGoalsTable(items);
     var table = h("div", { class: "qwl-table" });
-    table.appendChild(h("div", { class: "qwl-row qwl-thead" }, [
+    var mounted = isMounted();
+    table.appendChild(h("div", { class: "qwl-row qwl-thead" + (mounted ? " qwl-row6" : "") }, [
       h("div", { class: "qwl-cbcell" }),
       headCell("qwl-c-subject", "subject", "Titel"),
-      headCell("qwl-c-grades", "grades", "Leerjaar"),
-      headCell("qwl-c-used", "used", "Laatst gebruikt"),
+      headCell("qwl-c-grades", "grades", mounted ? "Jaar" : "Leerjaar"),
+      headCell("qwl-c-used", "used", mounted ? "Gebruikt" : "Laatst gebruikt"),
+      mounted ? h("div", { class: "qwl-c-goals", text: "Doelen" }) : null,
       headCell("qwl-c-tags", "tags", "Tags")
     ]));
     items.forEach(function (f) { table.appendChild(ficheRow(f)); });
@@ -526,7 +730,8 @@
   // ========================================================================
   function toggleGoalsMode() {
     mgr.goalsMode = !mgr.goalsMode;
-    setStatus(mgr.goalsMode ? "Lesdoelen: typ per fiche, Tab = volgende cel, Enter = volgende fiche. Niets wordt geschreven zonder 'Wijzigingen controleren'." : "");
+    if (mgr.goalsMode) closeSheet();
+    setStatus(mgr.goalsMode ? "Lesdoelen: typ per fiche, Tab = volgende cel, Enter = volgende fiche. Niets wordt geschreven zonder '" + reviewName() + "'." : "");
     renderList();
   }
   function goalsListHasFocus() { var a = document.activeElement; return !!(mgr.goalsMode && a && mgr.els.list && mgr.els.list.contains(a)); }
@@ -549,7 +754,9 @@
     return entry;
   }
   function infoCached(id) { var e = _goalCache && _goalCache[id]; return !!(e && e.t); }
-  function overlayOpen() { return !!(mgr.els.root && mgr.els.root.classList.contains("qwl-show")); }
+  // The active host is on screen: the standalone overlay shown, or the planner's Lesfiches tab
+  // visible (its host is display:none on the other tabs and while the planner is closed).
+  function overlayOpen() { var r = mgr.els && mgr.els.root; return !!(r && r.isConnected && r.getClientRects().length); }
   // Tags of deleted catalog tags are dropped, never shown as a bare id.
   function applyCachedTags(id, entry) { if (entry && entry.t) mgr.tagChips[id] = entry.t.filter(function (tid) { return ownTagById(tid); }); }
   // Read queue, fed by rows scrolling into view (+200px) — only what you look at is read, a few at a
@@ -722,17 +929,23 @@
   }
 
   function updateSidebar() {
-    var n = selCount(), p = pendCount();
-    var c = document.getElementById("qwl-count"); if (c) c.textContent = mgr.filtered.length + " fiches" + (n ? " · " + n + " geselecteerd" : "");
-    var tg = document.getElementById("qwl-tags"), dl = document.getElementById("qwl-del"), sa = document.getElementById("qwl-selall"), rv = document.getElementById("qwl-review"), cols = document.getElementById("qwl-cols");
+    var n = selCount(), p = pendCount(), mounted = isMounted();
+    var c = E("qwl-count"); if (c) c.textContent = mounted ? (" · " + mgr.filtered.length + " fiches") : (mgr.filtered.length + " fiches" + (n ? " · " + n + " geselecteerd" : ""));
+    if (mounted) {
+      var ti = E("qwl-title"); if (ti) ti.textContent = mgr.tagFilter != null ? (String(mgr.tagFilter) === "1" ? "Zonder tag" : tagName(mgr.tagFilter)) : "Lesfiches";
+      var sc = E("qwl-selcount"); if (sc) sc.textContent = n + " geselecteerd";
+      var seg = E("qwl-modeseg");
+      if (seg) Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("active", (b.getAttribute("data-m") === "goals") === !!mgr.goalsMode); });
+    }
+    var tg = E("qwl-tags"), dl = E("qwl-del"), sa = E("qwl-selall"), rv = E("qwl-review"), cols = E("qwl-cols");
     if (tg) { tg.textContent = "Tags bewerken" + (n ? " (" + n + ")" : ""); tg.disabled = n ? null : "true"; }
     if (dl) { dl.textContent = "Verwijderen" + (n ? " (" + n + ")" : ""); dl.disabled = n ? null : "true"; }
     if (sa) sa.textContent = (n && n >= mgr.filtered.length && mgr.filtered.length) ? "Wis selectie" : "Alles selecteren";
     if (rv) { rv.textContent = "Wijzigingen controleren" + (p ? " (" + p + ")" : ""); rv.style.display = (mgr.pick || !p) ? "none" : ""; }
     if (cols) { cols.textContent = mgr.cols === 2 ? "1 kolom" : "2 kolommen"; cols.style.display = (mgr.goalsMode || mgr.pick) ? "none" : ""; }
-    var gm = document.getElementById("qwl-goalsmode"); if (gm && !mgr.pick) gm.textContent = mgr.goalsMode ? "Terug naar lijst" : "Lesdoelen invullen";
-    var gi = document.getElementById("qwl-goalsimport"); if (gi) gi.style.display = (mgr.goalsMode && !mgr.pick) ? "" : "none";
-    var ok = document.getElementById("qwl-pickok");
+    var gm = E("qwl-goalsmode"); if (gm && !mgr.pick) gm.textContent = mgr.goalsMode ? "Terug naar lijst" : "Lesdoelen invullen";
+    var gi = E("qwl-goalsimport"); if (gi) gi.style.display = (mgr.goalsMode && !mgr.pick) ? "" : "none";
+    var ok = E("qwl-pickok");
     if (ok && mgr.pick) { ok.textContent = "Selectie gebruiken" + (n ? " (" + n + ")" : ""); ok.disabled = n ? null : "true"; }
   }
   function toggleSelectAll() {
@@ -760,9 +973,43 @@
   // ------------------------------------------------------------------------
   //  Edit one fiche (title + text) — STAGES into pending, never writes here
   // ------------------------------------------------------------------------
+  // Name of the gate that writes staged edits, as the active host shows it.
+  function reviewName() { return isMounted() ? "Controleer" : "Wijzigingen controleren"; }
+  // Mounted host: the editor is a side sheet next to the table (Lesfiches.dc.html); standalone: a modal.
   function openEditModal(f) {
+    if (isMounted() && mgr.els.sheet) { openSheet(f); return; }
     var m = modal("Bewerk: " + ficheName(f), [h("div", { class: "qwl-loading", text: "Fiche laden…" })], [], "wide");
+    fillEditor(f, m.querySelector(".qwl-modal-bd"), m.querySelector(".qwl-modal-ft"), m.close, function () { return !!m.parentNode; });
+  }
+  function openSheet(f) {
+    var sh = mgr.els.sheet, token = ++mgr.sheetToken;
+    mgr.sheetFid = f.id;
+    sh.innerHTML = ""; sh.style.display = "";
+    var top = (mgr.tagChips[f.id] || []).map(function (tid) { return S().topTagIdOf ? S().topTagIdOf(tid) : tid; })[0];
+    var hd = h("div", { class: "qwl-sheet-hd", style: "border-top-color:" + (top != null ? tagHex(top) : "#c9d2d7") }, [
+      h("div", { class: "qwl-sheet-kicker", text: (mgr.tagChips[f.id] || []).map(tagName).join(" · ") || "Lesfiche" }),
+      h("div", { class: "qwl-sheet-title", text: (mgr.pending[f.id] && mgr.pending[f.id].subject != null) ? mgr.pending[f.id].subject : ficheName(f) })
+    ]);
+    var bd = h("div", { class: "qwl-sheet-bd" }, [h("div", { class: "qwl-loading", text: "Fiche laden…" })]);
+    var ft = h("div", { class: "qwl-sheet-ft" });
+    sh.appendChild(hd); sh.appendChild(bd); sh.appendChild(ft);
+    markOpenRow();
+    fillEditor(f, bd, ft, closeSheet, function () { return token === mgr.sheetToken; });
+  }
+  function closeSheet() {
+    mgr.sheetToken++; mgr.sheetFid = null;
+    var sh = mgr.elsMounted && mgr.elsMounted.sheet; if (sh) { sh.innerHTML = ""; sh.style.display = "none"; }
+    markOpenRow();
+  }
+  function markOpenRow() {
+    var l = mgr.els && mgr.els.list; if (!l) return;
+    Array.prototype.forEach.call(l.querySelectorAll(".qwl-row[data-fid]"), function (r) { r.classList.toggle("open", String(r.getAttribute("data-fid")) === String(mgr.sheetFid)); });
+  }
+  // Build the full editor into bd/ft. `alive()` says whether that host still shows this fiche
+  // (a modal closed, or the sheet moved on to another fiche, while the edit view was loading).
+  function fillEditor(f, bd, ft, closeFn, alive) {
     readFicheEdit(f.id).then(function (edit) {
+      if (!alive()) return;
       var pend = mgr.pending[f.id];
       var body = [];
       function section(label, els) { body.push(h("label", { class: "qwl-flabel", text: label })); (els || []).forEach(function (e) { body.push(e); }); }
@@ -842,11 +1089,12 @@
         }
       });
       if (ro.length) section("Alleen lezen", [h("div", { class: "qwl-ro" }, ro)]);
-      body.push(h("div", { class: "qwl-note", text: "Niets wordt geschreven tot je op 'Wijzigingen controleren' klikt en goedkeurt." }));
-      var bd = m.querySelector(".qwl-modal-bd"); bd.innerHTML = ""; body.forEach(function (e) { bd.appendChild(e); });
-      var ft = m.querySelector(".qwl-modal-ft"); ft.innerHTML = "";
-      ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
-      if (mgr.pending[f.id]) ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: function () { delete mgr.pending[f.id]; m.close(); renderList(); setStatus("Wijziging verworpen."); }, text: "Verwerpen" }));
+      body.push(h("div", { class: "qwl-note", text: "Niets wordt geschreven tot je op '" + reviewName() + "' klikt en goedkeurt." }));
+      bd.innerHTML = ""; body.forEach(function (e) { bd.appendChild(e); });
+      ft.innerHTML = "";
+      ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: closeFn, text: isMounted() ? "Sluiten" : "Annuleer" }));
+      if (mgr.pending[f.id]) ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: function () { delete mgr.pending[f.id]; notifyPending(); closeFn(); renderList(); setStatus("Wijziging verworpen."); }, text: "Verwerpen" }));
+      if (isMounted()) ft.appendChild(h("span", { class: "qwl-hspacer" }));
       ft.appendChild(h("button", { class: "qwl-btn", onclick: function () {
         var subject = subjInp.value, text = {}, changes = [];
         if ((subject || "") !== (edit.subject || "")) changes.push({ label: "Titel", old: edit.subject || "", nw: subject || "" });
@@ -867,11 +1115,13 @@
           subject: subject, text: text, tags: tagsChanged ? nextTags : null,
           grades: gradesChanged ? nextGrades : null, visibility: visChanged ? vis : null, newFields: newFields
         }, changes);
-        m.close(); renderList();
-        setStatus(pendCount() + " wijziging(en) klaargezet — druk 'Wijzigingen controleren'.");
-      }, text: "Bewaar wijziging" }));
+        closeFn(); renderList();
+        setStatus(pendCount() + " wijziging(en) klaargezet — druk '" + reviewName() + "'.");
+      }, text: isMounted() ? "Klaarzetten" : "Bewaar wijziging" }));
     }).catch(function (e) {
-      var bd = m.querySelector(".qwl-modal-bd"); bd.innerHTML = ""; bd.appendChild(h("div", { class: "qwl-note", text: "Laadfout: " + ((e && e.message) || e) }));
+      if (!alive()) return;
+      bd.innerHTML = ""; bd.appendChild(h("div", { class: "qwl-note", text: "Laadfout: " + ((e && e.message) || e) }));
+      ft.innerHTML = ""; ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: closeFn, text: "Sluiten" }));
     });
   }
   // Merge a staged change into pending[id] (title/text and/or tags/createTags). `edit` may be
@@ -910,7 +1160,10 @@
     var meaningful = (e.subject != null && e.subject !== origSubject) || (e.tags != null) || (e.createTags && e.createTags.length) || textChanged || goalsChanged
       || e.grades != null || e.visibility != null || !!(e.newFields && e.newFields.length);
     if (meaningful) mgr.pending[f.id] = e; else delete mgr.pending[f.id];
+    notifyPending();
   }
+  // The planner's Controleer badge, header count and launcher badge include these edits.
+  function notifyPending() { try { if (S() && S().refreshStaged) S().refreshStaged(); } catch (e) {} }
 
   // Review ALL staged edits → approve → sequential write.
   function openReviewEdits() {
@@ -930,7 +1183,7 @@
     var m = modal("Wijzigingen controleren — " + keys.length + " fiches", body, [], "wide");
     var ft = m.querySelector(".qwl-modal-ft");
     ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Terug" }));
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost qwl-danger", onclick: function () { mgr.pending = {}; m.close(); renderList(); setStatus("Alle wijzigingen verworpen."); }, text: "Alles verwerpen" }));
+    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost qwl-danger", onclick: function () { mgr.pending = {}; notifyPending(); m.close(); renderList(); setStatus("Alle wijzigingen verworpen."); }, text: "Alles verwerpen" }));
     var goalWrites = keys.filter(function (id) { return mgr.pending[id].goals && Object.keys(mgr.pending[id].goals).length; }).length;
     if (goalWrites >= GOAL_BACKUP_MIN) body.push(h("div", { class: "qwl-note", text: "Eerst wordt een back-up (JSON) gedownload van de " + keys.length + " fiches zoals ze nu zijn." }));
     ft.appendChild(h("button", { class: "qwl-btn", onclick: function () {
@@ -950,9 +1203,21 @@
     });
     if (!downloadFichesBackup(data)) setStatus("Back-up downloaden mislukt — wegschrijven gaat toch door.");
   }
+  // Standalone gate: write with the manager's own progress modal.
   function writePending(keys) {
-    var prog = progressModal("Wijzigingen wegschrijven"), trialMisses = [];
-    runSequential(keys, function (id) {
+    var prog = progressModal("Wijzigingen wegschrijven");
+    writeFiches(keys, prog.update).then(function (res) {
+      prog.done(res.fails.map(function (f) { return { error: f.title + ": " + f.error }; }), keys.length); renderList();
+      if (res.trialMisses.length) setStatus("Niet overgenomen door Questi — " + res.trialMisses.join(" · "));
+    });
+  }
+  // Write the staged fiche edits under `keys` (keys of mgr.pending), one by one. Every PATCH mints
+  // a NEW fiche id, so the result maps each key to { oldId, newId, subject } — the shared Controleer
+  // uses it to point agenda slots at the newest version. A failed key stays staged.
+  // → Promise<{ map: { key: {oldId,newId,subject} }, fails: [{ key, title, error }], trialMisses: [] }>
+  function writeFiches(keys, onProgress) {
+    var trialMisses = [], map = {};
+    return runSequential(keys, function (id) {
       var p = mgr.pending[id]; if (!p) return Promise.resolve();
       var opts = {}; if (p.subject != null) opts.subject = p.subject; if (p.text) opts.text = p.text; if (p.tags != null) opts.tags = p.tags; if (p.createTags && p.createTags.length) opts.create_tags = p.createTags;
       if (p.goals && Object.keys(p.goals).length) opts.goals = p.goals;
@@ -963,6 +1228,7 @@
       var editP = p.edit ? Promise.resolve(p.edit) : readFicheEdit(p.fiche.id);
       return editP.then(function (edit) { p.edit = edit; return writePatch(p.fiche.id, buildPatch(p.fiche.id, edit, opts)); }).then(function (result) {
         var newId = result && result.id != null ? result.id : p.fiche.id, oldId = p.fiche.id;
+        map[id] = { oldId: oldId, newId: newId, subject: (result && result.subject != null) ? result.subject : (p.subject != null ? p.subject : ficheName(p.fiche)) };
         if (p.edit && S().noteFicheThread) S().noteFicheThread({ thread: p.edit.thread, id: newId });
         p.fiche.id = newId; if (result && result.subject != null) p.fiche.subject = result.subject;
         if (p.tags != null) mgr.tagChips[newId] = p.tags.map(function (x) { return x; });
@@ -981,12 +1247,77 @@
           if (opts.visibility && after.visibility !== opts.visibility) trialMisses.push(ficheName(p.fiche) + ": zichtbaarheid");
         }).catch(function () { trialMisses.push(ficheName(p.fiche) + ": niet nagelezen"); });
       });
-    }, prog.update).then(function (fails) {
+    }, onProgress).then(function (fails) {
       if (fails.length < keys.length) mgr.dirtyWrites = true;
-      prog.done(fails, keys.length); renderList();
-      if (trialMisses.length) setStatus("Niet overgenomen door Questi — " + trialMisses.join(" · "));
+      notifyPending();
+      return {
+        map: map, trialMisses: trialMisses,
+        fails: fails.map(function (fl) { var p = mgr.pending[fl.item]; return { key: fl.item, title: p ? ficheName(p.fiche) : ("#" + fl.item), error: fl.error }; })
+      };
     });
   }
+
+  // ------------------------------------------------------------------------
+  //  Shared-Controleer API (planner.js openReview). Tags to create and fiche
+  //  edits are listed there next to the calendar changes, and written in order:
+  //  tags → fiches → (planner remaps slots to the new fiche ids) → calendar.
+  // ------------------------------------------------------------------------
+  function pendingCount() { return Object.keys(mgr.pending).length + mgr.pendingTags.length; }
+  // Rows for the review. oldEl/newEl (tag chips) are fresh clones, safe to append anywhere.
+  function pendingSummary() {
+    var tags = mgr.pendingTags.map(function (p) {
+      var par = p.parent ? ownTagById(p.parent) : null;
+      return { key: p.key, title: p.title, color: p.color, parentTitle: par ? (par.title || "").trim() : "" };
+    });
+    var fiches = Object.keys(mgr.pending).map(function (id) {
+      var p = mgr.pending[id];
+      return {
+        key: id, ficheId: p.fiche.id, title: ficheName(p.fiche),
+        hasGoals: !!(p.goals && Object.keys(p.goals).length),
+        changes: (p.changes || []).map(function (c) {
+          return { label: c.label, old: c.old, nw: c.nw, oldEl: c.oldEl ? c.oldEl.cloneNode(true) : null, newEl: c.newEl ? c.newEl.cloneNode(true) : null };
+        })
+      };
+    });
+    return { tags: tags, fiches: fiches };
+  }
+  // Backup of the fiches under `keys` as they are NOW: the edit snapshots already read, plus a read
+  // (sequential, 150 ms apart) for those staged without one. → Promise<{ downloaded, missing }>
+  function backupPending(keys) {
+    var need = keys.filter(function (id) { return mgr.pending[id] && !mgr.pending[id].edit; }), missing = 0;
+    return runSequential(need, function (id) {
+      return readFicheEdit(mgr.pending[id].fiche.id).then(function (edit) { if (mgr.pending[id]) mgr.pending[id].edit = edit; });
+    }).then(function (fails) {
+      missing = fails.length;
+      var data = keys.filter(function (id) { return mgr.pending[id]; }).map(function (id) {
+        var p = mgr.pending[id], e = p.edit;
+        return e ? { id: e.id, subject: e.subject || "", grades: e.grades || [], tags: e.tags || [], fields: e.fields || [] }
+                 : { id: p.fiche.id, subject: ficheName(p.fiche), __backup_incomplete: true };
+      });
+      return { downloaded: data.length ? downloadFichesBackup(data) : false, missing: missing };
+    });
+  }
+  // Create the staged tags under `keys`. A created tag joins mgr.ownTags; a failed one stays staged.
+  // → Promise<{ created: [{ key, tag }], fails: [{ key, title, error }] }>
+  function writeTags(keys, onProgress) {
+    var created = [];
+    var todo = mgr.pendingTags.filter(function (p) { return keys.indexOf(p.key) >= 0; });
+    return runSequential(todo, function (p) {
+      var body = { title: p.title, color: p.color || "#e0e0e0", schoolId: sid() };
+      if (p.parent) body.parent = Number(p.parent);
+      return createUserTag(body).then(function (tag) {
+        mgr.pendingTags = mgr.pendingTags.filter(function (x) { return x.key !== p.key; });
+        if (tag && tag.id != null) mgr.ownTags.push(tag);
+        created.push({ key: p.key, tag: tag });
+      });
+    }, onProgress).then(function (fails) {
+      if (created.length) { mgr.dirtyWrites = true; S().invalidateOwnTags(); renderTagBar(); }
+      notifyPending();
+      return { created: created, fails: fails.map(function (fl) { return { key: fl.item.key, title: fl.item.title, error: fl.error }; }) };
+    });
+  }
+  // After the shared Controleer: redraw whatever host is active (new ids, cleared badges).
+  function afterSharedWrite() { if (overlayOpen()) { renderTagBar(); applyFilter(); } }
 
   // ------------------------------------------------------------------------
   //  Mass-edit tags — tri-state picker + create-tag → STAGES into pending
@@ -1009,7 +1340,7 @@
     function renderPick() { renderTagGroups(pickWrap, pill); }
     renderPick();
     var m = modal("Tags bewerken — " + ids.length + " fiches", [
-      h("div", { class: "qwl-note", text: "Klik een tag: 1× toevoegen (＋), 2× verwijderen (－), 3× niets. Wijzigingen worden klaargezet; niets wordt geschreven tot 'Wijzigingen controleren'." }),
+      h("div", { class: "qwl-note", text: "Klik een tag: 1× toevoegen (＋), 2× verwijderen (－), 3× niets. Wijzigingen worden klaargezet; niets wordt geschreven tot '" + reviewName() + "'." }),
       pickWrap,
       h("label", { class: "qwl-flabel", text: "Nieuwe tag maken + toevoegen" }), newTagInp
     ], [], "wide");
@@ -1047,7 +1378,7 @@
         if (newName) change.newEl = h("div", {}, [chipRow(next.map(Number)), h("span", { class: "qwl-chip", text: "＋ " + newName })]);
         stagePending(f, edit, { tags: next, create_tags: createTags }, [change]);
       });
-    }, prog.update).then(function (fails) { prog.done(fails, ids.length); renderList(); if (!fails.length) setStatus(pendCount() + " wijziging(en) klaargezet — druk 'Wijzigingen controleren'."); });
+    }, prog.update).then(function (fails) { prog.done(fails, ids.length); renderList(); if (!fails.length) setStatus(pendCount() + " wijziging(en) klaargezet — druk '" + reviewName() + "'."); });
   }
 
   // ------------------------------------------------------------------------
@@ -1105,11 +1436,14 @@
       [h("option", { value: "", text: "Hoofd-tag (geen vak)" })].concat(subjects.map(function (t) {
         return h("option", { value: String(t.id), text: (t.title || "").trim() });
       })));
+    // Mounted (planner tab): the tag is STAGED and created by the shared Controleer, first of all.
+    var staged = isMounted();
     var m = modal("Tag toevoegen", [
       h("label", { class: "qwl-flabel", text: "Naam" }), nameInp,
       h("label", { class: "qwl-flabel", text: "Kleur" }), colorInp,
       h("label", { class: "qwl-flabel", text: "Onder vak (optioneel)" }), parentSel,
-      h("div", { class: "qwl-note", text: "Een subtag valt onder een vak; laat op 'Hoofd-tag' staan voor een nieuw vak." })
+      h("div", { class: "qwl-note", text: "Een subtag valt onder een vak; laat op 'Hoofd-tag' staan voor een nieuw vak." }),
+      staged ? h("div", { class: "qwl-note", text: "De tag wordt klaargezet en pas aangemaakt bij Controleer. Fiches kun je er daarna aan toevoegen." }) : null
     ], [], "");
     var ft = m.querySelector(".qwl-modal-ft");
     ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
@@ -1117,13 +1451,22 @@
       var title = (nameInp.value || "").trim();
       if (!title) { modalNote(m, "Geef een naam op."); return; }
       var parentId = parentSel.value || null;
+      var dup = mgr.ownTags.concat(mgr.pendingTags).some(function (t) { return (t.title || "").trim().toLowerCase() === title.toLowerCase() && String(t.parent || "0") === String(parentId || "0"); });
+      if (dup) { modalNote(m, "Die tag bestaat al (of staat al klaar)."); return; }
+      if (staged) {
+        mgr.pendingTags.push({ key: "t" + Date.now() + "_" + mgr.pendingTags.length, title: title, color: colorInp.value || "#e0e0e0", parent: parentId });
+        if (parentId) mgr.expandedTop = parentId;
+        m.close(); renderTagBar(); notifyPending();
+        setStatus("Tag '" + title + "' klaargezet — wordt aangemaakt bij Controleer.");
+        return;
+      }
       var body = { title: title, color: colorInp.value || "#e0e0e0", schoolId: sid() };
       if (parentId) body.parent = Number(parentId);
       setStatus("Tag aanmaken…");
       createUserTag(body).then(function (tag) {
         m.close(); applyNewTag(tag, parentId);
       }).catch(function (e) { modalNote(m, "Aanmaken faalde: " + ((e && e.message) || e)); });
-    }, text: "Toevoegen" }));
+    }, text: staged ? "Klaarzetten" : "Toevoegen" }));
     setTimeout(function () { try { nameInp.focus(); } catch (e) {} }, 0);
   }
   function openRemoveTagModal() {
@@ -1247,7 +1590,9 @@
       prog.update(0, batch.length);
       return deleteFiches(batch).then(function () {
         mgr.dirtyWrites = true;
-        var gone = {}; batch.forEach(function (id) { gone[id] = true; delete mgr.selected[id]; delete mgr.tagChips[id]; });
+        var gone = {}; batch.forEach(function (id) { gone[id] = true; delete mgr.selected[id]; delete mgr.tagChips[id]; delete mgr.pending[id]; });
+        if (gone[mgr.sheetFid]) closeSheet();
+        notifyPending();
         mgr.fiches = mgr.fiches.filter(function (f) { return !gone[f.id]; });
         prog.done([], batch.length); applyFilter();
         setStatus(testOnly ? "1 verwijderd (back-up gedownload) — controleer in Questi, verwijder daarna de rest." : (batch.length + " verwijderd — back-up gedownload."));
@@ -1550,5 +1895,12 @@
 
   // ---------- Export ----------
   // createUserTag: settings.js creates a missing vak on import/setup — only after an explicit confirm.
-  window.__QWP_LESSONS = { open: open, close: close, openPicker: openPicker, runSequential: runSequential, createUserTag: createUserTag };
+  // mount/unmount: the planner's Lesfiches tab. pendingCount/pendingSummary/backupPending/writeTags/
+  // writeFiches/afterSharedWrite: the planner's shared Controleer (tags → fiches → calendar).
+  window.__QWP_LESSONS = {
+    open: open, close: close, openPicker: openPicker, runSequential: runSequential, createUserTag: createUserTag,
+    mount: mount, unmount: unmount, isMounted: isMounted,
+    pendingCount: pendingCount, pendingSummary: pendingSummary, backupPending: backupPending,
+    writeTags: writeTags, writeFiches: writeFiches, afterSharedWrite: afterSharedWrite
+  };
 })();

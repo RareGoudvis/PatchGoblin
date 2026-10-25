@@ -35,6 +35,7 @@ UnQuesti legt één venster over je Questi-agenda, bereikbaar met één knop in 
 | Snellere start | in aanbouw |
 | Nieuw venster: Plannen · Lesfiches · Afdrukken | gepland |
 | Eerste installatie, instellingen delen (.json) | gepland |
+| Lesfiches als tabblad in het venster + één Controleer voor tags, lesfiches en agenda | in aanbouw |
 
 ## Voor wie
 
@@ -443,7 +444,7 @@ fiches appear in the owner selectors, filter panels, and global search (badged *
 | `background.js` | Service worker; relays the toolbar/Alt+P toggle to the tab. |
 | `content.js` | Boot/relay; injects the **Weekplanner** + **Lesfiches** toolbar chips (only on `…/calendar`). |
 | `planner.js` / `planner.css` | The week planner (`#qwp-overlay`). Exports `window.__QWP_SHARED` (ctx + helpers) and `window.__QWP_OPEN_LESSONS`. |
-| `lessons.js` / `lessons.css` | The Lesfiche-manager (`#qwl-overlay`); consumes `__QWP_SHARED`; own storage key `qwp_lessons_v1`. Also exports `openPicker()` — read-only selectiemodus used by the Methodes panel. |
+| `lessons.js` / `lessons.css` | The Lesfiche-manager — mounted as the planner's Lesfiches tab (`mount()`), standalone `#qwl-overlay` for `openPicker()` (read-only selectiemodus used by the Methodes panel); consumes `__QWP_SHARED`; own storage key `qwp_lessons_v1`. Its staged edits are written by the planner's shared Controleer. |
 | `methodes.js` / `methodes.css` | Methodevoortgang (`#qwm-overlay`); consumes `__QWP_SHARED`; storage key `qwp_methodes_v1`. **Never writes to Questi.** |
 
 ### Methodevoortgang internals

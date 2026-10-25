@@ -183,3 +183,74 @@ html.qwl-locked { overflow: hidden; }
 .qwl-prog-txt { font-size: 13px; margin-bottom: 10px; }
 .qwl-bar { height: 8px; background: #eceff2; border-radius: 6px; overflow: hidden; }
 .qwl-bar-fill { height: 100%; width: 0; background: var(--accent); transition: width .15s ease; }
+
+/* =====================================================================
+ * Mounted host — the manager inside the planner's "Lesfiches" tab
+ * (Lesfiches.dc.html). Lives in #qwp-overlay, so it carries its own tokens
+ * here; every rule stays on a .qwl-* class. Palette: --uq-blue fills/borders,
+ * --uq-blue-ink for blue text, amber/orange never as text on white.
+ * ===================================================================== */
+.qwl-mounted, .qwl-mounted * { box-sizing: border-box; }
+.qwl-mounted {
+  --bg: #f4f6f7; --panel: #ffffff; --ink: #1e2a33; --muted: #6b7a82;
+  --line: #e3e9ec; --accent: #304651; --accent-weak: #eef2f4;
+  --accent2: #e4e642; --danger: #b3261e; --danger-weak: #fbe9e7; --ok-weak: #d4edda;
+  --field: #ffffff; --soft: #eef2f4;
+  --uq-blue: #4272FF; --uq-blue-ink: #2D5BE3; --uq-blue-tint: #edf2ff; --uq-amber: #FFB343; --uq-cyan: #42EAFF; --uq-cyan-tint: #e9fcff;
+  color: var(--ink);
+}
+.qwl-mside { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.qwl-mside-hd { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 10px 16px 6px; }
+.qwl-mside-t { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.qwl-tree { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 8px 8px; display: flex; flex-direction: column; gap: 1px; }
+.qwl-tnode { display: flex; align-items: center; gap: 9px; width: 100%; border: none; text-align: left; border-radius: 7px; padding: 6px 10px; background: transparent; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.qwl-tnode:hover { background: #f6f8f9; }
+.qwl-tnode.d1 { padding-left: 34px; font-weight: 500; }
+.qwl-tnode.active, .qwl-tnode.active:hover { background: var(--uq-blue-tint); box-shadow: inset 3px 0 0 var(--uq-blue); font-weight: 700; }
+.qwl-tsq { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 3px; }
+.qwl-tnode.d1 .qwl-tsq { width: 7px; height: 7px; }
+.qwl-tlbl { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qwl-tcaret { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+.qwl-tnew { flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--uq-blue-ink); border: 1px dashed var(--uq-blue); border-radius: 10px; padding: 0 6px; }
+
+.qwl-mbtn { flex: 0 0 auto; border: 1px solid #d5dbdf; background: #fff; border-radius: 7px; padding: 5px 11px; font: 600 12.5px/1.2 inherit; color: var(--accent); cursor: pointer; }
+.qwl-mbtn:hover { background: var(--soft); }
+.qwl-mbtn:disabled { opacity: .45; cursor: default; }
+.qwl-mbtn.qwl-mbtn-danger { color: var(--danger); border-color: #e3b4b0; }
+.qwl-mbtn.qwl-mbtn-muted { color: var(--muted); border-color: transparent; background: transparent; }
+
+.qwl-mmain { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); position: relative; }
+.qwl-mhdr { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 20px; background: #fff; border-bottom: 1px solid var(--line); }
+.qwl-mtitle { font-size: 17px; font-weight: 700; white-space: nowrap; }
+.qwl-msub { font-size: 14px; font-weight: 500; color: var(--muted); }
+.qwl-mhdr .qwl-search { width: 220px; padding: 7px 10px; border: 1px solid #d5dbdf; border-radius: 8px; background: #fff; font: 500 13px/1.3 inherit; }
+.qwl-mhdr .qwl-gradesel { padding: 6px 8px; border: 1px solid #d5dbdf; border-radius: 8px; background: #fff; font: 500 13px/1.3 inherit; }
+.qwl-mhdr .qwl-search:focus, .qwl-mhdr .qwl-gradesel:focus { outline: none; border-color: var(--uq-blue); box-shadow: 0 0 0 2px var(--uq-cyan-tint); }
+.qwl-seg { display: flex; background: var(--soft); border-radius: 999px; padding: 3px; }
+.qwl-seg button { border: none; border-radius: 999px; padding: 6px 14px; background: transparent; font: 600 13px/1.2 inherit; color: var(--accent); cursor: pointer; }
+.qwl-seg button.active { background: var(--uq-blue-ink); color: #fff; }
+.qwl-selbar { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 20px; background: var(--soft); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; }
+.qwl-mnote { font-size: 12px; font-weight: 500; color: var(--muted); }
+.qwl-mbody { flex: 1 1 auto; min-height: 0; display: flex; }
+.qwl-mbody .qwl-listwrap { flex: 1 1 auto; min-width: 0; padding: 10px 20px 24px; }
+.qwl-mbody .qwl-table { background: #fff; border: 1px solid var(--line); border-radius: 10px; max-width: none; }
+.qwl-mbody .qwl-thead { top: -10px; background: #fff; border-radius: 10px 10px 0 0; }
+.qwl-row.qwl-row6 { grid-template-columns: 34px minmax(160px, 1fr) 54px 92px 74px minmax(110px, 200px); gap: 10px; padding: 7px 12px; }
+.qwl-row.qwl-row6:not(.qwl-thead) { cursor: pointer; }
+.qwl-row.open, .qwl-row.open:hover { background: var(--uq-blue-tint); box-shadow: inset 3px 0 0 var(--uq-blue); }
+.qwl-c-goals { display: flex; gap: 3px; }
+.qwl-thead .qwl-c-goals { display: block; }
+.qwl-gsq { width: 18px; height: 18px; border-radius: 4px; font-size: 9.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; background: var(--soft); color: #93a0a7; }
+.qwl-gsq.on { background: var(--accent); color: #fff; }
+.qwl-gsq.unk { background: transparent; border: 1px dashed #d5dbdf; }
+
+/* Side sheet: the full fiche editor next to the table */
+.qwl-sheet { flex: 0 0 400px; width: 400px; min-height: 0; display: flex; flex-direction: column; background: #fff; border-left: 1px solid var(--line); }
+.qwl-sheet-hd { flex: 0 0 auto; padding: 12px 16px; border-top: 4px solid #c9d2d7; border-bottom: 1px solid var(--line); }
+.qwl-sheet-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qwl-sheet-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+.qwl-sheet-bd { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 16px; }
+.qwl-sheet-ft { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); }
+.qwl-sheet-ft .qwl-btn:not(.qwl-ghost) { background: var(--uq-blue-ink); border-color: var(--uq-blue-ink); }
+.qwl-sheet .qwl-ro-row { grid-template-columns: 120px 1fr; }
+.qwl-mounted .qwl-x { width: 34px; height: 34px; border: 1px solid #d5dbdf; border-radius: 8px; background: #fff; cursor: pointer; color: var(--muted); font-size: 15px; }

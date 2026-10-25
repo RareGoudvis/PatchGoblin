@@ -1300,8 +1300,8 @@
   }
   function buildShell() {
     var tabs = h("nav", { class: "qwp-tabs", "aria-label": "Onderdelen" }, [
-      h("button", { class: "qwp-tab active", "aria-current": "page", text: "Plannen" }),
-      h("button", { class: "qwp-tab", title: "Lesfiche-manager openen", text: "Lesfiches", onclick: function () { resetPrintFicheGoals(); openLessonsManager(); } }),
+      h("button", { class: "qwp-tab active", "data-tab": "plan", "aria-current": "page", text: "Plannen", onclick: function () { setTab("plan"); } }),
+      h("button", { class: "qwp-tab", "data-tab": "lesfiches", title: "Lesfiches beheren", text: "Lesfiches", onclick: function () { setTab("lesfiches"); } }),
       h("button", { class: "qwp-tab", title: "Afdrukvenster voor de geladen week (opgeslagen planning)", text: "Afdrukken", onclick: openPrintFromPlanner })
     ]);
     var sortSel = h("select", { class: "qwp-fsel", id: "qwp-sort-0", onchange: function (e) {
@@ -1310,7 +1310,7 @@
     var hideChk = h("input", { type: "checkbox", id: "qwp-hideused-0", onchange: function (e) {
       var p = view.panels[0]; p.hideUsed = !!e.target.checked; state.panels[0].hideUsed = p.hideUsed; saveState(); renderPickList(0);
     } });
-    var filter = h("div", { class: "qwp-filter", id: "qwp-filter" }, [
+    var filter = h("div", { class: "qwp-filter qwp-plan-only", id: "qwp-filter" }, [
       h("label", { class: "qwp-flbl wide" }, ["Zoeken", h("input", { class: "qwp-finp", id: "qwp-search-0", type: "text", placeholder: "titel bevat…", oninput: function (e) { view.panels[0].search = e.target.value; renderPickList(0); } })]),
       h("label", { class: "qwp-flbl" }, ["Leerjaar", h("select", { class: "qwp-fsel", id: "qwp-grade-0", onchange: function (e) {
         var p = view.panels[0]; p.gradeFilter = e.target.value || null; state.panels[0].gradeFilter = p.gradeFilter; saveState(); renderPickList(0);
@@ -1323,11 +1323,13 @@
     var side = h("aside", { class: "qwp-side", id: "qwp-side" }, [
       h("div", { class: "qwp-side-top" }, [
         tabs,
-        h("div", { class: "qwp-vaktoggle", id: "qwp-vaktoggle-0" }),
-        h("div", { class: "qwp-ownerrow" }, [h("div", { class: "qwp-ownerseg", id: "qwp-source-0", role: "group", "aria-label": "Eigenaar" }), h("span", { class: "qwp-spacer" }), filterBtn]),
+        h("div", { class: "qwp-vaktoggle qwp-plan-only", id: "qwp-vaktoggle-0" }),
+        h("div", { class: "qwp-ownerrow qwp-plan-only" }, [h("div", { class: "qwp-ownerseg", id: "qwp-source-0", role: "group", "aria-label": "Eigenaar" }), h("span", { class: "qwp-spacer" }), filterBtn]),
         filter
       ]),
-      h("div", { class: "qwp-picker", id: "qwp-picker-0" }, [
+      // Lesfiches tab: lessons.js mounts its tag tree here (setTab → __QWP_LESSONS.mount).
+      h("div", { class: "qwp-lf-side qwp-lf-only", id: "qwp-lf-side" }),
+      h("div", { class: "qwp-picker qwp-plan-only", id: "qwp-picker-0" }, [
         h("div", { class: "qwp-listhd" }, [h("span", { class: "qwp-listhd-t", id: "qwp-listhd-t" }), h("span", { text: "Laatst gebruikt" })]),
         h("div", { class: "qwp-picker-list", id: "qwp-picker-list-0" }),
         h("div", { class: "qwp-selbar", id: "qwp-selbar", style: "display:none" }, [
@@ -1371,9 +1373,11 @@
       betaPill(),
       h("button", { class: "qwp-topx", onclick: hide, title: "Sluiten", text: "✕" })
     ]);
-    var content = h("main", { class: "qwp-content" }, [header, h("div", { class: "qwp-ttwrap", id: "qwp-ttwrap" })]);
+    var content = h("main", { class: "qwp-content qwp-plan-only" }, [header, h("div", { class: "qwp-ttwrap", id: "qwp-ttwrap" })]);
+    // Lesfiches tab: lessons.js mounts its header, table and side sheet here.
+    var lfMain = h("main", { class: "qwp-lf-main qwp-lf-only", id: "qwp-lf-main" });
 
-    var main = h("div", { class: "qwp-main" }, [side, content]);
+    var main = h("div", { class: "qwp-main" }, [side, content, lfMain]);
 
     var page = h("div", { class: "qwp-page", id: "qwp-page" }, [main]);
     var overlay = h("div", { class: "qwp-overlay", id: "qwp-overlay" }, [page]);
@@ -1462,8 +1466,18 @@
   function stagedCount() {
     return view.slots.filter(function (s) { return s.isEditable && s.idCalendar !== "cal_holidays" && computeDirty(s); }).length;
   }
+  // Everything the ONE Controleer writes: calendar changes plus the Lesfiche-manager's staged fiche
+  // edits and tags to create. The launcher badge (__QWP_PENDING_COUNT), the Controleer badge and the
+  // header count all use this. Week navigation keeps using stagedCount — only calendar edits are
+  // lost on a week reload; staged fiche edits live in lessons.js and survive it.
+  function lessonsApi() { var L = window.__QWP_LESSONS; return (L && typeof L.pendingSummary === "function") ? L : null; }
+  function totalStagedCount() {
+    var n = stagedCount(), L = lessonsApi();
+    if (L) { try { n += L.pendingCount() || 0; } catch (e) {} }
+    return n;
+  }
   function refreshStaged() {
-    var n = stagedCount();
+    var n = totalStagedCount();
     var badge = elId("qwp-review-n"); if (badge) { badge.textContent = String(n); badge.style.display = n ? "" : "none"; }
     var st = elId("qwp-staged"); if (!st) return;
     st.style.display = n ? "" : "none"; st.innerHTML = "";
@@ -4578,33 +4592,274 @@
     });
     return grid;
   }
+  // ONE Controleer for everything staged (Controleer.dc.html), in write order:
+  //   (1) tags to create and (2) fiche edits — both staged in lessons.js (Lesfiches tab) —
+  //   (3) calendar changes from buildCommitPlan, plus "Fiche-versie" rows: lesuren in the loaded
+  //   weeks that already hold a fiche being edited, offered to follow it to the new version.
+  // Every row has a checkbox to leave it out (it simply stays staged). A JSON backup of the
+  // affected fiches is ticked by default. Opened by the Controleer button and the header count.
+  function slotWhere(s) {
+    var top = topTagIdOf(s.vak), vak = top != null ? (anyTagTitle(top) || "").trim() : "";
+    var d = view.weekStart ? ddmm(view.weekStart, (s.weekIdx || 0) * 7 + (s.dayIdx || 0)) : "";
+    return (DAY_ABBR[s.dayIdx] || "") + " " + d + (s.time ? " " + s.time : "") + (vak ? " · " + vak : "");
+  }
+  function slotByItemId(id) { for (var i = 0; i < view.slots.length; i++) if (String(view.slots[i].itemId) === String(id)) return view.slots[i]; return null; }
   function openReview() {
-    var plan = buildCommitPlan(view.slots);
     var old = elId("qwp-modal"); if (old) old.remove();
-    if (!plan.length) { setStatus("Geen wijzigingen om te controleren."); return; }
-    var body = h("div", { class: "qwp-modal-body qwp-rv-body" }, [
-      h("p", { class: "qwp-note", text: "Groen = gewijzigd · oranje = nog leeg · rood ⚠ = overschrijft bestaande fiche · wit = ongewijzigd. Enkel deze occurrence." }),
-      h("div", { class: "qwp-rv-section" }, [h("div", { class: "qwp-rv-caption", text: "HUIDIG (oud)" }), buildReviewGrid("old", true)]),
-      h("div", { class: "qwp-rv-section" }, [h("div", { class: "qwp-rv-caption", text: "NA WEGSCHRIJVEN (nieuw)" }), buildReviewGrid("new", false)])
+    var L = lessonsApi(), lp = { tags: [], fiches: [] };
+    if (L) { try { lp = L.pendingSummary(); } catch (e) { console.error("[QWP] pendingSummary:", e); } }
+    var plan = buildCommitPlan(view.slots);
+    // Lesuren that hold a fiche being edited: dirty ones follow it to the new version as part of
+    // their own row; clean ones become an opt-in "Fiche-versie" row.
+    var ficheByFid = {}; lp.fiches.forEach(function (f) { ficheByFid[String(f.ficheId)] = f; });
+    var follows = {}, bumps = [];
+    view.slots.forEach(function (s) {
+      if (!s.isEditable || s.idCalendar === "cal_holidays" || s.isGym || !s.ficheContentId) return;
+      var pf = ficheByFid[String(s.ficheContentId)]; if (!pf) return;
+      if (computeDirty(s)) follows[s.itemId] = pf; else bumps.push({ slot: s, fiche: pf });
+    });
+    if (!lp.tags.length && !lp.fiches.length && !plan.length && !bumps.length) { setStatus("Geen wijzigingen om te controleren."); return; }
+    var excl = { tag: {}, fiche: {}, cal: {}, bump: {} }, rows = [];
+    function textBlock(lines) { return h("span", { class: "qwp-cr-lines" }, lines.filter(Boolean).map(function (l) { return typeof l === "string" ? h("span", { text: l }) : l; })); }
+    function row(kind, key, what, where, oldLines, newLines, note) {
+      var cb = h("input", { type: "checkbox", "aria-label": what + " — " + where + " meenemen" }); cb.checked = true;
+      var el = h("label", { class: "qwp-cr-row" }, [
+        cb,
+        h("span", { class: "qwp-cr-what" }, [h("b", { text: what }), h("span", { text: where })]),
+        h("span", { class: "qwp-cr-old" }, [textBlock(oldLines)]),
+        h("span", { class: "qwp-cr-new" }, [textBlock(newLines), note ? h("span", { class: "qwp-cr-note", text: note }) : null])
+      ]);
+      cb.addEventListener("change", function () { if (cb.checked) delete excl[kind][key]; else excl[kind][key] = true; sync(); });
+      rows.push({ kind: kind, key: key, cb: cb, el: el });
+      return el;
+    }
+    function section(n, title, detail, kids) {
+      return h("section", { class: "qwp-cr-sec" }, [
+        h("div", { class: "qwp-cr-sechd" }, [h("span", { class: "qwp-cr-n", text: n }), h("span", { class: "qwp-cr-t", text: title }), h("span", { class: "qwp-cr-d", text: detail })])
+      ].concat(kids));
+    }
+    var secs = [];
+    if (lp.tags.length) secs.push(section("1", "Tags", lp.tags.length + (lp.tags.length === 1 ? " nieuwe tag" : " nieuwe tags"), lp.tags.map(function (t) {
+      return row("tag", t.key, "Nieuwe tag", t.parentTitle ? "onder " + t.parentTitle : "hoofdtag", ["—"],
+        [h("span", { class: "qwp-cr-tag" }, [h("span", { class: "qwp-cr-dot", style: "background:" + (t.color || "#c9d2d7") }), h("span", { text: t.title })])]);
+    })));
+    if (lp.fiches.length) secs.push(section("2", "Lesfiches", lp.fiches.length + " fiche(s) · elke fiche krijgt een nieuwe versie", lp.fiches.map(function (f) {
+      var o = [], nw = [];
+      f.changes.forEach(function (c) {
+        o.push(c.oldEl ? h("span", { class: "qwp-cr-lbl" }, [h("i", { text: c.label + ": " }), c.oldEl]) : (c.label + ": " + String(c.old || "—").slice(0, 160)));
+        nw.push(c.newEl ? h("span", { class: "qwp-cr-lbl" }, [h("i", { text: c.label + ": " }), c.newEl]) : (c.label + ": " + String(c.nw || "—").slice(0, 160)));
+      });
+      if (!f.changes.length) { o.push("—"); nw.push("(gewijzigd)"); }
+      return row("fiche", f.key, "Lesfiche", f.title, o, nw);
+    })));
+    var weekCount = {};
+    var calRows = plan.map(function (p) {
+      var s = slotByItemId(p.itemId), what = [];
+      if (p.old.fiche !== p.neu.fiche || p.fiche) what.push(s && s.isGym ? "Gym" : "Fiche");
+      if ((p.old.title || "") !== (p.neu.title || "")) what.push("Titel");
+      if (stripHtml(p.old.desc) !== stripHtml(p.neu.desc)) what.push("Vak");
+      if (!what.length) what.push("Lesuur");
+      if (s) { var wn = weekNoOf(s.weekIdx || 0); weekCount[wn] = (weekCount[wn] || 0) + 1; }
+      var pf = follows[p.itemId];
+      return row("cal", p.itemId, what.join(" · "), s ? slotWhere(s) : p.label,
+        [p.old.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.old.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (stripHtml(p.old.desc) || "—") : null],
+        [p.neu.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.neu.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (stripHtml(p.neu.desc) || "—") : null],
+        pf ? "krijgt de nieuwe versie van deze fiche" : (p.descEcho ? "beschrijving wordt eerst gelezen en ongewijzigd teruggeschreven" : null));
+    }).concat(bumps.map(function (b) {
+      var s = b.slot, wn = weekNoOf(s.weekIdx || 0); weekCount[wn] = (weekCount[wn] || 0) + 1;
+      return row("bump", s.itemId, "Fiche-versie", slotWhere(s), [(s.ficheTitle || b.fiche.title) + " (oud)"], [b.fiche.title + " (nieuw)"], "lesuur blijft verder ongewijzigd");
+    }));
+    if (calRows.length) {
+      var grid = null;
+      if (plan.length) {
+        grid = h("details", { class: "qwp-cr-grid" }, [h("summary", { text: "Toon als rooster (oud / nieuw)" })]);
+        grid.addEventListener("toggle", function () {
+          if (!grid.open || grid.getAttribute("data-built")) return;
+          grid.setAttribute("data-built", "1");
+          grid.appendChild(h("p", { class: "qwp-note", text: "Groen = gewijzigd · oranje = nog leeg · rood ⚠ = overschrijft bestaande fiche · wit = ongewijzigd. Enkel deze occurrence." }));
+          grid.appendChild(h("div", { class: "qwp-rv-section" }, [h("div", { class: "qwp-rv-caption", text: "HUIDIG (oud)" }), buildReviewGrid("old", true)]));
+          grid.appendChild(h("div", { class: "qwp-rv-section" }, [h("div", { class: "qwp-rv-caption", text: "NA WEGSCHRIJVEN (nieuw)" }), buildReviewGrid("new", false)]));
+        });
+      }
+      secs.push(section("3", "Agenda", Object.keys(weekCount).map(function (w) { return "week " + w + ": " + weekCount[w]; }).join(" · "), calRows.concat(grid ? [grid] : [])));
+    }
+    // Aside: the order of work, the version warning, backup, and the write button.
+    var olderN = Object.keys(follows).length + bumps.length;
+    var backupCb = h("input", { type: "checkbox", "aria-label": "Back-up downloaden" }); backupCb.checked = true;
+    var masterCb = h("input", { type: "checkbox", "aria-label": "Alles aangevinkt" }); masterCb.checked = true;
+    var sub = h("span", { class: "qwp-cr-sub" });
+    var goBtn = h("button", { class: "qwp-cr-go", onclick: approve });
+    masterCb.addEventListener("change", function () { rows.forEach(function (r) { if (!r.cb.disabled) { r.cb.checked = masterCb.checked; r.cb.dispatchEvent(new Event("change")); } }); });
+    function chosen() { return rows.filter(function (r) { return r.cb.checked && !r.cb.disabled; }); }
+    function sync() {
+      // A Fiche-versie row only makes sense while its fiche is being written.
+      rows.forEach(function (r) {
+        if (r.kind !== "bump") return;
+        var b = bumps.filter(function (x) { return String(x.slot.itemId) === String(r.key); })[0];
+        var off = !!(b && excl.fiche[b.fiche.key]);
+        r.cb.disabled = off; r.el.classList.toggle("dis", off);
+      });
+      rows.forEach(function (r) { r.el.classList.toggle("off", !r.cb.checked || r.cb.disabled); });
+      var n = chosen().length;
+      goBtn.textContent = "Wegschrijven (" + n + ")"; goBtn.disabled = n ? null : "true";
+      sub.textContent = rows.length + (rows.length === 1 ? " wijziging" : " wijzigingen") + (n !== rows.length ? " · " + n + " aangevinkt" : "") + " · nog niets is naar Questi gestuurd";
+      masterCb.checked = n === rows.length;
+    }
+    var aside = h("aside", { class: "qwp-cr-aside" }, [
+      h("div", { class: "qwp-cr-card" }, [
+        h("b", { text: "Zo gaat het" }),
+        h("ol", {}, [h("li", { text: "Nieuwe tags aanmaken" }), h("li", { text: "Lesfiches bijwerken — elke fiche krijgt daarbij een nieuwe versie" }), h("li", {}, ["Agenda: lesuren koppelen aan die ", h("b", { text: "nieuwste" }), " versie"])]),
+        h("span", { class: "qwp-cr-muted", text: "Enkel losse lesuren — nooit een hele reeks. Lukt een fiche niet, dan blijft een lesuur dat die fiche zou krijgen klaargezet (niet weggeschreven)." })
+      ]),
+      olderN ? h("div", { class: "qwp-cr-warn" }, [h("b", { text: "Let op: " }), document.createTextNode(olderN + (olderN === 1 ? " lesuur in deze weken is" : " lesuren in deze weken zijn") + " al gepland met een fiche die je bewerkt. " + (bumps.length ? "Vink een ‘Fiche-versie’-rij uit om dat lesuur op de oude versie te laten. " : "") + "Lesuren buiten de geladen weken blijven op de oude versie.")]) : null,
+      lp.fiches.length ? h("label", { class: "qwp-cr-card qwp-cr-backup" }, [backupCb, h("span", {}, [h("b", { text: "Eerst een back-up downloaden" }), h("br"), h("span", { class: "qwp-cr-muted", text: "de " + lp.fiches.length + " fiche(s) zoals ze nu zijn (.json)" })])]) : null,
+      h("span", { class: "qwp-spacer" }),
+      goBtn,
+      h("button", { class: "qwp-cr-back", onclick: function () { modal.remove(); }, text: "Terug, nog niets doen" })
     ]);
-    var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
-      h("div", { class: "qwp-modal-box wide qwp-review-modal" }, [
-        h("div", { class: "qwp-modal-hd", text: "Controleer wijzigingen — " + plan.length + " lesuur/lesuren" }),
-        body,
-        h("div", { class: "qwp-modal-ft" }, [
-          h("button", { class: "qwp-btn qwp-ghost", text: "Terug", onclick: function () { modal.remove(); } }),
-          h("button", {
-            class: "qwp-btn qwp-approve", text: "Goedkeuren en wegschrijven", onclick: function () {
-              _approvedPlan = plan; modal.remove();
-              var cb = elId("qwp-commit"); if (cb) { cb.removeAttribute("disabled"); cb.classList.add("armed"); }
-              setStatus("Goedgekeurd — wegschrijven…");
-              doCommit(); // approve writes immediately, no extra button press
-            }
-          })
-        ])
+    var modal = h("div", { class: "qwp-modal qwp-cr", id: "qwp-modal" }, [
+      h("div", { class: "qwp-cr-box", role: "dialog", "aria-label": "Controleer en wegschrijven" }, [
+        h("header", { class: "qwp-cr-hd" }, [
+          h("button", { class: "qwp-navarrow", "aria-label": "Terug", title: "Terug, nog niets doen", onclick: function () { modal.remove(); }, text: "←" }),
+          h("div", { class: "qwp-cr-titles" }, [h("span", { class: "qwp-cr-title", text: "Controleer & wegschrijven" }), sub]),
+          h("span", { class: "qwp-spacer" }),
+          h("label", { class: "qwp-cr-all" }, [masterCb, h("span", { text: "Alles aangevinkt" })])
+        ]),
+        h("div", { class: "qwp-cr-main" }, [h("div", { class: "qwp-cr-secs" }, secs), aside])
       ])
     ]);
+    sync();
     els.page.appendChild(modal);
+    function approve() {
+      var sel = {
+        tagKeys: lp.tags.filter(function (t) { return !excl.tag[t.key]; }).map(function (t) { return t.key; }),
+        ficheKeys: lp.fiches.filter(function (f) { return !excl.fiche[f.key]; }).map(function (f) { return f.key; }),
+        ficheIdByKey: {}, calIds: {}, bumpIds: {}, backup: !!(lp.fiches.length && backupCb.checked),
+        leftOut: rows.length - chosen().length
+      };
+      lp.fiches.forEach(function (f) { sel.ficheIdByKey[f.key] = f.ficheId; });
+      plan.forEach(function (p) { if (!excl.cal[p.itemId]) sel.calIds[p.itemId] = true; });
+      bumps.forEach(function (b) { if (!excl.bump[b.slot.itemId] && !excl.fiche[b.fiche.key]) sel.bumpIds[b.slot.itemId] = true; });
+      if (!sel.tagKeys.length && !sel.ficheKeys.length && !Object.keys(sel.calIds).length && !Object.keys(sel.bumpIds).length) return;
+      modal.remove();
+      runSharedWrite(sel);
+    }
+  }
+  // Approved: tags → fiches → remap slots to the new fiche ids → calendar (doCommit). Progress per
+  // phase in the commit overlay; one summary at the end. A lesuur whose fiche write FAILED is held
+  // back (its staged state stays) instead of being attached to a version that may now be stale.
+  var _commitAfter = null;
+  function runSharedWrite(sel) {
+    var L = lessonsApi(), rep = { tags: null, fiches: null, backup: null, held: [], remapped: 0 };
+    var n12 = sel.tagKeys.length + sel.ficheKeys.length;
+    function msg(t) { var m = elId("qwp-commit-msg"); if (m) m.textContent = t; }
+    var chain = Promise.resolve();
+    if (n12 && L) {
+      showCommitOverlay(n12);
+      if (sel.backup && sel.ficheKeys.length) chain = chain.then(function () {
+        msg("Back-up van " + sel.ficheKeys.length + " fiche(s) maken…");
+        return L.backupPending(sel.ficheKeys).then(function (b) { rep.backup = b; }, function () { rep.backup = { downloaded: false, missing: 0 }; });
+      });
+      if (sel.tagKeys.length) chain = chain.then(function () {
+        msg("1/3 · Nieuwe tags aanmaken…"); setStatus("Tags aanmaken…");
+        return L.writeTags(sel.tagKeys, function (d) { updateCommitOverlay(d, n12); }).then(function (r) { rep.tags = r; });
+      });
+      if (sel.ficheKeys.length) chain = chain.then(function () {
+        msg("2/3 · Lesfiches bijwerken — elke fiche krijgt een nieuwe versie…"); setStatus("Lesfiches bijwerken…");
+        return L.writeFiches(sel.ficheKeys, function (d) { updateCommitOverlay(sel.tagKeys.length + d, n12); }).then(function (r) { rep.fiches = r; });
+      });
+    }
+    chain.then(function () {
+      // ---- remap: every slot pointing at an old version of a fiche written in THIS run ----
+      var byOld = {}, failedFid = {};
+      var map = (rep.fiches && rep.fiches.map) || {};
+      Object.keys(map).forEach(function (k) { byOld[String(map[k].oldId)] = map[k]; });
+      ((rep.fiches && rep.fiches.fails) || []).forEach(function (f) { failedFid[String(sel.ficheIdByKey[f.key])] = f.title; });
+      var held = {};
+      view.slots.forEach(function (s) {
+        if (!s.isEditable || s.idCalendar === "cal_holidays" || s.isGym || !s.ficheContentId) return;
+        var fid = String(s.ficheContentId), newAssign = fid !== String(s.origFicheContentId || "");
+        var m = byOld[fid];
+        if (m) {
+          // A newly assigned fiche always follows (it stays staged even when left out of this run);
+          // an already-attached one only when its row is written now or its Fiche-versie row is ticked.
+          if (!(newAssign || sel.calIds[s.itemId] || sel.bumpIds[s.itemId])) return;
+          var oldTitle = s.ficheTitle || "";
+          s.ficheContentId = m.newId; s.ficheTitle = m.subject || oldTitle;
+          if (oldTitle && normTitle(s.title) === normTitle(oldTitle)) s.title = s.ficheTitle;
+          rep.remapped++;
+        } else if (failedFid[fid] && newAssign && sel.calIds[s.itemId]) {
+          held[s.itemId] = true;
+          rep.held.push(slotWhere(s) + " — fiche ‘" + failedFid[fid] + "’ werd niet bijgewerkt");
+        }
+      });
+      var plan = buildCommitPlan(view.slots).filter(function (p) { return (sel.calIds[p.itemId] || sel.bumpIds[p.itemId]) && !held[p.itemId]; });
+      if (!plan.length) { finishSharedWrite(rep, sel, [], 0, []); return; }
+      setStatus("3/3 · Agenda wegschrijven…");
+      _commitAfter = function (ok, fails) { finishSharedWrite(rep, sel, plan, ok, fails); };
+      _approvedPlan = plan;
+      doCommit();
+    }).catch(function (e) {
+      console.error("[QWP] shared write:", e);
+      finishSharedWrite(rep, sel, [], 0, [{ label: "wegschrijven", error: String((e && e.message) || e) }]);
+    });
+  }
+  function finishSharedWrite(rep, sel, plan, ok, calFails) {
+    var L = lessonsApi();
+    // Written rows are no longer staged: take their new state as the stored one, so anything left
+    // out (or held back) stays staged on screen without a reload.
+    plan.forEach(function (p) {
+      if (!p.done) return;
+      var s = slotByItemId(p.itemId); if (!s) return;
+      s.origTitle = s.title; s.origDescription = p.patchBody.description || "";
+      s.origFicheContentId = s.ficheContentId; s.origFicheTitle = s.ficheTitle;
+    });
+    var tagFails = (rep.tags && rep.tags.fails) || [], ficheFails = (rep.fiches && rep.fiches.fails) || [];
+    var trial = (rep.fiches && rep.fiches.trialMisses) || [];
+    var tagsOk = (rep.tags && rep.tags.created.length) || 0, fichesOk = rep.fiches ? Object.keys(rep.fiches.map).length : 0;
+    var problems = tagFails.length + ficheFails.length + calFails.length + rep.held.length + trial.length + (rep.backup && !rep.backup.downloaded ? 1 : 0);
+    var wrote = tagsOk + fichesOk + ok;
+    var leftover = totalStagedCount();
+    try { if (L && L.afterSharedWrite) L.afterSharedWrite(); } catch (e) {}
+    refreshStaged();
+    if (!problems && !leftover) {
+      // Everything landed and nothing is left staged → reload so Questi's own SPA shows it.
+      setStatus("Klaar: alles weggeschreven — Questi wordt vernieuwd…");
+      if (!elId("qwp-commit-overlay")) showCommitOverlay(1);
+      updateCommitOverlay(1, 1);
+      msg2("Klaar — Questi wordt vernieuwd…");
+      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) sp.style.display = "none";
+      setTimeout(function () { try { location.reload(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
+      return;
+    }
+    // Otherwise: a summary per phase. Failed rows stay staged; nothing was guessed.
+    var lines = [];
+    if (rep.backup) lines.push(rep.backup.downloaded ? ("Back-up gedownload" + (rep.backup.missing ? " — " + rep.backup.missing + " fiche(s) konden niet gelezen worden en staan onvolledig in de back-up." : ".")) : ["warn", "Back-up NIET gedownload — het wegschrijven ging toch door."]);
+    if (rep.tags) lines.push(tagFails.length ? ["warn", "Tags: " + tagsOk + " aangemaakt, " + tagFails.length + " mislukt — " + tagFails.map(function (f) { return f.title + ": " + f.error; }).join(" · ") + " (blijft klaargezet)."] : ("Tags: " + tagsOk + " aangemaakt."));
+    if (rep.fiches) lines.push(ficheFails.length ? ["warn", "Lesfiches: " + fichesOk + " bijgewerkt, " + ficheFails.length + " mislukt — " + ficheFails.map(function (f) { return f.title + ": " + f.error; }).join(" · ") + " (blijft klaargezet)."] : ("Lesfiches: " + fichesOk + " bijgewerkt (nieuwe versie)."));
+    if (trial.length) lines.push(["warn", "Niet overgenomen door Questi — " + trial.join(" · ")]);
+    if (rep.remapped) lines.push(rep.remapped + " lesuur/lesuren gekoppeld aan de nieuwste fiche-versie.");
+    rep.held.forEach(function (t) { lines.push(["warn", "Niet weggeschreven: " + t + ". Dit lesuur blijft klaargezet met de huidige versie — probeer opnieuw na de fiche."]); });
+    if (plan.length) lines.push(calFails.length ? ["warn", "Agenda: " + ok + " lesuur/lesuren weggeschreven, " + calFails.length + " mislukt — " + calFails.map(function (f) { return f.label + ": " + f.error; }).slice(0, 4).join(" · ")] : ("Agenda: " + ok + " lesuur/lesuren weggeschreven."));
+    else if (calFails.length) lines.push(["warn", "Fout: " + calFails[0].error]);
+    if (sel.leftOut || leftover) lines.push(leftover + " wijziging(en) blijven klaargezet" + (sel.leftOut ? " (waarvan " + sel.leftOut + " bewust uitgevinkt)" : "") + " — zie Controleer.");
+    if (calFails.length && leftover === calFails.length) reloadAndRender();   // only failures left: show what did persist
+    else renderTimetable();
+    if (fichesOk) { view.ficheCache = {}; loadOwnFiches().then(renderAllPanels).catch(function () {}); }   // the sidebar list held old fiche ids
+    if (tagsOk) { invalidateOwnTags(); fetchOwnTags().then(function (t) { view.ownTags = t; view.ownTopTags = topTagsForOwner(view.ownTags, ctx.ownerId); renderAllPanels(); }); }
+    setStatus(problems ? "Weggeschreven met " + problems + " probleem/problemen — zie overzicht." : "Weggeschreven: " + wrote + ".");
+    sharedResultCard(lines, !!problems);
+  }
+  function msg2(t) { var m = elId("qwp-commit-msg"); if (m) m.textContent = t; }
+  function sharedResultCard(lines, bad) {
+    if (!elId("qwp-commit-overlay")) showCommitOverlay(1);
+    var ov = elId("qwp-commit-overlay"), card = ov && ov.querySelector(".qwp-commit-card"); if (!card) return;
+    var sp = ov.querySelector(".qwp-spinner"); if (sp) sp.style.display = "none";
+    msg2(bad ? "Klaar, met aandachtspunten:" : "Klaar.");
+    var m = elId("qwp-commit-msg"); if (m) m.classList.toggle("err", bad);
+    var list = h("ul", { class: "qwp-cr-result" }, lines.map(function (l) { return Array.isArray(l) ? h("li", { class: "warn", text: l[1] }) : h("li", { text: l }); }));
+    card.appendChild(list);
+    card.appendChild(h("button", { class: "qwp-btn", text: "Sluiten", onclick: hideCommitOverlay }));
   }
   // Human-ish spacing between writes: a base delay + random jitter, so the burst is never
   // perfectly periodic (metronomic timing is itself a bot fingerprint). Base is configurable
@@ -4614,13 +4869,15 @@
     return base + Math.floor(Math.random() * (base > 0 ? base : 150));
   }
   function doCommit() {
-    if (!_approvedPlan || !_approvedPlan.length) { setStatus("Niets goedgekeurd."); return; }
+    if (!_approvedPlan || !_approvedPlan.length) { _commitAfter = null; setStatus("Niets goedgekeurd."); return; }
     var plan = _approvedPlan, i = 0, ok = 0, fails = [];
     setStatus("Bezig met wegschrijven…");
     showCommitOverlay(plan.length);
     function finish() {
       _approvedPlan = null;
       var cb = elId("qwp-commit"); if (cb) { cb.setAttribute("disabled", "true"); cb.classList.remove("armed"); }
+      // The shared Controleer (runSharedWrite) reports all three phases itself.
+      if (_commitAfter) { var after = _commitAfter; _commitAfter = null; after(ok, fails); return; }
       if (fails.length) {
         var first = fails[0];
         setStatus(ok + " ok, " + fails.length + " fout: " + first.label + " — " + first.error + (fails.length > 1 ? " (+ " + (fails.length - 1) + " meer, zie console)" : ""));
@@ -4653,11 +4910,11 @@
       (p.descEcho ? fetchItemDetail(p.itemId).then(function (d) { if (!d) throw new Error("beschrijving niet gelezen"); p.patchBody.description = d.description || ""; }) : Promise.resolve())
         .then(function () { return p.fiche ? ((p.fiche.isMethod || view.methodFicheIds[String(p.fiche.contentId)]) ? postMethodAttachment(p.itemId, p.fiche.contentId, p.fiche.groups) : postAttachment(p.itemId, p.fiche.contentId, p.fiche.groups)) : Promise.resolve(null); })
         .then(function () { return patchItem(p.itemId, p.patchBody, p.range); })
-        .then(function () { ok++; })
+        .then(function () { ok++; p.done = true; })
         // Continue on error. A gateway timeout (504 …) usually still lands → re-read + verify
         // instead of hard-failing; only a mismatch is reported as uncertain.
         .catch(function (e) {
-          if (isGatewayError(e)) return verifyLanded(p).then(function (landed) { if (landed) ok++; else fails.push({ label: p.label, error: "onzeker (504) — controleer/hertry deze" }); });
+          if (isGatewayError(e)) return verifyLanded(p).then(function (landed) { if (landed) { ok++; p.done = true; } else fails.push({ label: p.label, error: "onzeker (504) — controleer/hertry deze" }); });
           fails.push({ label: p.label, error: String(e && e.message || e) });
         })
         // Small delay between slots — sequential PATCH→POST, avoid rate-limiting (no bulk endpoint exists).
@@ -4727,21 +4984,43 @@
   function hide() { if (els.root) els.root.classList.remove("qwp-show"); document.documentElement.classList.remove("qwp-locked"); var p = elId("qwp-pop"); if (p) p.remove(); }
   function toggle() { if (!els.root) { boot(); return; } var open = els.root.classList.toggle("qwp-show"); document.documentElement.classList.toggle("qwp-locked", open); }
   window.__QWP_TOGGLE = toggle;
-  // Opens the separate Lesfiche-manager module (lessons.js). If the planner's context
-  // isn't detected yet, boot it first so lessons.js can reuse ctx via __QWP_SHARED.
-  function openLessonsManager() {
-    if (!(window.__QWP_LESSONS && window.__QWP_LESSONS.open)) { console.warn("[QWP] lessons module niet geladen"); return; }
-    if (!ctx.ready) { setStatus("Context laden vóór lesfichebeheer…"); detectContext().then(function () { window.__QWP_LESSONS.open(); }); return; }
-    window.__QWP_LESSONS.open();
+  // Sidebar tabs. Plannen and Lesfiches swap the sidebar body and the main column inside this one
+  // overlay (CSS: #qwp-overlay.qwp-tab-lf hides .qwp-plan-only, shows .qwp-lf-only); the bottom bar
+  // (Alles · Instellingen · Debug · Controleer) stays. Lesfiches = lessons.js mounted into
+  // #qwp-lf-side / #qwp-lf-main. Afdrukken keeps its own handler (openPrintFromPlanner).
+  var _tab = "plan";
+  function setTab(name) {
+    if (!els.root) return;
+    var lf = name === "lesfiches", L = window.__QWP_LESSONS;
+    if (lf && !(L && typeof L.mount === "function")) { setStatus("De Lesfiche-manager is niet geladen."); console.warn("[QWP] lessons module niet geladen"); return; }
+    _tab = lf ? "lesfiches" : "plan";
+    els.root.classList.toggle("qwp-tab-lf", lf);
+    Array.prototype.forEach.call(els.root.querySelectorAll(".qwp-tab[data-tab]"), function (b) {
+      var on = b.getAttribute("data-tab") === _tab;
+      b.classList.toggle("active", on);
+      if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    });
+    closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu");
+    var pop = elId("qwp-pop"); if (pop) pop.remove();
+    if (!lf) { if (L && L.unmount) L.unmount(); return; }
+    resetPrintFicheGoals();   // fiche goals may change on this tab; Doelen/print re-read them
+    var go = function () { if (_tab === "lesfiches") L.mount(elId("qwp-lf-side"), elId("qwp-lf-main"), { onClose: hide }); };
+    if (ctx.ready) go();
+    else { setStatus("Context laden vóór lesfichebeheer…"); detectContext().then(go); }
   }
-  // Exposed so the in-page toolbar "Lesfiches" chip (content.js) can open the manager
-  // even when the planner overlay was never opened — it detects context on demand.
+  // The Lesfiche-manager is the planner's Lesfiches tab: open (or boot) the planner on that tab.
+  function openLessonsManager() {
+    if (!(window.__QWP_LESSONS && window.__QWP_LESSONS.mount)) { console.warn("[QWP] lessons module niet geladen"); return; }
+    if (!els.root) boot(); else show();
+    setTab("lesfiches");
+  }
+  // Exposed so the in-page quick menu "Lesfiches" (content.js) opens the planner on that tab,
+  // even when the planner overlay was never opened — boot detects context on demand.
   window.__QWP_OPEN_LESSONS = openLessonsManager;
-  // Staged-but-unwritten changes, for the badge on the toolbar launcher (content.js). Same filter as
-  // buildCommitPlan, without building the plan; 0 until a week is loaded.
-  window.__QWP_PENDING_COUNT = function () {
-    return (view.slots || []).filter(function (s) { return s.isEditable && s.idCalendar !== "cal_holidays" && computeDirty(s); }).length;
-  };
+  // Staged-but-unwritten changes for the badge on the toolbar launcher (content.js): calendar
+  // changes (same filter as buildCommitPlan) + staged fiche edits + tags to create — the same
+  // number the Controleer badge shows.
+  window.__QWP_PENDING_COUNT = totalStagedCount;
 
   function reconcilePanelSources() {
     var valid = [String(myId())].concat(state.colleagues.map(function (c) { return String(c.id); }));
@@ -4951,6 +5230,8 @@
     ensureThemaKeys: ensureThemaKeys, normTitle: normTitle, stripQuestiDecoration: stripQuestiDecoration,
     fetchPeople: fetchPeople, loadColleagueFiches: loadColleagueFiches, METHOD_PREFIX: METHOD_PREFIX,
     openDiagnose: openDiagnose, recentApiErrors: recentApiErrors, noteApiError: noteApiError,
-    DAY_NAMES: DAY_NAMES
+    DAY_NAMES: DAY_NAMES,
+    // Lesfiches tab (lessons.js mounted): its staged edits feed the shared Controleer + badges.
+    refreshStaged: refreshStaged, openReview: openReview
   };
 })();
