@@ -51,7 +51,7 @@ Flat repo. `icons/` and `reference/` are the only folders.
 | `lessons.js` / `lessons.css` | 1906 / 256 | Lesfiche-manager. Mounted as the planner's **Lesfiches** tab; standalone `#qwl-overlay` for pick mode. Fiche + tag CRUD. |
 | `methodes.js` / `methodes.css` | 802 / 153 | Methodevoortgang `#qwm-overlay`. Read-only progress tracker. |
 | `settings.js` / `settings.css` | 1215 / 217 | Instellingen + first-run setup wizard `#qws-overlay`. Settings export/import, Zelftest `.json`. |
-| `version.json`, `update.bat` | | Self-update: `.bat` pulls the repo ZIP; the in-app banner compares `manifest.json` against the GitHub `version.json`. Bump **both** on release. |
+| `version.json`, `update.bat` | | Self-update: `.bat` pulls the repo ZIP into temp, refuses it unless core files exist and `manifest.json` = `version.json` version, backs the folder up to `%LOCALAPPDATA%\PatchGoblin-backups` (last 3), replaces, re-checks, rolls back on failure. Its PowerShell sits after a `#=PS=` marker and runs from ONE launch line, because the file overwrites itself mid-run. The in-app banner compares `manifest.json` against the GitHub `version.json`. Bump **both** on release. |
 
 Docs (all gitignored except `README.md`): `brief.md` (API/build reference), `featues.md` (sic —
 Zelftest spec), `planned.md` (planner polish log), `plannedfeature.md` (Lesfiche CRUD / import
@@ -430,6 +430,8 @@ commits as the `"Lesuur"` fallback. `GYM_RE` **must** match every title the plan
 Compares live responses against captured shapes and emits OK/WARN/FAIL/SKIP rows with
 `expected`/`found`/`next`, copyable as plain text. **When you add a feature that depends on an API
 shape, add a check here.**
+
+**Writes have three outcomes: done, refused, onzeker.** Every write has a 30 s timeout (`timedFetch` in planner, `wfetch` in lessons). No answer, a dropped connection or a gateway status (502/503/504/408/524) is NOT "failed" — Questi may have committed it. Planner: `doCommit` → `verifyLanded` reads the item back → `"landed"` (a missing title PATCH is redone; PATCH is idempotent) / `"not"` (attachment absent by content id → retry is safe) / `"unknown"` (sets `slot._uncertain`; the next commit reads the item first and skips the attachment POST if that fiche is already there). Lessons: `createUserTag` (baseline = cached own tags), `renameUserTag` and `writeNewFiche` (baseline = 10 newest own fiches, read before the POST) settle it by reading back; a fiche PATCH or DELETE stays `onzeker` (`err.uncertain`, message starts with `UNSURE`). `finishSharedWrite` lists uncertain writes in their own warning. **Read-back:** a newly linked fiche is re-read once per lesuur, a fiche edit that touched goals/tags/grades/visibility is re-read and mismatches go to `trialMisses` — plain PATCHes are not, to keep traffic light. **Saves:** `storeSet` is the only storage writer (lessons/methodes/settings go through it); a throw or `chrome.runtime.lastError` goes to `noteApiError("storage", key)` and the status line ("Extension context invalidated" = stale tab, reload). **Zelftest** `checkRequestFormats` (lessons) builds the PATCH / new-fiche / tag-rename bodies from fixed samples offline and checks the captured rules, and fires a test `OpStapSelectionChanged` to prove `opstap-bridge.js` runs. Change a body builder → keep those checks passing.
 
 **Open question — can a methode fiche's content be read?** Nothing in the codebase has ever
 deliberately tried. It matters because "copy a methode fiche into my own library" (planned, parked

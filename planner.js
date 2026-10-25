@@ -156,12 +156,7 @@
     state.writeVakDescription = s.writeVakDescription != null ? !!s.writeVakDescription : true;
   }
   function writesDescriptions() { return state.writeVakDescription !== false; }
-  function saveState() {
-    try {
-      if (chrome && chrome.storage && chrome.storage.local) { var o = {}; o[STORE_KEY] = state; chrome.storage.local.set(o); }
-      else localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    } catch (e) {}
-  }
+  function saveState() { storeSet(STORE_KEY, state); }
   // Generic key/value store shared with the other modules — same chrome.storage.local
   // path as the planner's own state, with the same localStorage fallback.
   function storeGet(key) {
@@ -172,11 +167,27 @@
       } catch (e) { res(null); }
     });
   }
+  // A failed save is never silent: it goes into the Zelftest error list and the status line says it
+  // (at most once per 10 s). The usual cause is "Extension context invalidated" — the extension was
+  // reloaded or updated while this tab stayed open, so this old copy can no longer save.
   function storeSet(key, val) {
     try {
-      if (chrome && chrome.storage && chrome.storage.local) { var o = {}; o[key] = val; chrome.storage.local.set(o); }
-      else localStorage.setItem(key, JSON.stringify(val));
-    } catch (e) {}
+      if (chrome && chrome.storage && chrome.storage.local) {
+        var o = {}; o[key] = val;
+        chrome.storage.local.set(o, function () { var le = chrome.runtime && chrome.runtime.lastError; if (le) storageFailed(key, le.message || le); });
+      } else localStorage.setItem(key, JSON.stringify(val));
+    } catch (e) { storageFailed(key, (e && e.message) || e); }
+  }
+  var _storeWarnAt = 0;
+  function storageFailed(key, msg) {
+    msg = String(msg || "onbekende fout");
+    try { console.warn("[QWP] bewaren mislukt (" + key + "):", msg); } catch (e) {}
+    noteApiError("storage", key, 0, msg);
+    if (Date.now() - _storeWarnAt < 10000) return;
+    _storeWarnAt = Date.now();
+    setStatus(/context invalidated/i.test(msg)
+      ? "⚠ Instellingen niet bewaard: PatchGoblin werd bijgewerkt of herladen. Herlaad deze pagina (F5) en doe de laatste wijziging opnieuw."
+      : "⚠ Instellingen niet bewaard (" + msg.slice(0, 80) + "). Zie Debug → Zelftest.");
   }
 
   // ---------- Runtime context detection ----------
@@ -733,10 +744,24 @@
   // Single write path for PATCH/POST. Retries on HTTP 429 (rate limit) with capped backoff
   // (1s → 2s → 4s, max 3 retries), then rethrows so doCommit's existing gateway/verify handling
   // stays in charge of every other error. Behaviorally identical to a plain fetch when no 429.
+  // Every write gets WRITE_TIMEOUT_MS. No answer, or a dropped connection, does NOT mean "not
+  // written" — Questi may have committed it — so those become httpStatus 0 errors, which take the
+  // same verify-by-reading path as a gateway timeout instead of being reported as failed.
+  var WRITE_TIMEOUT_MS = 30000;
+  function timedFetch(url, opts) {
+    var ctl = typeof AbortController === "function" ? new AbortController() : null;
+    var t = ctl ? setTimeout(function () { ctl.abort(); }, WRITE_TIMEOUT_MS) : null;
+    if (ctl) opts.signal = ctl.signal;
+    return fetch(url, opts).then(function (r) { clearTimeout(t); return r; }, function () {
+      clearTimeout(t);
+      var err = new Error(ctl && ctl.signal.aborted ? "geen antwoord binnen " + (WRITE_TIMEOUT_MS / 1000) + " s" : "verbinding weggevallen");
+      err.httpStatus = 0; err.uncertain = true; throw err;
+    });
+  }
   function doWrite(kind, id, url, method, bodyObj) {
     var attempt = 0;
     function go() {
-      return fetch(url, { method: method, credentials: "include", headers: writeHeaders(), body: JSON.stringify(bodyObj) })
+      return timedFetch(url, { method: method, credentials: "include", headers: writeHeaders(), body: JSON.stringify(bodyObj) })
         .then(function (r) { return resolveWrite(kind, id, r, bodyObj); })
         .catch(function (e) {
           if (e && e.httpStatus === 429 && attempt < 3) { attempt++; return sleep(1000 * Math.pow(2, attempt - 1)).then(go); }
@@ -5419,6 +5444,9 @@
     }
     // Otherwise: a summary per phase. Failed rows stay staged; nothing was guessed.
     var lines = [];
+    var unsure = calFails.concat(ficheFails, tagFails).filter(function (f) { return f.uncertain || String(f.error || "").indexOf(UNSURE) === 0; });
+    if (unsure.length) lines.push(["warn", unsure.length + " schrijfactie(s) ONZEKER: Questi gaf geen duidelijk antwoord, misschien staan ze er toch — " +
+      unsure.map(function (f) { return f.label || f.title; }).slice(0, 4).join(" · ") + ". Kijk ze na in Questi voor je opnieuw wegschrijft (een lesuur kijkt dan zelf eerst na wat er al staat)."]);
     if (rep.backup) lines.push(rep.backup.downloaded ? ("Back-up gedownload" + (rep.backup.missing ? " — " + rep.backup.missing + " fiche(s) konden niet gelezen worden en staan onvolledig in de back-up." : ".")) : ["warn", "Back-up NIET gedownload — het wegschrijven ging toch door."]);
     if (rep.tags) lines.push(tagFails.length ? ["warn", "Tags: " + tagsOk + " aangemaakt, " + tagFails.length + " mislukt — " + tagFails.map(function (f) { return f.title + ": " + f.error; }).join(" · ") + " (blijft klaargezet)."] : ("Tags: " + tagsOk + " aangemaakt."));
     if (rep.fiches) lines.push(ficheFails.length ? ["warn", "Lesfiches: " + fichesOk + " bijgewerkt, " + ficheFails.length + " mislukt — " + ficheFails.map(function (f) { return f.title + ": " + f.error; }).join(" · ") + " (blijft klaargezet)."] : ("Lesfiches: " + fichesOk + " bijgewerkt (nieuwe versie)."));
@@ -5494,13 +5522,36 @@
       // descEcho (descriptions off, never read at hydrate): copy the stored description into the
       // PATCH first, so it is echoed instead of blanked. A failed read fails this row — never guess.
       (p.descEcho ? fetchItemDetail(p.itemId).then(function (d) { if (!d) throw new Error("beschrijving niet gelezen"); p.patchBody.description = d.description || ""; }) : Promise.resolve())
-        .then(function () { return p.fiche ? ((p.fiche.isMethod || view.methodFicheIds[String(p.fiche.contentId)]) ? postMethodAttachment(p.itemId, p.fiche.contentId, p.fiche.groups) : postAttachment(p.itemId, p.fiche.contentId, p.fiche.groups)) : Promise.resolve(null); })
+        .then(function () {
+          if (!p.fiche) return null;
+          // A row whose last write was uncertain may already carry this fiche: look before POSTing
+          // again, so a retry never attaches the same fiche twice.
+          var slot = slotByItemId(p.itemId);
+          var before = (slot && slot._uncertain) ? fetchItemDetail(p.itemId).then(function (d) { return attachedContentId(d) === String(p.fiche.contentId); }) : Promise.resolve(false);
+          return before.then(function (already) {
+            if (already) return null;
+            return (p.fiche.isMethod || view.methodFicheIds[String(p.fiche.contentId)]) ? postMethodAttachment(p.itemId, p.fiche.contentId, p.fiche.groups) : postAttachment(p.itemId, p.fiche.contentId, p.fiche.groups);
+          });
+        })
         .then(function () { return patchItem(p.itemId, p.patchBody, p.range); })
-        .then(function () { ok++; p.done = true; })
-        // Continue on error. A gateway timeout (504 …) usually still lands → re-read + verify
-        // instead of hard-failing; only a mismatch is reported as uncertain.
+        // A newly linked fiche is read back once (only those rows — a plain PATCH is not): the
+        // attachment is the one step Questi has silently dropped before.
+        .then(function () {
+          if (!p.fiche) return;
+          return fetchItemDetail(p.itemId).then(function (d) {
+            if (attachedContentId(d) !== String(p.fiche.contentId)) { var e = new Error("fiche staat niet bij het lesuur volgens Questi (nagelezen)"); e.readBack = true; throw e; }
+          }, function () { p.notVerified = true; });
+        })
+        .then(function () { ok++; p.done = true; markUncertain(p, false); })
+        // Continue on error. No clear answer (gateway timeout, no answer, dropped connection) may
+        // still have landed → read the item back: done, finished (title PATCH redone), not written,
+        // or — when even the read fails — uncertain, which the next write checks first.
         .catch(function (e) {
-          if (isGatewayError(e)) return verifyLanded(p).then(function (landed) { if (landed) { ok++; p.done = true; } else fails.push({ label: p.label, error: "onzeker (504) — controleer/hertry deze" }); });
+          if (isGatewayError(e) && !e.readBack) return verifyLanded(p).then(function (v) {
+            if (v === "landed") { ok++; p.done = true; markUncertain(p, false); return; }
+            if (v === "not") { fails.push({ label: p.label, error: "niet weggeschreven (" + (e.message || "geen antwoord") + ") — opnieuw proberen is veilig" }); markUncertain(p, false); return; }
+            fails.push({ label: p.label, error: UNSURE + " — Questi antwoordde niet en nalezen lukte niet", uncertain: true }); markUncertain(p, true);
+          });
           fails.push({ label: p.label, error: String(e && e.message || e) });
         })
         // Small delay between slots — sequential PATCH→POST, avoid rate-limiting (no bulk endpoint exists).
@@ -5508,18 +5559,26 @@
     }
     next();
   }
-  // After a gateway timeout, re-read the item and check it reflects the intended end-state.
+  // After a write without a clear answer: read the item back and compare with the intended end
+  // state. → "landed" | "not" | "unknown". The fiche attachment (the step that must never run twice)
+  // is checked by content id; when it landed but our title PATCH did not, the PATCH is redone here
+  // (a PATCH is safe to repeat).
+  var UNSURE = "onzeker";
+  function attachedContentId(d) { var a = d && ficheAttachment(d.attachments); return a && a.content ? String(a.content.id) : ""; }
+  function markUncertain(p, on) { var s = slotByItemId(p.itemId); if (s) s._uncertain = !!on; }
   function verifyLanded(p) {
     return new Promise(function (res) { setTimeout(res, 1500); })
       .then(function () { return fetchItemDetail(p.itemId); })
       .then(function (d) {
-        if (!d) return false;
-        var has = !!d.has_attachments;
+        if (!d) return "unknown";
         var titleOk = String(d.title || "") === String(p.patchBody.title || "");
-        if (p.fiche) return has;                                   // fiche link → attachment present
-        if (p.keepsFiche) return has && titleOk;                   // unchanged fiche → still attached + PATCH landed
-        return !has && titleOk;                                    // clear → no attachment + title matches
-      }).catch(function () { return false; });
+        var attached = attachedContentId(d), has = !!(d.has_attachments || attached);
+        var ficheOk = p.fiche ? attached === String(p.fiche.contentId) : (p.keepsFiche ? has : !has);
+        if (ficheOk && titleOk) return "landed";
+        if (p.fiche && attached !== String(p.fiche.contentId)) return "not";   // the attachment never landed: a retry is safe
+        if (!ficheOk) return "not";
+        return patchItem(p.itemId, p.patchBody, p.range).then(function () { return "landed"; }, function () { return "unknown"; });
+      }).catch(function () { return "unknown"; });
   }
 
   // ---------- Loading ----------

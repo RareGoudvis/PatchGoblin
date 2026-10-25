@@ -59,10 +59,7 @@
       res();
     });
   }
-  function saveState() {
-    try { if (chrome && chrome.storage && chrome.storage.local) { chrome.storage.local.set({ ["" + STORE_KEY]: lstate }); return; } } catch (e) {}
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(lstate)); } catch (e2) {}
-  }
+  function saveState() { S().storeSet(STORE_KEY, lstate); }   // failures are reported there
 
   // ---------- Runtime state ----------
   var mgr = {
@@ -94,6 +91,24 @@
   var GRADES = ["K0", "K1", "K2", "K3", "L1", "L2", "L3", "L4", "L5", "L6", "NLG"];
 
   // ---------- Write helpers ----------
+  // Three outcomes for a write: done, refused (Questi said no: nothing changed, retry is safe), or
+  // ONZEKER — no answer within WRITE_TIMEOUT_MS, a dropped connection or a gateway error, after which
+  // Questi may well have committed it. An uncertain error carries .uncertain and its message starts
+  // with UNSURE; creates and tag renames read back to settle it (verifyCreatedFiche, createUserTag,
+  // renameUserTag) before anything says "retry".
+  var WRITE_TIMEOUT_MS = 30000, UNSURE = "onzeker";
+  function isUnclearStatus(st) { return st === 502 || st === 503 || st === 504 || st === 408 || st === 524 || st === 0; }
+  function unsureError(why) { var e = new Error(UNSURE + " (" + why + ") — Questi gaf geen duidelijk antwoord, mogelijk toch weggeschreven"); e.uncertain = true; return e; }
+  function wfetch(url, opts) {
+    var ctl = typeof AbortController === "function" ? new AbortController() : null;
+    var t = ctl ? setTimeout(function () { ctl.abort(); }, WRITE_TIMEOUT_MS) : null;
+    if (ctl) opts.signal = ctl.signal;
+    return fetch(url, opts).then(function (r) { clearTimeout(t); return r; }, function () {
+      clearTimeout(t);
+      throw unsureError(ctl && ctl.signal.aborted ? "geen antwoord binnen " + (WRITE_TIMEOUT_MS / 1000) + " s" : "verbinding weggevallen");
+    });
+  }
+  function pause(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
   function resolveJson(kind, id, sent) {
     return function (r) {
       return r.json().catch(function () { return null; }).then(function (j) {
@@ -101,6 +116,7 @@
         var msg = (j && (j.error_msg || j.message)) || ("HTTP " + r.status);
         console.error("[QWL] " + kind + " " + id + " faalde:", msg, sent ? ("| sent: " + JSON.stringify(sent)) : "");
         if (S() && S().noteApiError) S().noteApiError(kind, id, r.status, msg);   // Zelftest .json report
+        if (!r.ok && isUnclearStatus(r.status)) throw unsureError("HTTP " + r.status);
         throw new Error(msg);
       });
     };
@@ -154,7 +170,7 @@
     return body;
   }
   function writePatch(ficheId, body) {
-    return fetch(api() + "/lessons/" + ficheId + "?return_format=short",
+    return wfetch(api() + "/lessons/" + ficheId + "?return_format=short",
       { method: "PATCH", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
       .then(resolveJson("PATCH lesson", ficheId, body)); // → result (has NEW id)
   }
@@ -162,33 +178,66 @@
   // (the captured delete omits content-type). Only Accept + x-xsrf-token.
   function bodylessHeaders() { var hd = { "Accept": "application/json" }; var t = S().xsrfToken(); if (t) hd["x-xsrf-token"] = t; return hd; }
   function deleteFiches(ids) {
-    return fetch(api() + "/lessons?" + qs({ schoolId: sid(), lessons: ids }),
+    return wfetch(api() + "/lessons?" + qs({ schoolId: sid(), lessons: ids }),
       { method: "DELETE", credentials: "include", headers: bodylessHeaders() })
       .then(resolveJson("DELETE lessons", ids.join(","), null));
   }
   // ---------- Tag-catalog CRUD (standalone tags, not fiche membership) ----------
   // Create a user tag. body: { title, color, schoolId, [parent] }. → new tag object.
+  // Without a clear answer it reads the own tags back: a tag with this title + parent that was not
+  // there before (the known list is cached, so the baseline costs no request) was created after all.
   function createUserTag(body) {
-    return fetch(api() + "/lessons/user-tags",
-      { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
-      .then(resolveJson("POST user-tag", body.title, body));
+    var known = {};
+    return S().fetchOwnTags().then(function (list) { (list || []).forEach(function (t) { known[t.id] = true; }); }, function () {})
+      .then(function () {
+        return wfetch(api() + "/lessons/user-tags",
+          { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
+          .then(resolveJson("POST user-tag", body.title, body));
+      })
+      .catch(function (e) {
+        if (!e || !e.uncertain) throw e;
+        var want = String(body.title || "").trim().toLowerCase(), par = Number(body.parent) || 0;
+        return pause(1500).then(readOwnTagsFresh).then(function (list) {
+          var hit = list.filter(function (t) { return !known[t.id] && String(t.title || "").trim().toLowerCase() === want && (Number(t.parent) || 0) === par; })[0];
+          if (hit) return hit;
+          throw new Error("niet aangemaakt (" + e.message.replace(/^onzeker \(([^)]*)\).*$/, "$1") + ") — opnieuw proberen is veilig");
+        }, function () { throw e; });
+      });
+  }
+  // Own tags straight from Questi; unlike fetchOwnTags a failed read REJECTS (an empty list would
+  // read as "not created").
+  function readOwnTagsFresh() {
+    S().invalidateOwnTags();
+    return jget(api() + "/lessons/tags?" + qs({ schoolId: sid(), filter: "own" })).then(function (j) {
+      var list = j && j.result; if (!Array.isArray(list)) throw new Error("geen taglijst"); return list;
+    });
   }
   // Rename / recolour / move a user tag. Captured from Questi's tag dialog: PATCH { title, color,
   // schoolId }; the reply is the stored tag (Questi lower-cases the title). That capture was on a
   // head tag: WITHOUT `parent` Questi makes the tag a head tag (shipped in v1.5.0 — a renamed subtag
   // lost its vak), so `parent` is always sent, with the create call's key (0 = head tag).
+  function tagPatchBody(title, color, parent) { return { title: title, color: color, parent: Number(parent) || 0, schoolId: sid() }; }
   function renameUserTag(id, title, color, parent) {
-    var body = { title: title, color: color, parent: Number(parent) || 0, schoolId: sid() };
-    return fetch(api() + "/lessons/user-tags/" + id,
+    var body = tagPatchBody(title, color, parent);
+    return wfetch(api() + "/lessons/user-tags/" + id,
       { method: "PATCH", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
-      .then(resolveJson("PATCH user-tag", id, body));
+      .then(resolveJson("PATCH user-tag", id, body))
+      .catch(function (e) {
+        if (!e || !e.uncertain) throw e;
+        // No clear answer: the stored tag says whether it landed.
+        return pause(1500).then(readOwnTagsFresh).then(function (list) {
+          var t = list.filter(function (x) { return String(x.id) === String(id); })[0];
+          if (t && String(t.title || "").trim().toLowerCase() === title.trim().toLowerCase() && (Number(t.parent) || 0) === body.parent) return t;
+          throw new Error("niet weggeschreven (geen antwoord van Questi) — opnieuw proberen is veilig");
+        }, function () { throw e; });
+      });
   }
   // Delete a user tag. action "unlink" (fiches keep, lose this tag) or "move" (re-tag fiches to
   // secondTagId, then delete). Bodyless DELETE — same header shape as deleteFiches.
   function deleteUserTag(id, action, secondTagId) {
     var p = { schoolId: sid(), action: action };
     if (action === "move") p.secondTagId = secondTagId;
-    return fetch(api() + "/lessons/user-tags/" + id + "?" + qs(p),
+    return wfetch(api() + "/lessons/user-tags/" + id + "?" + qs(p),
       { method: "DELETE", credentials: "include", headers: bodylessHeaders() })
       .then(resolveJson("DELETE user-tag", id, null));
   }
@@ -212,7 +261,7 @@
         if (i >= items.length) { resolve(fails); return; }
         var it = items[i], idx = i; i++;
         Promise.resolve().then(function () { return fn(it, idx); })
-          .catch(function (e) { fails.push({ item: it, error: (e && e.message) || String(e) }); })
+          .catch(function (e) { fails.push({ item: it, error: (e && e.message) || String(e), uncertain: !!(e && e.uncertain) }); })
           .then(function () { if (onProgress) onProgress(idx + 1, items.length); setTimeout(next, 150); });
       }
       next();
@@ -617,7 +666,7 @@
         setStatus("Tag aangepast: ‘" + (tag.title || "").trim() + "’." + (off ? " Let op: Questi plaatste de tag niet waar gevraagd — kijk het na in Questi." : ""));
       }).catch(function (e) {
         save.disabled = false; save.textContent = "Opslaan";
-        note.textContent = "Niet gelukt: " + ((e && e.message) || e) + " — er is niets veranderd.";
+        note.textContent = "Niet gelukt: " + ((e && e.message) || e) + (e && e.uncertain ? " Vernieuw de lijst en kijk het na in Questi." : " — er is niets veranderd.");
       });
     } });
     ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
@@ -1327,9 +1376,23 @@
         if (mgr.selected[oldId]) { delete mgr.selected[oldId]; mgr.selected[newId] = true; }
         // The new version is a new id: goals mode reads it fresh, which also shows what landed.
         delete mgr.pending[id];
-        if (!opts.grades && !opts.visibility) return;
-        // Leerjaren/zichtbaarheid are a trial: read the new version back and say so if Questi ignored them.
+        if (!opts.grades && !opts.visibility && !opts.goals && opts.tags == null) return;
+        // Risky parts are read back from the new version: leerjaren/zichtbaarheid (a trial — never
+        // captured on PATCH), WEET/KEN/KAN and the tag set. Plain title/text edits are not, to keep
+        // Questi traffic light.
         return readFicheEdit(newId).then(function (after) {
+          if (opts.goals) {
+            var gf = S().ficheGoalFields(after);
+            Object.keys(opts.goals).forEach(function (k) {
+              var want = plainText(opts.goals[k]), got = plainText(gf[k] && gf[k].content);
+              if (want !== got) trialMisses.push(ficheName(p.fiche) + ": " + k.toUpperCase() + (want ? "" : " (leegmaken)"));
+            });
+          }
+          if (opts.tags != null) {
+            var have = {}; (after.tags || []).forEach(function (t) { have[String(t.id)] = true; });
+            var lost = opts.tags.filter(function (id) { return !have[String(id)]; });
+            if (lost.length || (after.tags || []).length - (opts.create_tags || []).length > opts.tags.length) trialMisses.push(ficheName(p.fiche) + ": tags");
+          }
           if (opts.grades) {
             var got = (after.grades || []).slice().sort().join(), want = opts.grades.slice().sort().join();
             if (got === want) p.fiche.grades = after.grades; else trialMisses.push(ficheName(p.fiche) + ": leerjaren");
@@ -1342,7 +1405,7 @@
       notifyPending();
       return {
         map: map, trialMisses: trialMisses,
-        fails: fails.map(function (fl) { var p = mgr.pending[fl.item]; return { key: fl.item, title: p ? ficheName(p.fiche) : ("#" + fl.item), error: fl.error }; })
+        fails: fails.map(function (fl) { var p = mgr.pending[fl.item]; return { key: fl.item, title: p ? ficheName(p.fiche) : ("#" + fl.item), error: fl.error, uncertain: fl.uncertain }; })
       };
     });
   }
@@ -1516,12 +1579,17 @@
     mgr.pending[key] = { isNew: true, key: key, draft: stCopy, template: tpl, fiche: { id: null, subject: st.subject.trim() }, edit: null, changes: changes };
     notifyPending();
   }
+  function plainText(v) { return String(v == null ? "" : v).replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim(); }
   // Create one staged new fiche. → { newId, subject, missing: [] } — `missing` names what Questi did not keep.
   function writeNewFiche(p) {
     var body = buildNewFicheBody(p.draft, p.template), wantGoals = {};
     GOAL_KINDS.forEach(function (k) { if (String(p.draft.goals[k] || "").trim()) wantGoals[k] = p.draft.goals[k]; });
     var wantSel = 0; Object.keys(p.draft.selected || {}).forEach(function (k) { wantSel += (p.draft.selected[k] || []).length; });
-    return createFiche(body).then(function (res) {
+    var known = null;
+    return newestOwnFiches().then(function (l) { known = {}; l.forEach(function (f) { known[f.id] = true; }); }, function () {})
+      .then(function () { return createFiche(body); })
+      .catch(function (e) { return (e && e.uncertain && known) ? verifyCreatedFiche(body.subject, known, e) : Promise.reject(e); })
+      .then(function (res) {
       var newId = res && res.id; if (newId == null) throw new Error("Questi gaf geen id terug");
       return readFicheEdit(newId).then(function (edit) {
         var missing = [], gf = S().ficheGoalFields(edit), lost = {};
@@ -1535,6 +1603,23 @@
         });
       });
     });
+  }
+  // The newest own fiches (list sorted new_items) — the baseline a create without a clear answer
+  // is checked against. One small read per NEW fiche only.
+  function newestOwnFiches() {
+    return jget(lessonsUrl(allOwnTagId(), 10, 0)).then(function (j) {
+      var r = j && j.result, list = Array.isArray(r) ? r : ((r && (r.lessons || r.items)) || []);
+      if (!Array.isArray(list)) throw new Error("geen lijst"); return list;
+    });
+  }
+  // A fiche with this exact title that was not in the baseline = created after all → carry on with
+  // it (no second POST). None → not created, a retry is safe. Read fails → stays uncertain.
+  function verifyCreatedFiche(subject, known, err) {
+    return pause(1500).then(newestOwnFiches).then(function (list) {
+      var hit = list.filter(function (f) { return !known[f.id] && String(f.subject || "") === String(subject || ""); })[0];
+      if (hit) return { id: hit.id };
+      throw new Error("niet aangemaakt (geen duidelijk antwoord van Questi) — opnieuw proberen is veilig");
+    }, function () { throw err; });
   }
 
   // ---- Leerplandoelen: Katholiek Onderwijs Vlaanderen's own Op.Stap picker ----
@@ -1633,7 +1718,7 @@
     }, onProgress).then(function (fails) {
       if (created.length) { mgr.dirtyWrites = true; S().invalidateOwnTags(); renderTagBar(); }
       notifyPending();
-      return { created: created, fails: fails.map(function (fl) { return { key: fl.item.key, title: fl.item.title, error: fl.error }; }) };
+      return { created: created, fails: fails.map(function (fl) { return { key: fl.item.key, title: fl.item.title, error: fl.error, uncertain: fl.uncertain }; }) };
     });
   }
   // After the shared Controleer: redraw whatever host is active (new ids, cleared badges).
@@ -1983,7 +2068,7 @@
     return { schoolId: sid(), subject: row.titel || "", grades: row.leerjaar ? [row.leerjaar] : [], visibility: "school", tags: tagIds || [], create_tags: [], attachments: [], templateId: template && template.id, fields: fields };
   }
   function createFiche(body) {
-    return fetch(api() + "/lessons?return_format=short", { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) }).then(resolveJson("POST lesson", body.subject, body));
+    return wfetch(api() + "/lessons?return_format=short", { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) }).then(resolveJson("POST lesson", body.subject, body));
   }
   // Minimal preview view — only reachable when importEnabled (dormant scaffold for now).
   function openImportView() {
@@ -2160,6 +2245,51 @@
     });
   }
 
+  // The rules each body must follow, from the captured calls (see CLAUDE.md "Gotchas"). A FAIL here
+  // means a code change broke a format before it ever reached Questi.
+  function checkRequestFormats(addRow) {
+    function row(name, probs, detail) { addRow({ status: probs.length ? "FAIL" : "OK", name: name, detail: probs.length ? probs.join(" · ") : detail, next: probs.length ? "Niet wegschrijven met deze versie — meld het (Zelftest .json)." : null }); }
+    function run(name, fn, detail) { var probs = []; try { fn(probs); } catch (e) { probs.push("fout: " + ((e && e.message) || e)); } row(name, probs, detail); }
+    run("Formaat: fiche bewerken (PATCH)", function (P) {
+      var edit = { subject: "T", tags: [{ id: 7 }], fields: [
+        { id: 1, template_field_id: 10, type: "text", content: "a" },
+        { id: 2, template_field_id: null, type: "text", title: "WEET", content: "w" },
+        { id: 3, template_field_id: 11, type: "goals", selected_goals: [1] }] };
+      var b = buildPatch(99, edit, { goals: { ken: "k" } }), f = b.fields || [];
+      if (JSON.stringify(b.tags) !== "[7]") P.push("tags niet herhaald (tags[] = vervangen)");
+      if (!f[0] || f[0].content !== "a" || f[0].template_field_id !== 10) P.push("sjabloonveld");
+      if (!f[1] || f[1].content !== "w" || "template_field_id" in f[1]) P.push("extra veld niet { id, content }");
+      if (!f[2] || "selected_goals" in f[2] || "content" in f[2]) P.push("doelenveld niet weggelaten (selected_goals = weglaten om te houden)");
+      if (!f.some(function (x) { return x.field_type === "text" && x.title === "KEN" && x.content === "k"; })) P.push("nieuw KEN-veld ontbreekt");
+      if (JSON.stringify(b).indexOf("\"selected_goals\":[]") >= 0) P.push("stuurt selected_goals: []");
+    }, "tags herhaald, extra velden { id, content }, doelen weggelaten");
+    run("Formaat: nieuwe fiche (POST)", function (P) {
+      var uuid = "3f2b8c1e-0d4a-4b6e-9a1f-2c7d5e8b9a10";
+      var b = buildNewFicheBody({ subject: " X ", text: { 20: "t" }, selected: { 21: [uuid] }, goals: { weet: "w", ken: "", kan: "" }, tags: ["5"], grades: [3], visibility: "school" },
+        { id: 9, structure: [{ id: 20, type: "text" }, { id: 21, type: "goals" }] });
+      var g = (b.fields || []).filter(function (x) { return x.field_type === "goals"; })[0];
+      if (!g || !g.selected_goals || g.selected_goals[0] !== uuid) P.push("Op.Stap-doel is geen ongewijzigde UUID-tekst");
+      if (b.templateId !== 9) P.push("templateId");
+      if (b.subject !== "X") P.push("titel niet bijgesneden");
+      if (JSON.stringify(b.tags) !== "[5]") P.push("tag-ids geen getallen");
+      if ((b.fields || []).filter(function (x) { return x.title === "WEET"; }).length !== 1 || (b.fields || []).some(function (x) { return x.title === "KEN"; })) P.push("WEET/KEN/KAN: leeg veld aangemaakt of gevuld veld ontbreekt");
+    }, "UUID-doelen als tekst, getallen voor tags, geen lege doelvelden");
+    run("Formaat: tag hernoemen (PATCH)", function (P) {
+      var sub = tagPatchBody("x", "#000000", "12"), head = tagPatchBody("y", "#000000", null);
+      if (Object.keys(sub).sort().join() !== "color,parent,schoolId,title") P.push("sleutels: " + Object.keys(sub).join(","));
+      if (sub.parent !== 12) P.push("subtag: parent niet meegestuurd als getal");
+      if (head.parent !== 0) P.push("hoofdtag: parent ≠ 0 (zonder parent wordt een subtag een hoofdtag)");
+    }, "{ title, color, parent, schoolId }, parent altijd mee");
+    run("Op.Stap-brug (paginawereld)", function (P) {
+      if (!document.documentElement) return;
+      var el = document.createElement("div"); el.setAttribute("data-uq", "zelftest"); el.style.display = "none";
+      document.body.appendChild(el);
+      try {
+        el.dispatchEvent(new CustomEvent("OpStapSelectionChanged", { bubbles: true, composed: true, detail: { selectedKeys: [] } }));
+        if (!el.hasAttribute("data-uq-sel")) P.push("opstap-bridge.js reageert niet — staat de MAIN-world-regel nog in manifest.json?");
+      } finally { el.remove(); }
+    }, "brug kopieert OpStapSelectionChanged naar data-uq-sel");
+  }
   function runDiag(addRow) {
     var sampleFicheId = null, userTag = mgr.ownTags.filter(function (t) { return t.type !== "default"; })[0];
     var checks = [
@@ -2221,6 +2351,8 @@
         addRow({ status: ok ? "OK" : "WARN", name: "Op.Stap-kiezer", detail: ok ? "op-stap-selector beschikbaar" : "kon niet geladen worden (10 s)", next: ok ? null : "Nieuwe fiche: open één keer een fiche in Questi's editor en probeer opnieuw." });
         res();
       }); }); },
+      // ---- Our own request formats (offline: builds bodies from fixed samples, sends nothing) ----
+      function () { checkRequestFormats(addRow); },
       function () { var t = S().xsrfToken(); addRow({ status: t ? "OK" : "WARN", name: "XSRF-token", detail: t ? "cookie leesbaar" : "leeg", next: t ? null : "Schrijfacties (PATCH/POST/DELETE) hebben x-xsrf-token nodig." }); }
     ];
     var i = 0;
