@@ -618,10 +618,14 @@
       return true;
     });
     if (mgr.sortKey && SORTERS[mgr.sortKey]) { mgr.filtered.sort(SORTERS[mgr.sortKey]); if (mgr.sortDir === "desc") mgr.filtered.reverse(); }
+    // No column chosen: last edited first (each edit mints a higher id), also across merged subtags.
+    else mgr.filtered.sort(function (a, b) { return (Number(b.id) || 0) - (Number(a.id) || 0); });
     renderList();
   }
+  // Header clicks cycle ▲ → ▼ → Questi's own order (last edited first), so the default is never lost.
   function sortBy(key) {
-    if (mgr.sortKey === key) mgr.sortDir = (mgr.sortDir === "asc" ? "desc" : "asc");
+    if (mgr.sortKey === key && mgr.sortDir === "asc") mgr.sortDir = "desc";
+    else if (mgr.sortKey === key) { mgr.sortKey = null; mgr.sortDir = "asc"; }
     else { mgr.sortKey = key; mgr.sortDir = "asc"; }
     lstate.sortKey = mgr.sortKey; lstate.sortDir = mgr.sortDir; saveState();
     applyFilter();

@@ -1378,8 +1378,8 @@
   function buildShell() {
     var tabs = tabsNav("plan");
     var sortSel = h("select", { class: "qwp-fsel", id: "qwp-sort-0", onchange: function (e) {
-      var p = view.panels[0]; p.sortDir = e.target.value === "za" ? "za" : "az"; state.panels[0].sortDir = p.sortDir; saveState(); renderPickList(0);
-    } }, [h("option", { value: "az", text: "Titel A → Z" }), h("option", { value: "za", text: "Titel Z → A" })]);
+      var v = e.target.value, p = view.panels[0]; p.sortDir = (v === "za" || v === "recent") ? v : "az"; state.panels[0].sortDir = p.sortDir; saveState(); renderPickList(0);
+    } }, [h("option", { value: "recent", text: "Laatst bewerkt" }), h("option", { value: "az", text: "Titel A → Z" }), h("option", { value: "za", text: "Titel Z → A" })]);
     var hideChk = h("input", { type: "checkbox", id: "qwp-hideused-0", onchange: function (e) {
       var p = view.panels[0]; p.hideUsed = !!e.target.checked; state.panels[0].hideUsed = p.hideUsed; saveState(); renderPickList(0);
     } });
@@ -4140,7 +4140,9 @@
     if (p.gradeFilter) items = items.filter(function (f) { return ficheGrades(f).indexOf(p.gradeFilter) > -1; });
     var term = p.search.trim().toLowerCase();
     if (term) items = items.filter(function (f) { return (f.subject || "").toLowerCase().indexOf(term) > -1; });
-    items.sort(function (a, b) { var r = (a.subject || "").localeCompare(b.subject || "", undefined, { numeric: true }); return p.sortDir === "az" ? r : -r; });
+    // "Laatst bewerkt": every edit in Questi mints a new fiche id, so the highest id is the newest edit.
+    if (p.sortDir === "recent") items.sort(function (a, b) { return (Number(b.id) || 0) - (Number(a.id) || 0); });
+    else items.sort(function (a, b) { var r = (a.subject || "").localeCompare(b.subject || "", undefined, { numeric: true }); return p.sortDir === "az" ? r : -r; });
     return items;
   }
   // Fiche id → first date it is planned in the loaded weeks (current, staged state included).
@@ -4181,7 +4183,7 @@
   }
   function syncFilterControls(pi) {
     var p = view.panels[pi];
-    var so = elId("qwp-sort-" + pi); if (so) so.value = p.sortDir === "za" ? "za" : "az";
+    var so = elId("qwp-sort-" + pi); if (so) so.value = (p.sortDir === "za" || p.sortDir === "recent") ? p.sortDir : "az";
     var hu = elId("qwp-hideused-" + pi); if (hu) hu.checked = !!p.hideUsed;
     renderGradeSelect(pi);
     applyFilterFold();
