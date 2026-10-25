@@ -522,6 +522,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wkbar-s { font-weight:500; color:var(--muted); }
 .qwp-holbar { cursor:default; padding:8px 16px; background:repeating-linear-gradient(135deg, #fffaf0 0 10px, #fff6e6 10px 20px); border-color:#e7cf94; }
 .qwp-holbar:hover { border-color:#e7cf94; }
+.qwp-vakhint { font-style:italic; opacity:.75; padding-left:4px; }
 
 /* ---- Menus (Alles, Collega) ---- */
 .qwp-menu { position:fixed; z-index:45; display:flex; flex-direction:column; gap:2px; max-height:calc(100vh - 40px); overflow:auto; padding:10px; background:#fff; border:1px solid var(--line2); border-top:3px solid var(--uq-amber); border-radius:12px; box-shadow:0 10px 28px rgba(30,42,51,.18), 0 2px 6px rgba(30,42,51,.08); }

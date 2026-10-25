@@ -337,10 +337,20 @@
     body.appendChild(status);
     var rows = timeRows();
     var c = card([]);
+    // Same voorstellen as the wizard (yellow, confirm per lesuur or all at once), from the lesuren
+    // already planned in the loaded weeks — so an empty rooster fills in two clicks.
+    var g = rows.length ? computeGuesses(s.settings, s.vakTags) : {};
+    var nGuess = Object.keys(g).length;
+    if (nGuess) c.appendChild(h("div", { class: "qws-bar" }, [
+      h("span", { class: "qws-grow qws-p", text: nGuess + " voorstel(len) uit je geplande lesuren (gele randjes) — bevestig per lesuur (✓) of allemaal." }),
+      btn("Alle voorstellen bevestigen", function () { Object.keys(g).forEach(function (k) { if (s.settings[k] == null) s.settings[k] = +g[k].id; }); save(); ui.plannerDirty = true; renderSection(); }, "ghost")
+    ]));
     if (!rows.length) c.appendChild(note(plannerLoaded() ? "Geen lesuren in de geladen week (vakantie?). Ga in Plannen naar een week met lesuren en klik ‘Opnieuw uit agenda lezen’." : "Open eerst Plannen: het lesrooster wordt uit je Questi-agenda gelezen.", "warn"));
     else c.appendChild(slotGrid({
       value: function (k) { var v = s.settings[k]; return v != null && v !== "" ? v : null; },
-      onChange: function (k, v) { if (v == null) delete s.settings[k]; else s.settings[k] = v; save(); ui.plannerDirty = true; renderSection(); }
+      guess: function (k) { return g[k] || null; },
+      onChange: function (k, v) { if (v == null) delete s.settings[k]; else s.settings[k] = v; save(); ui.plannerDirty = true; renderSection(); },
+      onAccept: function (k) { if (g[k]) { s.settings[k] = +g[k].id; save(); ui.plannerDirty = true; renderSection(); } }
     }));
     var setCount = Object.keys(s.settings || {}).length;
     c.appendChild(h("div", { class: "qws-muted", text: setCount + " lesuur/lesuren hebben een vast vak. Een lesuur dat je in Plannen zelf aanpast, houdt die keuze." }));
@@ -974,12 +984,13 @@
   // Bootstrap suggestions for empty lesuren (rule 3b: never a live rule — only a flagged voorstel
   // the user must confirm). 1) the vak the planner already resolved for that lesuur from its fiche
   // or stored description (a TAG, not a title); 2) the ORIGINAL item title matched against vak names.
-  function computeGuesses() {
+  function computeGuesses(settings, vakTags) {
     var out = {}, P = S(); if (!plannerLoaded()) return out;
-    var pool = vakTops(false, wz.vakTags);
+    if (!settings) { settings = wz.settings; vakTags = wz.vakTags; }
+    var pool = vakTops(false, vakTags);
     P.view.slots.forEach(function (s) {
       if (s.isFullday || s.idCalendar === "cal_holidays" || !s.time) return;
-      var key = s.dayIdx + "|" + s.time; if (wz.settings[key] != null || out[key]) return;
+      var key = s.dayIdx + "|" + s.time; if (settings[key] != null || out[key]) return;
       var top = (s.vak != null && s.vak !== "") ? P.topTagIdOf(s.vak) : null;
       if (top != null && pool.some(function (t) { return sameId(t.id, top); })) { out[key] = { id: top, why: "uit de lesfiche of beschrijving van dit lesuur" }; return; }
       var t = String(P.stripQuestiDecoration(s.origTitle || "") || "").trim();

@@ -3434,6 +3434,19 @@
   // the title below. Changed = green border + "gewijzigd"; a not-yet-planned lesuur is dashed.
   // `doel` (Doelen mode) adds the WEET/KEN/KAN lines under the title. All interactions — click
   // popup, target toggle, drop, move/swap — are the same in both modes.
+  // An unplanned lesuur with no vak in the Lesrooster: what the same day+hour holds in another loaded
+  // week (fiche vak or stored description). DISPLAY ONLY — never put in s.vak, so it is never written;
+  // the cell says it is a guess and Instellingen → Lesrooster offers it as a voorstel to confirm.
+  function vakHintFor(s) {
+    if (!s || s.vak || s.isFullday) return null;
+    var hit = null;
+    view.slots.forEach(function (x) {
+      if (hit || x === s || x.isFullday || x.idCalendar === "cal_holidays" || x.dayIdx !== s.dayIdx || x.time !== s.time) return;
+      if (!x.vak || !(x.ficheContentId || stripHtml(x.origDescription || ""))) return;
+      var top = topTagIdOf(x.vak); if (top != null) hit = { id: top, week: weekNoOf(x.weekIdx || 0) };
+    });
+    return hit;
+  }
   function cellFor(s, weekIdx, dayIdx, timeLabel, doel) {
     if (!s) {
       return h("div", {
@@ -3504,10 +3517,13 @@
         mark
       ];
     } else {
+      var hint = (!vakLbl && !planned && !s.isGym) ? vakHintFor(s) : null;
       var bar = h("div", { class: "qwp-cell-bar" }, [
-        h("span", { class: "qwp-cell-vak", text: vakLbl || (s.isGym ? "Gym" : "") }),
+        hint ? h("span", { class: "qwp-cell-vak qwp-vakhint", title: "Afgeleid uit week " + hint.week + " (zelfde dag en uur) — enkel een hint, wordt niet weggeschreven. Vast maken: Instellingen → Lesrooster.", text: (anyTagTitle(hint.id) || "").trim() + "?" })
+          : h("span", { class: "qwp-cell-vak", text: vakLbl || (s.isGym ? "Gym" : "") }),
         warn, mark
       ]);
+      if (hint) { var hc = anyTagColor(hint.id); if (hc) bar.style.boxShadow = "inset 4px 0 0 " + hc; }
       if (planned && color) { bar.style.background = color; bar.style.color = goalsInkOn(color); }
       // Second line: what the old (hidden) fiche line said, only when it adds something.
       var sub = (!planned && targetable) ? "sleep een fiche"
