@@ -1,5 +1,5 @@
 {
   "version": "1.5.0",
   "url": "https://github.com/RareGoudvis/ce-questi-utility",
-  "notes": "UnQuesti BETA channel (branch 'unquesti'). Bump this and manifest.json 'version' together on every beta release."
+  "notes": "Stable channel (branch 'main'). Bump this and manifest.json 'version' together on every release."
 }

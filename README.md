@@ -5,7 +5,7 @@
 UnQuesti is the lightweight addon that strips away the user-hostile layout, bypasses the clumsy
 navigation, and restores sanity to your workflow. Because life is too short for a terrible UI.
 
-> UnQuesti is the successor of the *Questi Weekplanner* (v1.4).
+> UnQuesti is the successor of the *Questi Weekplanner* (v1.5).
 >
 > UnQuesti is an independent, unofficial project. It is not made, endorsed or supported by Questi.
 
@@ -38,6 +38,7 @@ UnQuesti legt één venster over je Questi-agenda, bereikbaar met één knop in 
 | Weken vooruit plannen, vakantieweken overslaan | werkt |
 | Eerste installatie (wizard), instellingen delen (.json) | werkt |
 | Nieuwe lesfiche met Op.Stap-leerplandoelen | werkt (methode-sjablonen: doelen nog in Questi) |
+| Tags hernoemen en herkleuren (✎ in de tagboom) | werkt (v1.5) |
 
 ## Voor wie
 
