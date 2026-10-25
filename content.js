@@ -137,13 +137,13 @@
   function icoSvg(name) {
     return '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + "</svg>";
   }
-  // Launcher: same shape language as the app's buttons — 8px corners, a 2px hard shadow — in the
-  // UnQuesti colours (ink fill, amber shadow), so it reads as a foreign but tidy object in Questi.
+  // Launcher: same shape language as the app's buttons (8px corners) in the UnQuesti colours —
+  // ink fill, amber mark — so it reads as a foreign but tidy object in Questi. No offset shadow.
   function makeLauncher(floating) {
     var wrap = document.createElement("span");
     wrap.setAttribute(LAUNCHER_ATTR, "1");
     wrap.style.cssText = "display:inline-flex;align-items:stretch;height:32px;margin:0 6px 0 10px;border-radius:8px;background:#1e2a33;color:#fff;" +
-      "box-shadow:2px 2px 0 #FFB343;vertical-align:middle;white-space:nowrap;font:" + FONT + ";";
+      "box-shadow:0 1px 3px rgba(30,42,51,.25);vertical-align:middle;white-space:nowrap;font:" + FONT + ";";
     if (floating) wrap.style.cssText += "position:fixed;top:56px;right:20px;z-index:2147482000;";
     var main = document.createElement("button");
     main.type = "button";
@@ -177,7 +177,7 @@
     b.style.display = n ? "inline-flex" : "none";
     b.title = n ? n + " wijziging(en) klaar om te controleren" : "";
   }
-  // ----- Quick menu: same look as the app's Alles menu (ink border, amber offset shadow, icon tiles) -----
+  // ----- Quick menu: same look as the app's Alles menu (light border, amber top strip, soft shadow, icon tiles) -----
   var _menu = null;
   var MENU_FONT = "system-ui,'Segoe UI',Helvetica,Arial,sans-serif";
   function menuItem(icon, title, sub, hint, onClick, tone) {
@@ -209,7 +209,7 @@
     m.setAttribute("role", "menu");
     m.setAttribute("aria-label", "UnQuesti");
     m.style.cssText = "position:fixed;z-index:2147482500;top:" + Math.round(r.bottom + 10) + "px;left:" + Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 310))) + "px;width:300px;" +
-      "display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid #1e2a33;border-radius:14px;box-shadow:5px 5px 0 #FFB343;padding:8px;box-sizing:border-box;";
+      "display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid #d5dbdf;border-top:3px solid #FFB343;border-radius:12px;box-shadow:0 10px 28px rgba(30,42,51,.18),0 2px 6px rgba(30,42,51,.08);padding:8px;box-sizing:border-box;";
     var head = document.createElement("div");
     head.style.cssText = "display:flex;align-items:center;gap:8px;padding:4px 8px 8px;font:800 14px/1 " + MENU_FONT + ";color:#1e2a33;";
     head.innerHTML = markSvg(20) + "<span>UnQuesti</span>" + (IS_BETA ? '<span style="margin-left:auto;padding:2px 6px;border-radius:6px;background:#fff0e0;color:#8a3b12;font-size:10px;font-weight:700;letter-spacing:.06em;">BETA</span>' : "");

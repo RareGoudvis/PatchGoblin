@@ -436,9 +436,9 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-actbtn:not(.primary) .qwp-actlbl { display:none; }
 .qwp-actbtn.primary { flex:1 1 auto; }
 .qwp-actbtn:hover { background:var(--soft); }
-.qwp-actbtn.primary { background:var(--uq-amber); color:var(--ink); box-shadow:2px 2px 0 var(--ink); }
+.qwp-actbtn.primary { background:var(--uq-amber); color:var(--ink); }
 .qwp-actbtn.primary:hover { background:#ffa61f; }
-.qwp-actbtn.primary:active { box-shadow:none; transform:translate(2px, 2px); }
+.qwp-actbtn.primary:active { background:#f5a52d; }
 .qwp-actbadge { position:static; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--ink); color:var(--uq-amber); font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
 /* On-open health check failed → Debug glows red (still clickable). */
 .qwp-actbtn.qwp-alert { color:var(--danger); box-shadow:inset 0 0 0 1px var(--danger); animation:qwp-glow 1.4s ease-in-out infinite; }
@@ -526,7 +526,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wkbar-s { font-weight:500; color:var(--muted); }
 
 /* ---- Menus (Alles, Collega) ---- */
-.qwp-menu { position:fixed; z-index:45; display:flex; flex-direction:column; gap:2px; max-height:calc(100vh - 40px); overflow:auto; padding:10px; background:#fff; border:1px solid var(--ink); border-radius:14px; box-shadow:5px 5px 0 var(--uq-amber); }
+.qwp-menu { position:fixed; z-index:45; display:flex; flex-direction:column; gap:2px; max-height:calc(100vh - 40px); overflow:auto; padding:10px; background:#fff; border:1px solid var(--line2); border-top:3px solid var(--uq-amber); border-radius:12px; box-shadow:0 10px 28px rgba(30,42,51,.18), 0 2px 6px rgba(30,42,51,.08); }
 .qwp-alles-menu { width:420px; max-width:calc(100vw - 24px); }
 .qwp-src-menu { width:280px; padding:6px; border-radius:10px; }
 .qwp-mgrp { padding:8px 10px 2px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
@@ -599,9 +599,9 @@ fieldset.qpp-sec > legend.qpp-lbl { margin-bottom:6px; }
 .qpp-foot { flex:0 0 auto; display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); background:#fafbfb; }
 .qpp-btn { flex:1 1 0; border:1px solid var(--line2); background:#fff; border-radius:9px; padding:10px; font-size:13.5px; font-weight:700; color:var(--accent); cursor:pointer; }
 .qpp-btn:hover { background:var(--soft); }
-.qpp-btn.primary { border:none; background:var(--uq-amber); color:var(--ink); box-shadow:2px 2px 0 var(--ink); }
+.qpp-btn.primary { border:none; background:var(--uq-amber); color:var(--ink); }
 .qpp-btn.primary:hover { background:#ffa61f; }
-.qpp-btn.primary:active { box-shadow:none; transform:translate(2px, 2px); }
+.qpp-btn.primary:active { background:#f5a52d; }
 .qpp-main { flex:1 1 auto; min-width:0; min-height:0; display:flex; flex-direction:column; background:#e6eaec; }
 .qpp-title { font-size:17px; font-weight:700; color:var(--ink); }
 .qpp-sub { min-width:0; font-size:13px; color:var(--muted); }
@@ -682,7 +682,7 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-cr-muted { font-size:12.5px; color:var(--muted); font-weight:500; }
 .qwp-cr-backup { flex-direction:row; align-items:center; gap:10px; cursor:pointer; }
 .qwp-cr-warn { background:var(--uq-orange-tint); border:1px solid var(--uq-orange); border-radius:12px; padding:12px 14px; font-size:13px; color:var(--uq-orange-ink); line-height:1.5; }
-.qwp-cr-go { border:none; background:var(--uq-amber); color:var(--ink); border-radius:10px; padding:14px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:2px 2px 0 var(--ink); }
+.qwp-cr-go { border:none; background:var(--uq-amber); color:var(--ink); border-radius:10px; padding:14px; font-size:15px; font-weight:700; cursor:pointer; }
 .qwp-cr-go:hover { background:#ffa61f; }
 .qwp-cr-go:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
 .qwp-cr-back { border:none; background:transparent; font-size:13.5px; font-weight:600; color:var(--accent); text-decoration:underline; cursor:pointer; }

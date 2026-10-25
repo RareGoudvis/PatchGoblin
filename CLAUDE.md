@@ -100,7 +100,7 @@ exported for settings.js too.
   --surface --accent #304651 --accent2 #e4e642 --change #137a3a --thema --danger`), matching
   Questi's own Angular-Material theme. The planner's UnQuesti block adds the brand palette
   ("Glowing horizon") on `#qwp-overlay`: `--uq-blue #4272FF` (active/selected, the **changed**
-  border on cards), `--uq-amber #FFB343` (Controleer fill with dark ink, badges, hard shadows),
+  border on cards), `--uq-amber #FFB343` (Controleer fill with dark ink, badges, the 3px top strip on menus — no hard offset shadows; menus use a light border + soft shadow),
   `--uq-orange #FF7E42` (attention: zonder doelen, warnings), `--uq-cyan #42EAFF` (gepland marker,
   focus ring, selection tint — never text). White text on blue only at ≥14px bold. Vak/tag colours
   on cards stay the teacher's own Questi tag colours.
