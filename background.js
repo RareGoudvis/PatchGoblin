@@ -5,7 +5,7 @@
 // Beta channel: the sideloaded BETA copy (manifest name contains "BETA") checks the unquesti branch
 // for updates and loads its CSS on demand instead of through the manifest (see content.js).
 var QWP_IS_BETA = /BETA/.test(chrome.runtime.getManifest().name || "");
-var QWP_BETA_CSS = ["planner.css", "lessons.css", "methodes.css"];
+var QWP_BETA_CSS = ["planner.css", "lessons.css", "methodes.css", "settings.css"];
 
 function toggleActiveTab() {
   chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {

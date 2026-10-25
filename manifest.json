@@ -47,6 +47,7 @@
         "planner.js",
         "lessons.js",
         "methodes.js",
+        "settings.js",
         "content.js"
       ],
       "run_at": "document_idle"
