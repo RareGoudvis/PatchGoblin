@@ -296,6 +296,7 @@
       h("div", { class: "qwl-mtitle" }, [h("span", { id: "qwl-title", text: "Lesfiches" }), h("span", { class: "qwl-msub", id: "qwl-count", text: "" })]),
       h("span", { class: "qwl-status", id: "qwl-status", text: "" }),
       h("span", { class: "qwl-hspacer" }),
+      h("button", { class: "qwl-mbtn qwl-mbtn-new", onclick: function () { openNewFiche(null); }, title: "Een nieuwe lesfiche maken — wordt aangemaakt bij Controleer", text: "+ Nieuwe fiche" }),
       searchInput(), gradeSelect(), seg,
       h("button", { class: "qwl-mbtn", id: "qwl-cols", onclick: toggleCols, text: "" }),
       h("button", { class: "qwl-mbtn", onclick: reload, title: "Deze tag opnieuw uit Questi laden", text: "Vernieuwen" }),
@@ -1219,6 +1220,11 @@
     var trialMisses = [], map = {};
     return runSequential(keys, function (id) {
       var p = mgr.pending[id]; if (!p) return Promise.resolve();
+      if (p.isNew) return writeNewFiche(p).then(function (res) {
+        map[id] = { oldId: null, newId: res.newId, subject: res.subject, created: true };
+        res.missing.forEach(function (m) { trialMisses.push(res.subject + ": " + m + " niet overgenomen"); });
+        delete mgr.pending[id]; mgr.createdAny = true;
+      });
       var opts = {}; if (p.subject != null) opts.subject = p.subject; if (p.text) opts.text = p.text; if (p.tags != null) opts.tags = p.tags; if (p.createTags && p.createTags.length) opts.create_tags = p.createTags;
       if (p.goals && Object.keys(p.goals).length) opts.goals = p.goals;
       if (p.grades) opts.grades = p.grades;
@@ -1258,6 +1264,290 @@
   }
 
   // ------------------------------------------------------------------------
+  //  New fiche — built in the side sheet, staged like any edit, created by Controleer.
+  //  POST /cal/lessons (captured): templateId + one entry per template field. Text fields carry
+  //  `content`, a goals field carries `selected_goals` (numeric leerplan goal ids). A `methods`
+  //  field (vendor methode) has no captured create shape, so it is left out and the sheet says so.
+  //  WEET/KEN/KAN go in as extra text fields with the PATCH shape; the write reads the new fiche
+  //  back and adds them with one PATCH if Questi dropped them from the create (proef).
+  // ------------------------------------------------------------------------
+  var _newSeq = 0;
+  function isNewKey(k) { return String(k).indexOf("new:") === 0; }
+  function templateGoalsField(t) { return ((t && t.structure) || []).filter(function (f) { return f.type === "goals"; })[0] || null; }
+  function goalsVersionOf(fld) { var v = fld && fld.source && fld.source.version; return v ? { id: v.id, format: v.format_type || "" } : null; }
+  function templateLabel(t) { var g = goalsVersionOf(templateGoalsField(t)); return (t.name || ("sjabloon #" + t.id)) + (g ? " · " + (g.format === "opstap" ? "Op.Stap" : g.format.toUpperCase() || "leerplan") : ""); }
+  function openNewFiche(prefill) {
+    if (!isMounted() || !mgr.els.sheet) { setStatus("Open Lesfiches in UnQuesti om een nieuwe fiche te maken."); return; }
+    var sh = mgr.els.sheet, token = ++mgr.sheetToken; mgr.sheetFid = null; markOpenRow();
+    sh.innerHTML = ""; sh.style.display = "";
+    var hd = h("div", { class: "qwl-sheet-hd", style: "border-top-color:#FFB343" }, [h("div", { class: "qwl-sheet-kicker", text: "Nieuwe lesfiche" }), h("div", { class: "qwl-sheet-title", id: "qwl-new-title", text: (prefill && prefill.subject) || "Zonder titel" })]);
+    var bd = h("div", { class: "qwl-sheet-bd" }, [h("div", { class: "qwl-loading", text: "Sjablonen laden…" })]);
+    var ft = h("div", { class: "qwl-sheet-ft" });
+    sh.appendChild(hd); sh.appendChild(bd); sh.appendChild(ft);
+    function alive() { return token === mgr.sheetToken; }
+    fetchTemplates().then(function (list) {
+      if (!alive()) return;
+      fillNewFiche(list || [], prefill || null, bd, ft, closeSheet, alive);
+    }).catch(function (e) {
+      if (!alive()) return;
+      bd.innerHTML = ""; bd.appendChild(h("div", { class: "qwl-note", text: "Sjablonen laden mislukt: " + ((e && e.message) || e) }));
+    });
+  }
+  function fillNewFiche(templates, prev, bd, ft, closeFn, alive) {
+    var st = prev ? JSON.parse(JSON.stringify(prev)) : { templateId: null, subject: "", grades: [], visibility: "school", tags: [], text: {}, goals: {}, selected: {} };
+    var sorted = templates.slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || ""), "nl"); });
+    function tplById(id) { return sorted.filter(function (t) { return String(t.id) === String(id); })[0] || null; }
+    // A new fiche starts in the tag you are looking at.
+    if (!prev && mgr.tagFilter != null && String(mgr.tagFilter) !== String(allOwnTagId())) st.tags = [Number(mgr.tagFilter)];
+    function draw() {
+      bd.innerHTML = "";
+      function section(label, els) { bd.appendChild(h("label", { class: "qwl-flabel", text: label })); (els || []).forEach(function (e) { bd.appendChild(e); }); }
+      // --- Sjabloon
+      var tplSel = h("select", { class: "qwl-input", "aria-label": "Sjabloon" }, [h("option", { value: "", text: "— kies een sjabloon —" })].concat(sorted.map(function (t) {
+        return h("option", { value: String(t.id), text: templateLabel(t), selected: String(t.id) === String(st.templateId) ? "selected" : null });
+      })));
+      tplSel.addEventListener("change", function () { st.templateId = tplSel.value ? Number(tplSel.value) : null; st.text = {}; st.selected = {}; draw(); });
+      section("Sjabloon", [tplSel]);
+      var tpl = tplById(st.templateId);
+      // --- Titel
+      var subj = h("input", { class: "qwl-input", type: "text", value: st.subject || "", placeholder: "bv. Blok 4 - Les 45 - …" });
+      subj.addEventListener("input", function () { st.subject = subj.value; var t = document.getElementById("qwl-new-title"); if (t) t.textContent = subj.value || "Zonder titel"; });
+      section("Titel", [subj]);
+      // --- Leerjaren + zichtbaarheid (create keys, captured)
+      var gset = {}; (st.grades || []).forEach(function (g) { gset[g] = true; });
+      section("Leerjaren", [h("div", { class: "qwl-gradeboxes" }, GRADES.map(function (g) {
+        var c = h("input", { type: "checkbox" }); c.checked = !!gset[g];
+        c.addEventListener("change", function () { if (c.checked) gset[g] = true; else delete gset[g]; st.grades = GRADES.filter(function (x) { return gset[x]; }); });
+        return h("label", { class: "qwl-gradebox" }, [c, h("span", { text: g })]);
+      }))]);
+      section("Zichtbaarheid", [h("div", { class: "qwl-gradeboxes" }, [["private", "Privé"], ["school", "School"]].map(function (o) {
+        var r = h("input", { type: "radio", name: "qwl-newvis", value: o[0] }); r.checked = st.visibility === o[0];
+        r.addEventListener("change", function () { if (r.checked) st.visibility = o[0]; });
+        return h("label", { class: "qwl-gradebox" }, [r, h("span", { text: o[1] })]);
+      }))]);
+      // --- Tags (same pill picker as the editor)
+      var tset = {}; (st.tags || []).forEach(function (id) { tset[String(id)] = true; });
+      var tagSum = h("span", { class: "qwl-tagsum" }), tagPick = h("div", { class: "qwl-tagpick" });
+      function pill(tg) {
+        var on = !!tset[String(tg.id)];
+        return h("button", { class: "qwl-pill" + (on ? " add" : ""), onclick: function () {
+          if (tset[String(tg.id)]) delete tset[String(tg.id)]; else tset[String(tg.id)] = true;
+          st.tags = Object.keys(tset).map(Number); drawTags();
+        } }, [h("span", { class: "qwl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "qwl-pill-mark", text: on ? "✓" : "" })]);
+      }
+      function drawTags() { renderTagGroups(tagPick, pill); tagSum.innerHTML = ""; var ids = Object.keys(tset); tagSum.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "qwl-note", text: "geen tags" })); }
+      drawTags();
+      section("Tags", [h("details", { class: "qwl-tagdetails" }, [h("summary", {}, [tagSum, h("span", { class: "qwl-tagedit", text: "wijzigen" })]), tagPick])]);
+      if (!tpl) { bd.appendChild(h("div", { class: "qwl-note", text: "Kies eerst een sjabloon: dat bepaalt welke velden de fiche krijgt." })); drawFoot(null); return; }
+      // --- The template's own fields, in template order
+      (tpl.structure || []).forEach(function (fld) {
+        if (fld.type === "text") {
+          var ta = h("textarea", { class: "qwl-textarea", rows: "4", placeholder: stripTags(fld.description || "") });
+          ta.value = st.text[fld.id] || "";
+          ta.addEventListener("input", function () { st.text[fld.id] = ta.value; });
+          section(fld.title || "Tekst", [ta]);
+        } else if (fld.type === "goals") {
+          var ver = goalsVersionOf(fld), chosen = (st.selected[fld.id] || []);
+          var lbl = h("span", { class: "qwl-note", text: chosen.length ? chosen.length + " doel(en) gekozen" : "nog geen doelen gekozen" });
+          var btn = h("button", { class: "qwl-btn qwl-ghost", type: "button", text: "Doelen kiezen…", onclick: function () {
+            openGoalPicker(ver, tpl, st.selected[fld.id] || [], function (ids, names) { st.selected[fld.id] = ids; st.selectedNames = st.selectedNames || {}; st.selectedNames[fld.id] = names; draw(); });
+          } });
+          var names = (st.selectedNames && st.selectedNames[fld.id]) || [];
+          section((fld.title || "Leerplandoelen") + (ver ? " (" + (ver.format === "opstap" ? "Op.Stap" : ver.format.toUpperCase()) + ")" : ""), [
+            h("div", { class: "qwl-goalpick-row" }, [btn, lbl]),
+            names.length ? h("ul", { class: "qwl-goalpick-sel" }, names.slice(0, 12).map(function (n) { return h("li", { text: n }); }).concat(names.length > 12 ? [h("li", { text: "+ " + (names.length - 12) + " meer" })] : [])) : null
+          ]);
+        } else if (fld.type === "methods") {
+          section((fld.title || "Methode") + " (methode)", [h("div", { class: "qwl-note", text: "Dit veld hoort bij een methode" + (fld.method && fld.method.name ? " (" + fld.method.name + ")" : "") + ". Methodedoelen kies je voorlopig in Questi; de fiche wordt zonder dit veld aangemaakt." })]);
+        }
+      });
+      // --- WEET / KEN / KAN (extra fields, like every own fiche in UnQuesti)
+      GOAL_KINDS.forEach(function (k) {
+        var ta = h("textarea", { class: "qwl-textarea", rows: "2" }); ta.value = st.goals[k] || "";
+        ta.addEventListener("input", function () { st.goals[k] = ta.value; });
+        section(k.toUpperCase() + " · lesdoel", [ta]);
+      });
+      drawFoot(tpl);
+    }
+    function drawFoot(tpl) {
+      ft.innerHTML = "";
+      ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: closeFn, text: "Sluiten" }));
+      if (prev && prev.key && mgr.pending[prev.key]) ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: function () { delete mgr.pending[prev.key]; notifyPending(); closeFn(); setStatus("Nieuwe fiche verworpen."); }, text: "Verwerpen" }));
+      ft.appendChild(h("span", { class: "qwl-hspacer" }));
+      ft.appendChild(h("button", { class: "qwl-btn", disabled: tpl ? null : "true", onclick: function () {
+        if (!tpl) return;
+        if (!String(st.subject || "").trim()) { setStatus("Geef de nieuwe fiche een titel."); return; }
+        stageNewFiche(st, tpl, prev && prev.key);
+        closeFn();
+        setStatus("Nieuwe fiche ‘" + st.subject.trim() + "’ klaargezet — wordt aangemaakt bij " + reviewName() + ".");
+      }, text: "Klaarzetten" }));
+    }
+    draw();
+  }
+  function stripTags(s) { return String(s || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(); }
+  function buildNewFicheBody(st, tpl) {
+    var fields = [];
+    (tpl.structure || []).forEach(function (fld) {
+      if (fld.type === "text") fields.push({ field_type: "text", template_field_id: fld.id, content: st.text[fld.id] || "" });
+      else if (fld.type === "goals") fields.push({ field_type: "goals", template_field_id: fld.id, selected_goals: (st.selected[fld.id] || []).map(Number) });
+    });
+    var order = 0;
+    GOAL_KINDS.forEach(function (k) { if (String(st.goals[k] || "").trim()) fields.push({ field_type: "text", title: k.toUpperCase(), description: "", order: ++order, content: st.goals[k] }); });
+    return { schoolId: sid(), subject: st.subject.trim(), grades: st.grades || [], visibility: st.visibility || "school",
+      tags: (st.tags || []).map(Number), create_tags: [], attachments: [], templateId: tpl.id, fields: fields };
+  }
+  function stageNewFiche(st, tpl, key) {
+    key = key || ("new:" + (++_newSeq));
+    var changes = [{ label: "Sjabloon", old: "", nw: tpl.name || ("#" + tpl.id) }];
+    if ((st.grades || []).length) changes.push({ label: "Leerjaren", old: "", nw: st.grades.join(", ") });
+    if ((st.tags || []).length) changes.push({ label: "Tags", oldEl: h("span", { text: "—" }), newEl: chipRow(st.tags) });
+    (tpl.structure || []).forEach(function (fld) {
+      if (fld.type === "text" && String(st.text[fld.id] || "").trim()) changes.push({ label: fld.title || "Tekst", old: "", nw: st.text[fld.id] });
+      if (fld.type === "goals" && (st.selected[fld.id] || []).length) changes.push({ label: fld.title || "Leerplandoelen", old: "", nw: st.selected[fld.id].length + " doel(en)" });
+    });
+    GOAL_KINDS.forEach(function (k) { if (String(st.goals[k] || "").trim()) changes.push({ label: k.toUpperCase(), old: "", nw: st.goals[k] }); });
+    var stCopy = JSON.parse(JSON.stringify(st));
+    mgr.pending[key] = { isNew: true, key: key, draft: stCopy, template: tpl, fiche: { id: null, subject: st.subject.trim() }, edit: null, changes: changes };
+    notifyPending();
+  }
+  // Create one staged new fiche. → { newId, subject, missing: [] } — `missing` names what Questi did not keep.
+  function writeNewFiche(p) {
+    var body = buildNewFicheBody(p.draft, p.template), wantGoals = {};
+    GOAL_KINDS.forEach(function (k) { if (String(p.draft.goals[k] || "").trim()) wantGoals[k] = p.draft.goals[k]; });
+    var wantSel = 0; Object.keys(p.draft.selected || {}).forEach(function (k) { wantSel += (p.draft.selected[k] || []).length; });
+    return createFiche(body).then(function (res) {
+      var newId = res && res.id; if (newId == null) throw new Error("Questi gaf geen id terug");
+      return readFicheEdit(newId).then(function (edit) {
+        var missing = [], gf = S().ficheGoalFields(edit), lost = {};
+        GOAL_KINDS.forEach(function (k) { if (wantGoals[k] && !gf[k]) lost[k] = wantGoals[k]; });
+        var gotSel = 0; (edit.fields || []).forEach(function (f) { if (f.type === "goals") gotSel += (f.selected_goals || []).length || ((f.content && f.content.goals) || []).length; });
+        if (wantSel && !gotSel) missing.push("leerplandoelen");
+        if (!Object.keys(lost).length) return { newId: newId, subject: edit.subject || body.subject, missing: missing };
+        // Questi dropped the WEET/KEN/KAN extras from the create: add them the way the editor does.
+        return writePatch(newId, buildPatch(newId, edit, { goals: lost })).then(function (r2) {
+          return { newId: (r2 && r2.id != null) ? r2.id : newId, subject: edit.subject || body.subject, missing: missing, goalsPatched: true };
+        });
+      });
+    });
+  }
+
+  // ---- Leerplandoelen picker (Op.Stap / ZILL) ----
+  // Where Questi serves the goal tree has not been captured. Candidates are tried in order, all
+  // reads, one at a time; the first that yields a tree wins and is remembered for this session.
+  // Zelftest "Leerplandoelen-bron" reports what each candidate returned.
+  var _goalTrees = {};
+  function goalTreeCandidates(ver) {
+    var id = ver && ver.id;
+    return [
+      { name: "/lessons/goals/" + id, url: api() + "/lessons/goals/" + id + "?" + qs({ schoolId: sid() }) },
+      { name: "/lessons/goals?version=" + id, url: api() + "/lessons/goals?" + qs({ schoolId: sid(), version: id }) },
+      { name: "/goals/" + id, url: api() + "/goals/" + id + "?" + qs({ schoolId: sid() }) }
+    ];
+  }
+  // Normalise any of the shapes seen for goal trees ({ goals:[…] }, { content:{ goals:[…] } }, a bare array).
+  function goalNodesOf(j) {
+    var r = (j && j.result !== undefined) ? j.result : j;
+    if (Array.isArray(r)) return r;
+    if (r && Array.isArray(r.goals)) return r.goals;
+    if (r && r.content && Array.isArray(r.content.goals)) return r.content.goals;
+    if (r && Array.isArray(r.children)) return r.children;
+    return null;
+  }
+  function loadGoalTree(ver) {
+    var k = ver ? ver.format + ":" + ver.id : "?";
+    if (_goalTrees[k]) return Promise.resolve(_goalTrees[k]);
+    var cands = goalTreeCandidates(ver), i = 0;
+    function next() {
+      if (i >= cands.length) return Promise.resolve(null);
+      var c = cands[i++];
+      return fetch(c.url, { credentials: "include", headers: { "Accept": "application/json" } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { var n = j && j.status !== "error" ? goalNodesOf(j) : null; if (n && n.length) { _goalTrees[k] = { nodes: n, source: c.name }; return _goalTrees[k]; } return next(); })
+        .catch(function () { return next(); });
+    }
+    return next();
+  }
+  function goalLabel(n) { return ((n.code ? n.code + " " : "") + stripTags(n.title || n.description || n.name || "")).trim() || ("doel " + n.id); }
+  function isGoalNode(n) { return n.is_goal === true || n.is_goal === 1 || (!(n.children && n.children.length) && n.id != null); }
+  function openGoalPicker(ver, tpl, selectedIds, onDone) {
+    var sel = {}; (selectedIds || []).forEach(function (id) { sel[String(id)] = true; });
+    var names = {};
+    var search = h("input", { class: "qwl-input", type: "search", placeholder: "Zoek op code of woord…" });
+    var count = h("span", { class: "qwl-note" });
+    var tree = h("div", { class: "qwl-goaltree" }, [h("div", { class: "qwl-loading", text: "Leerplandoelen laden…" })]);
+    var m = modal("Leerplandoelen kiezen" + (ver ? " · " + (ver.format === "opstap" ? "Op.Stap" : String(ver.format).toUpperCase()) : ""), [h("div", { class: "qwl-goalpick-top" }, [search, count]), tree], [], "wide");
+    var ftEl = m.querySelector(".qwl-modal-ft");
+    ftEl.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
+    ftEl.appendChild(h("button", { class: "qwl-btn", onclick: function () {
+      var ids = Object.keys(sel).map(Number);
+      onDone(ids, ids.map(function (id) { return names[String(id)] || ("doel " + id); }));
+      m.close();
+    }, text: "Klaar" }));
+    function syncCount() { var n = Object.keys(sel).length; count.textContent = n + " gekozen"; }
+    syncCount();
+    loadGoalTree(ver).then(function (t) {
+      tree.innerHTML = "";
+      if (!t) {
+        tree.appendChild(h("div", { class: "qwl-note", text: "UnQuesti vond de lijst met leerplandoelen nog niet bij Questi. Kies de doelen voorlopig in Questi zelf, of draai Diagnose en stuur het rapport door: dan kan dit afgewerkt worden." }));
+        return;
+      }
+      var flat = [];
+      (function walk(list, path) { (list || []).forEach(function (n) { var lbl = goalLabel(n); if (isGoalNode(n) && n.id != null) { names[String(n.id)] = lbl; flat.push({ n: n, lbl: lbl, path: path }); } walk(n.children, path.concat(lbl)); }); })(t.nodes, []);
+      function goalRow(n, lbl, path) {
+        var c = h("input", { type: "checkbox" }); c.checked = !!sel[String(n.id)];
+        c.addEventListener("change", function () { if (c.checked) sel[String(n.id)] = true; else delete sel[String(n.id)]; syncCount(); });
+        return h("label", { class: "qwl-goal" }, [c, h("span", {}, [h("span", { text: lbl }), path ? h("small", { text: path }) : null])]);
+      }
+      // Tree view: branches open lazily (Op.Stap is large); leaves are the pickable goals.
+      function branch(n) {
+        var kids = n.children || [];
+        if (!kids.length) return isGoalNode(n) && n.id != null ? goalRow(n, goalLabel(n)) : h("div", { class: "qwl-note", text: goalLabel(n) });
+        var d = h("details", { class: "qwl-goalbranch" }, [h("summary", { text: goalLabel(n) })]);
+        d.addEventListener("toggle", function () { if (!d.open || d.getAttribute("data-built")) return; d.setAttribute("data-built", "1"); kids.forEach(function (k) { d.appendChild(branch(k)); }); });
+        if (isGoalNode(n) && n.id != null) d.insertBefore(goalRow(n, goalLabel(n)), d.children[1] || null);
+        return d;
+      }
+      var treeView = h("div", {}, t.nodes.map(branch));
+      var results = h("div", { style: "display:none" });
+      tree.appendChild(treeView); tree.appendChild(results);
+      tree.appendChild(h("div", { class: "qwl-note", text: flat.length + " doelen · bron " + t.source }));
+      search.addEventListener("input", function () {
+        var q = search.value.trim().toLowerCase();
+        if (!q) { results.style.display = "none"; treeView.style.display = ""; return; }
+        var hits = flat.filter(function (x) { return x.lbl.toLowerCase().indexOf(q) >= 0; }).slice(0, 200);
+        results.innerHTML = "";
+        results.appendChild(h("div", {}, hits.map(function (x) { return goalRow(x.n, x.lbl, x.path.join(" › ")); })));
+        if (!hits.length) results.appendChild(h("div", { class: "qwl-note", text: "Niets gevonden." }));
+        results.style.display = ""; treeView.style.display = "none";
+      });
+    });
+  }
+  // Zelftest: which candidate serves the goal tree, and in what shape (keys only, read-only).
+  function probeGoalTrees(addRow) {
+    return fetchTemplates().then(function (list) {
+      var vers = {}; (list || []).forEach(function (t) { var g = goalsVersionOf(templateGoalsField(t)); if (g) vers[g.format + ":" + g.id] = g; });
+      var keys = Object.keys(vers);
+      if (!keys.length) { addRow({ status: "SKIP", name: "Leerplandoelen-bron", detail: "geen sjabloon met een doelenveld" }); return; }
+      return runSequential(keys, function (k) {
+        var ver = vers[k], cands = goalTreeCandidates(ver), found = [];
+        return runSequential(cands, function (c) {
+          return fetch(c.url, { credentials: "include", headers: { "Accept": "application/json" } }).then(function (r) {
+            return r.json().catch(function () { return null; }).then(function (j) {
+              var n = goalNodesOf(j), r0 = j && j.result !== undefined ? j.result : j;
+              found.push(c.name + " → HTTP " + r.status + (j && j.status === "error" ? " (" + (j.error_msg || "fout") + ")" : "") +
+                (n ? " · " + n.length + " knopen, sleutels: " + Object.keys(n[0] || {}).join(",") : (r0 && typeof r0 === "object" ? " · sleutels: " + Object.keys(r0).slice(0, 12).join(",") : "")));
+            });
+          }).catch(function (e) { found.push(c.name + " → " + ((e && e.message) || e)); });
+        }).then(function () {
+          var ok = found.some(function (x) { return / knopen/.test(x); });
+          addRow({ status: ok ? "OK" : "WARN", name: "Leerplandoelen-bron " + k, detail: found.join(" | "),
+            next: ok ? null : "Geen bron gevonden — open in Questi een fiche-editor, klik de doelenkiezer open en stuur de netwerk-aanvraag door." });
+        });
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------------
   //  Shared-Controleer API (planner.js openReview). Tags to create and fiche
   //  edits are listed there next to the calendar changes, and written in order:
   //  tags → fiches → (planner remaps slots to the new fiche ids) → calendar.
@@ -1272,7 +1562,7 @@
     var fiches = Object.keys(mgr.pending).map(function (id) {
       var p = mgr.pending[id];
       return {
-        key: id, ficheId: p.fiche.id, title: ficheName(p.fiche),
+        key: id, ficheId: p.fiche.id, title: ficheName(p.fiche), isNew: !!p.isNew,
         hasGoals: !!(p.goals && Object.keys(p.goals).length),
         changes: (p.changes || []).map(function (c) {
           return { label: c.label, old: c.old, nw: c.nw, oldEl: c.oldEl ? c.oldEl.cloneNode(true) : null, newEl: c.newEl ? c.newEl.cloneNode(true) : null };
@@ -1284,6 +1574,7 @@
   // Backup of the fiches under `keys` as they are NOW: the edit snapshots already read, plus a read
   // (sequential, 150 ms apart) for those staged without one. → Promise<{ downloaded, missing }>
   function backupPending(keys) {
+    keys = keys.filter(function (id) { return mgr.pending[id] && !mgr.pending[id].isNew; });
     var need = keys.filter(function (id) { return mgr.pending[id] && !mgr.pending[id].edit; }), missing = 0;
     return runSequential(need, function (id) {
       return readFicheEdit(mgr.pending[id].fiche.id).then(function (edit) { if (mgr.pending[id]) mgr.pending[id].edit = edit; });
@@ -1317,7 +1608,10 @@
     });
   }
   // After the shared Controleer: redraw whatever host is active (new ids, cleared badges).
-  function afterSharedWrite() { if (overlayOpen()) { renderTagBar(); applyFilter(); } }
+  function afterSharedWrite() {
+    var created = mgr.createdAny; mgr.createdAny = false;
+    if (overlayOpen()) { renderTagBar(); if (created) reload(); else applyFilter(); }
+  }
   // The shared Controleer's trash: drop staged tags/fiche edits without writing them.
   function discardPending(o) {
     (o.ficheKeys || []).forEach(function (k) { delete mgr.pending[k]; });
@@ -1894,6 +2188,7 @@
       // Niets in de extensie heeft ooit de INHOUD van een methodefiche gelezen. Zonder dat is
       // kopiëren onmogelijk. Deze checks lezen alleen en beantwoorden de vraag definitief.
       function () { return probeMethodLesson(addRow); },
+      function () { return probeGoalTrees(addRow); },
       function () { var t = S().xsrfToken(); addRow({ status: t ? "OK" : "WARN", name: "XSRF-token", detail: t ? "cookie leesbaar" : "leeg", next: t ? null : "Schrijfacties (PATCH/POST/DELETE) hebben x-xsrf-token nodig." }); }
     ];
     var i = 0;

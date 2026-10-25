@@ -5158,13 +5158,15 @@
       return row("tag", t.key, "Nieuwe tag", t.parentTitle ? "onder " + t.parentTitle : "hoofdtag", ["—"],
         [h("span", { class: "qwp-cr-tag" }, [h("span", { class: "qwp-cr-dot", style: "background:" + (t.color || "#c9d2d7") }), h("span", { text: t.title })])]);
     })));
-    if (lp.fiches.length) secs.push(section("2", "Lesfiches", lp.fiches.length + " fiche(s) · elke fiche krijgt een nieuwe versie", lp.fiches.map(function (f) {
+    var nNew = lp.fiches.filter(function (f) { return f.isNew; }).length, nEdit = lp.fiches.length - nNew;
+    if (lp.fiches.length) secs.push(section("2", "Lesfiches", (nEdit ? nEdit + " fiche(s) · elke fiche krijgt een nieuwe versie" : "") + (nEdit && nNew ? " · " : "") + (nNew ? nNew + " nieuwe fiche(s)" : ""), lp.fiches.map(function (f) {
       var o = [], nw = [];
       f.changes.forEach(function (c) {
         o.push(c.oldEl ? h("span", { class: "qwp-cr-lbl" }, [h("i", { text: c.label + ": " }), c.oldEl]) : (c.label + ": " + String(c.old || "—").slice(0, 160)));
         nw.push(c.newEl ? h("span", { class: "qwp-cr-lbl" }, [h("i", { text: c.label + ": " }), c.newEl]) : (c.label + ": " + String(c.nw || "—").slice(0, 160)));
       });
       if (!f.changes.length) { o.push("—"); nw.push("(gewijzigd)"); }
+      if (f.isNew) return row("fiche", f.key, "Nieuwe lesfiche", f.title, ["—"], nw, "wordt aangemaakt in Questi");
       return row("fiche", f.key, "Lesfiche", f.title, o, nw);
     })));
     var weekCount = {};
@@ -5253,7 +5255,7 @@
         h("span", { class: "qwp-cr-muted", text: "Enkel losse lesuren — nooit een hele reeks. Lukt een fiche niet, dan blijft een lesuur dat die fiche zou krijgen klaargezet (niet weggeschreven)." })
       ]),
       olderN ? h("div", { class: "qwp-cr-warn" }, [h("b", { text: "Let op: " }), document.createTextNode(olderN + (olderN === 1 ? " lesuur in deze weken is" : " lesuren in deze weken zijn") + " al gepland met een fiche die je bewerkt. " + (bumps.length ? "Vink een ‘Fiche-versie’-rij uit om dat lesuur op de oude versie te laten. " : "") + "Lesuren buiten de geladen weken blijven op de oude versie.")]) : null,
-      lp.fiches.length ? h("label", { class: "qwp-cr-card qwp-cr-backup" }, [backupCb, h("span", {}, [h("b", { text: "Eerst een back-up downloaden" }), h("br"), h("span", { class: "qwp-cr-muted", text: "de " + lp.fiches.length + " fiche(s) zoals ze nu zijn (.json)" })])]) : null,
+      nEdit ? h("label", { class: "qwp-cr-card qwp-cr-backup" }, [backupCb, h("span", {}, [h("b", { text: "Eerst een back-up downloaden" }), h("br"), h("span", { class: "qwp-cr-muted", text: "de " + nEdit + " fiche(s) zoals ze nu zijn (.json)" })])]) : null,
       h("span", { class: "qwp-spacer" }),
       goBtn,
       h("button", { class: "qwp-cr-back", onclick: function () { modal.remove(); }, text: "Terug, nog niets doen" })
@@ -5276,7 +5278,7 @@
       var sel = {
         tagKeys: lp.tags.filter(function (t) { return !excl.tag[t.key]; }).map(function (t) { return t.key; }),
         ficheKeys: lp.fiches.filter(function (f) { return !excl.fiche[f.key]; }).map(function (f) { return f.key; }),
-        ficheIdByKey: {}, calIds: {}, bumpIds: {}, backup: !!(lp.fiches.length && backupCb.checked),
+        ficheIdByKey: {}, calIds: {}, bumpIds: {}, backup: !!(nEdit && backupCb.checked),
         leftOut: rows.length - chosen().length
       };
       lp.fiches.forEach(function (f) { sel.ficheIdByKey[f.key] = f.ficheId; });

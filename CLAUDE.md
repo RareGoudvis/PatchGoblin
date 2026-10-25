@@ -439,6 +439,16 @@ max 4 in flight) and print caps its reads at 4 (`mapLimit`) — keep Questi traf
 follows the fiche's `thread` (same for every version; `qwp_threads_v1`) to the newest version, then the
 newest own fiche with the same title, and marks the card "nieuwere versie".
 
+**New fiche (beta).** "+ Nieuwe fiche" in the Lesfiches tab builds a fiche in the side sheet
+(`openNewFiche`): template picker (`fetchTemplates`), title, leerjaren, zichtbaarheid, tags, the
+template's text fields, WEET/KEN/KAN and leerplandoelen. It is staged as `mgr.pending["new:N"]`
+(`isNew`, `draft`, `template`) and created by Controleer before any edit or calendar write
+(`writeNewFiche`: POST, read back, one PATCH if Questi dropped the WEET/KEN/KAN extras). A
+`methods` field has no captured create shape and is left out, said in the sheet. The goal tree's
+endpoint is NOT captured: `loadGoalTree` tries `goalTreeCandidates` (reads, one at a time) and the
+Zelftest row "Leerplandoelen-bron" reports what each returned. Replace the candidates with the
+captured route as soon as it is known.
+
 **Full fiche editor.** Double-click opens every field of the edit view. Editable: title, tags
 (pill picker, full-set replace), all text fields (`fieldKey`), new extra text fields (`opts.newFields`).
 `grades`/`visibility` are a **trial** — the create call's keys, never captured on PATCH — so writePending
