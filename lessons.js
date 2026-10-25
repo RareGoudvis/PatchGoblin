@@ -1388,13 +1388,19 @@
       ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: closeFn, text: "Sluiten" }));
       if (prev && prev.key && mgr.pending[prev.key]) ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: function () { delete mgr.pending[prev.key]; notifyPending(); closeFn(); setStatus("Nieuwe fiche verworpen."); }, text: "Verwerpen" }));
       ft.appendChild(h("span", { class: "qwl-hspacer" }));
-      ft.appendChild(h("button", { class: "qwl-btn", disabled: tpl ? null : "true", onclick: function () {
+      // Two ways out: stage only (to batch several fiches), or stage and go straight to the review.
+      // Either way nothing is written until Wegschrijven in that review.
+      function stage(thenReview) {
         if (!tpl) return;
         if (!String(st.subject || "").trim()) { setStatus("Geef de nieuwe fiche een titel."); return; }
         stageNewFiche(st, tpl, prev && prev.key);
         closeFn();
         setStatus("Nieuwe fiche ‘" + st.subject.trim() + "’ klaargezet — wordt aangemaakt bij " + reviewName() + ".");
-      }, text: "Klaarzetten" }));
+        if (!thenReview) return;
+        if (isMounted() && S().openReview) S().openReview(); else openReviewEdits();
+      }
+      ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", disabled: tpl ? null : "true", onclick: function () { stage(false); }, title: "Klaarzetten en nog andere fiches maken", text: "Alleen klaarzetten" }));
+      ft.appendChild(h("button", { class: "qwl-btn", disabled: tpl ? null : "true", onclick: function () { stage(true); }, text: "Klaarzetten en controleren" }));
     }
     draw();
   }
