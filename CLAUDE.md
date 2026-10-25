@@ -78,7 +78,7 @@ consumer that planner already has is a bug — export the existing one instead.
 `__QWP_SHARED` currently exposes: `ctx, API, API_ROOT, jget, qs, xsrfToken, writeHeaders,
 fetchTags, fetchOwnTags, fetchSharedTags, invalidateOwnTags, topTagsForOwner, childTags, tagTitle,
 tagColor, ownerName, h, detectContext, fetchMethods, fetchMethodLessons, fetchAllFichesByTag,
-storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`, and for settings.js:
+storeGet, storeSet, goalsInkOn, ficheGoalFields, goalText, noteFicheThread, mapLimit`, and for settings.js:
 `state, view, loadState, saveState, setStatus, ownTagsList, anyTagById, topTagIdOf, panelTopTags,
 computeTimeRows, isNoSchool, renderTimetable, reloadSlotVakLabels, reloadAndRender, isThemaSlot,
 themaIdentity, setThemaVakOverride, ensureThemaKeys, normTitle, stripQuestiDecoration, fetchPeople,

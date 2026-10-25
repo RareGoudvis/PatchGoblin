@@ -5931,7 +5931,7 @@
     // the teacher can look at a previous school year.
     detectContext: detectContext,
     fetchMethods: fetchMethods, fetchMethodLessons: fetchMethodLessons,
-    fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet,
+    fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet, goalsInkOn: goalsInkOn,
     // Lesdoelen in the fiche (lessons.js goals mode, print)
     ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread, vakAbbr: vakAbbr, refreshVakPicker: function () { renderVakToggle(0); renderSubcats(0); },
     mapLimit: mapLimit,

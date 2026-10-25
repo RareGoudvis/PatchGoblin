@@ -514,33 +514,54 @@
   // Mounted host: the same choices as a tree in the planner's sidebar. Buckets (Alle eigen
   // lesfiches, Zonder tag) first, then each vak; the active vak unfolds its subtags. Tags staged
   // for creation show greyed with "nieuw" — they exist only after Controleer.
+  // Tag tree: two groups (the overview filters, then the vakken). The chosen node is filled — a vak
+  // in its own tag colour, a subtag in a light tint of it, the overview filters in the app blue —
+  // so it reads like the vak tiles in Plannen. The name shows the list; the caret (only on a vak
+  // that has subtags) folds without loading anything.
   function renderTagTree() {
     var tree = mgr.els.tree; if (!tree) return; tree.innerHTML = "";
-    function node(label, color, depth, active, onclick, extra, tag) {
-      var edit = (tag && tag.type === "user") ? h("span", { class: "qwl-tedit", role: "button", tabindex: "0", title: "Naam of kleur wijzigen", "aria-label": "Tag " + label + " wijzigen",
-        onclick: function (e) { e.stopPropagation(); e.preventDefault(); openRenameTag(tag); },
-        onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); openRenameTag(tag); } }, text: "✎" }) : null;
-      return h("button", { class: "qwl-tnode d" + depth + (active ? " active" : "") + (onclick ? "" : " off"), role: "treeitem", "aria-selected": active ? "true" : "false", onclick: onclick || null, disabled: onclick ? null : "true" }, [
-        h("span", { class: "qwl-tsq", style: "background:" + (color || "#c9d2d7") }),
+    function act(span, fn) {
+      span.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); fn(); });
+      span.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); fn(); } });
+      return span;
+    }
+    function node(label, color, depth, active, onclick, extra, tag, kind) {
+      var edit = (tag && tag.type === "user") ? act(h("span", { class: "qwl-tedit", role: "button", tabindex: "0", title: "Naam, kleur of hoofdtag wijzigen", "aria-label": "Tag " + label + " wijzigen", text: "✎" }), function () { openRenameTag(tag); }) : null;
+      var el = h("button", { class: "qwl-tnode d" + depth + (kind ? " " + kind : "") + (active ? " active" : "") + (onclick ? "" : " off"), role: "treeitem", "aria-selected": active ? "true" : "false", onclick: onclick || null, disabled: onclick ? null : "true" }, [
+        kind === "view" ? null : h("span", { class: "qwl-tsq", style: "background:" + (color || "#c9d2d7") }),
         h("span", { class: "qwl-tlbl", text: label }),
         edit, extra || null
       ]);
+      if (active && kind !== "view" && color) {
+        if (depth === 0) { el.style.background = color; el.style.color = S().goalsInkOn(color); }
+        else el.style.background = "color-mix(in srgb, " + color + " 24%, #fff)";
+      }
+      return el;
     }
+    function caret(t, open) {
+      return act(h("span", { class: "qwl-tcaret", role: "button", tabindex: "0", title: open ? "Subtags verbergen" : "Subtags tonen", "aria-expanded": open ? "true" : "false", text: open ? "▾" : "▸" }),
+        function () { mgr.expandedTop = open ? null : t.id; renderTagTree(); });
+    }
+    function group(text) { tree.appendChild(h("div", { class: "qwl-tgroup", text: text })); }
     function newBadge() { return h("span", { class: "qwl-tnew", text: "nieuw" }); }
     function pendingUnder(parentId) {
       return mgr.pendingTags.filter(function (p) { return String(p.parent || "") === String(parentId || ""); });
     }
     var tops = S().topTagsForOwner(mgr.ownTags, ctx().ownerId);
     var buckets = tops.filter(function (t) { return !isSubjectTop(t); }), subjects = tops.filter(isSubjectTop);
+    group("Overzicht");
     buckets.forEach(function (t) {
-      tree.appendChild(node((t.title || "").trim(), t.color || null, 0, String(mgr.tagFilter) === String(t.id) && mgr.unionParent == null, function () { mgr.expandedTop = null; loadList(t.id); }, null, t));
+      tree.appendChild(node((t.title || "").trim(), t.color || null, 0, String(mgr.tagFilter) === String(t.id) && mgr.unionParent == null, function () { mgr.expandedTop = null; loadList(t.id); }, null, t, t.type === "user" ? null : "view"));
     });
     var zt = ownTagById(1) || { id: 1, title: "Zonder tag" };
-    tree.appendChild(node((zt.title || "Zonder tag").trim(), null, 0, String(mgr.tagFilter) === "1", function () { mgr.expandedTop = null; loadList(1); }));
+    tree.appendChild(node((zt.title || "Zonder tag").trim(), null, 0, String(mgr.tagFilter) === "1", function () { mgr.expandedTop = null; loadList(1); }, null, null, "view"));
+    group("Vakken");
     subjects.forEach(function (t) {
       var open = String(mgr.expandedTop) === String(t.id);
-      tree.appendChild(node((t.title || "").trim(), t.color, 0, String(mgr.unionParent) === String(t.id), function () { loadListUnion(t.id); },
-        h("span", { class: "qwl-tcaret", text: open ? "▾" : "▸" }), t));
+      var hasKids = mgr.ownTags.some(function (k) { return String(k.parent) === String(t.id); }) || pendingUnder(t.id).length > 0;
+      // The name shows the vak's list (and opens its subtags); the caret only folds.
+      tree.appendChild(node((t.title || "").trim(), t.color, 0, String(mgr.unionParent) === String(t.id), function () { if (hasKids) mgr.expandedTop = t.id; loadListUnion(t.id); },
+        hasKids ? caret(t, open) : h("span", { class: "qwl-tcaret qwl-tcaret-none" }), t));
       if (!open) return;
       mgr.ownTags.filter(function (k) { return String(k.parent) === String(t.id); })
         .sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); })
