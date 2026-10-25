@@ -64,6 +64,11 @@ keer weg naar Questi. Werkt in **Chrome**, **Brave** en **Edge**.
 
 ## Installeren (Chrome, Brave of Edge)
 
+> **Snelste weg:** download en dubbelklik `install.bat`. Het zet UnQuesti in
+> `%LOCALAPPDATA%\UnQuesti`, kopieert die map naar je klembord en opent de extensiepagina. Daar nog
+> 3 klikken: Ontwikkelaarsmodus aan → Uitgepakt laden → plak (Ctrl+V) de map. Op een pc die door de
+> school/IT beheerd wordt, kan ontwikkelaarsmodus geblokkeerd zijn — dan werkt dit niet.
+
 De extensie zit niet in de webshops; je laadt ze zelf in ("uitgepakt laden"). Dat is in de
 drie browsers bijna identiek.
 
