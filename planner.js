@@ -1162,7 +1162,7 @@
     return fetchItems(startISO, endISO).then(function (items) {
       var slots = items.map(function (it) {
         var day = weekdayIdx(it.startdate);
-        var wk = view.weekStart ? Math.floor(((addDays(String(it.startdate).slice(0, 10), 0) || new Date()) - (addDays(view.weekStart, 0) || new Date())) / 86400000 / 7) : 0;
+        var wk = view.weekStart ? Math.floor(Math.round(((addDays(String(it.startdate).slice(0, 10), 0) || new Date()) - (addDays(view.weekStart, 0) || new Date())) / 86400000) / 7) : 0;
         return {
           itemId: it.id, title: it.title || "", origTitle: it.title || "",
           startdate: it.startdate, enddate: it.enddate,
@@ -3490,13 +3490,35 @@
     var n = view.rosterFilled || 0; view.rosterFilled = 0;
     return n ? " Lesrooster aangevuld: " + n + " lesuur/lesuren kregen het vak dat er gepland stond (aanpassen in Instellingen → Lesrooster)." : "";
   }
+  // "leeg" = Questi returned no lesuur in the working agenda at this hour, so there is nothing to
+  // write to (the planner only edits existing items, it never creates one). A click or a drop says
+  // WHY: a holiday from the school calendar, or an item in another agenda (one read of that day,
+  // all agendas), or really nothing.
+  function explainEmpty(weekIdx, dayIdx, time) {
+    var d = addDays(view.weekStart, weekIdx * 7 + dayIdx); if (!d) return;
+    var iso = isoDate(d), when = fullDateLabel(weekIdx * 7 + dayIdx) + " " + time;
+    var hol = view.slots.filter(function (s) {
+      return s.idCalendar === "cal_holidays" && String(s.startdate || "").slice(0, 10) <= iso && String(s.enddate || s.startdate || "").slice(0, 10) >= iso;
+    }).map(function (s) { return (s.title || "").trim(); }).filter(Boolean);
+    if (hol.length) { setStatus(when + ": ‘" + hol.join("’, ‘") + "’ in de schoolkalender — geen lesuur in je agenda om in te plannen."); return; }
+    setStatus(when + ": Questi nakijken…");
+    apiItems(iso, iso, null).then(function (items) {
+      var here = (items || []).filter(function (it) { return it && it.id_calendar !== ctx.calendarId && timeFromISO(it.startdate) === time; });
+      if (!here.length) { setStatus(when + ": Questi heeft hier geen lesuur in je agenda. De planner maakt geen nieuwe lesuren aan — maak er in Questi een aan en vernieuw."); return; }
+      var calName = function (id) { var c = (ctx.calendars || []).filter(function (x) { return String(x.id) === String(id); })[0]; return c && c.name ? c.name : id; };
+      setStatus(when + ": " + here.map(function (it) { return "‘" + stripQuestiDecoration(it.title || "") + "’ (agenda " + calName(it.id_calendar) + ")"; }).join(", ") + " — staat niet in je werkagenda, dus de planner kan er niets in zetten.");
+    }).catch(function () { setStatus(when + ": geen lesuur in je agenda (nakijken in Questi lukte niet)."); });
+  }
   function cellFor(s, weekIdx, dayIdx, timeLabel, doel) {
     if (!s) {
-      return h("div", {
+      var empty = h("div", {
         class: "qwp-cell empty",
-        title: "Geen lesitem op dit tijdslot",
-        onclick: function () { setStatus("Geen lesitem op " + DAY_NAMES[dayIdx] + " " + (timeLabel === "thema" ? "(thema)" : timeLabel) + " in week " + (weekIdx + 1) + " — niets te bewerken."); }
+        title: "Geen lesuur in je agenda op dit moment — klik om te zien waarom",
+        onclick: function () { explainEmpty(weekIdx, dayIdx, timeLabel); },
+        ondragover: function (e) { e.preventDefault(); },
+        ondrop: function (e) { e.preventDefault(); endDragTargets(); explainEmpty(weekIdx, dayIdx, timeLabel); }
       }, [h("div", { class: "qwp-cell-empty-hint", text: "leeg" })]);
+      return empty;
     }
     var dirty = computeDirty(s);
     // Painted from the /cal/items LIST, detail not in yet (or failed): Questi's decorated list title,
