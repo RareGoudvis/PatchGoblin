@@ -40,7 +40,7 @@ ground-truth request/response captures live in `reference/questi-api-samples.md`
 
 ## Layout
 
-Flat repo. `icons/` and `reference/` are the only folders.
+Flat repo. `icons/`, `reference/` and `docs/img/` (README/manual screenshots, rendered from the real code against a fake API with invented data; the same PNGs are published as `img/` in the user guide artifact BzuDN1SfiziugCxB5YvToL) are the only folders.
 
 | File | Lines | Role |
 |---|---|---|

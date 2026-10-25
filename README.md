@@ -5,8 +5,6 @@
 PatchGoblin is the lightweight addon that strips away the user-hostile layout, bypasses the clumsy
 navigation, and restores sanity to your workflow. Because life is too short for a terrible UI.
 
-> PatchGoblin for Questi (formerly UnQuesti) is the successor of the *Questi Weekplanner* (v1.6).
->
 > PatchGoblin is an independent, unofficial project. It is not made, endorsed or supported by Questi.
 
 ---
@@ -54,222 +52,221 @@ Het bevat geen wachtwoord, cookies of sessie — wel je schoolnaam, tags, titels
 
 ---
 
-# Handleiding (huidige versie)
+# Handleiding
 
-Een browserextensie die bovenop de **Questi**-agenda een volledig scherm-weekplanner legt.
-Plan in één overzicht een (of twee) volledige lesweken: sleep lesfiches in je lesuren,
-maak lesuren leeg, controleer alles in een voorbeeldweergave en schrijf het daarna in één
-keer weg naar Questi. Werkt in **Chrome**, **Brave** en **Edge**.
+> De schermafbeeldingen hieronder tonen PatchGoblin met **verzonnen voorbeeldgegevens** (een
+> fictieve juf en school). Bij jou staan er je eigen vakken, lesuren en lesfiches.
 
-> Je moet ingelogd zijn op [questi.com](https://www.questi.com) — de extensie gebruikt je
-> eigen sessie en verandert niets zonder dat jij op **Wegschrijven** klikt.
+PatchGoblin legt één venster over je Questi-agenda. Je plant er twee weken tegelijk, beheert je
+lesfiches, vult lesdoelen in en drukt je week af. **Niets gaat naar Questi** voor jij alle
+wijzigingen samen nakijkt en op **Wegschrijven** klikt. Werkt in **Chrome**, **Brave** en **Edge**,
+met je gewone Questi-login.
 
----
+## 1. Installeren
 
-## Installeren (Chrome, Brave of Edge)
+De makkelijkste weg is de stap-voor-stap-gids: **[PatchGoblin installeren](https://claude.ai/artifact/BzuDN1SfiziugCxB5YvToL)**.
+In het kort:
 
-> **Snelste weg:** download en dubbelklik `install.bat`. Het zet PatchGoblin in
-> `%LOCALAPPDATA%\PatchGoblin`, kopieert die map naar je klembord en opent de extensiepagina. Daar nog
-> 3 klikken: Ontwikkelaarsmodus aan → Uitgepakt laden → plak (Ctrl+V) de map. Op een pc die door de
-> school/IT beheerd wordt, kan ontwikkelaarsmodus geblokkeerd zijn — dan werkt dit niet.
+1. Download [`install.bat`](https://github.com/RareGoudvis/ce-questi-utility/blob/main/install.bat)
+   en dubbelklik het. Het zet PatchGoblin in `%LOCALAPPDATA%\PatchGoblin`, kopieert die map naar je
+   klembord en opent de extensiepagina van je browser.
+2. Zet daar **Ontwikkelaarsmodus** aan (Chrome/Brave: rechtsboven, Edge: links).
+3. Klik **Uitgepakt laden**, plak de map (Ctrl+V, Enter) en klik **Map selecteren**.
+4. Herlaad je Questi-agenda (F5).
 
-De extensie zit niet in de webshops; je laadt ze zelf in ("uitgepakt laden"). Dat is in de
-drie browsers bijna identiek.
+Op een pc die door de school beheerd wordt, staat ontwikkelaarsmodus soms uit. Gebruik dan je
+eigen computer. Op een Mac: download de ZIP (groene knop **Code → Download ZIP**), pak hem uit en
+kies die map bij stap 3.
 
-1. **Download de bestanden.** Klik op deze pagina op de groene knop **`Code` → `Download ZIP`**
-   en pak het ZIP-bestand uit naar een map die je makkelijk terugvindt
-   (bv. `Documenten/questi-weekplanner`). *Of*, als je Git kent:
-   ```
-   git clone https://github.com/RareGoudvis/ce-questi-utility.git
-   ```
-   > Belangrijk: onthoud waar de map staat en verwijder ze niet — de browser leest de
-   > extensie telkens uit die map.
+**Bijwerken.** Meldt PatchGoblin een nieuwe versie, dubbelklik dan `update.bat` in
+`%LOCALAPPDATA%\PatchGoblin`. Het kijkt de download eerst na, maakt een back-up van je huidige
+versie (in `%LOCALAPPDATA%\PatchGoblin-backups`) en zet die vanzelf terug als het vervangen
+mislukt. Klik daarna op de extensiepagina op **↻** bij PatchGoblin en herlaad Questi.
 
-2. **Open de extensiepagina** in je browser:
-   - **Chrome:** typ `chrome://extensions` in de adresbalk en druk Enter.
-   - **Brave:** typ `brave://extensions`.
-   - **Edge:** typ `edge://extensions`.
+## 2. Openen
 
-3. **Zet "Ontwikkelaarsmodus" aan** (schuifknop rechtsboven, in Edge links).
+![De PatchGoblin-knop in Questi's werkbalk](docs/img/00-knop.png)
 
-4. Klik op **"Uitgepakt laden"** (Edge: **"Uitgepakt laden"** / "Load unpacked") en kies de
-   **map** die je in stap 1 hebt uitgepakt (de map waarin `manifest.json` staat).
+![Het snelmenu achter het pijltje](docs/img/00-knop-menu.png)
 
-5. Klaar — de "Questi Weekplanner" verschijnt in de lijst. Ga naar je Questi-agenda en je
-   ziet er een knop verschijnen (zie hieronder).
+Op je Questi-**agenda** staat de knop **PatchGoblin** in de werkbalk. Klik hem, of druk
+**Alt + P**. Het pijltje ernaast opent een snelmenu: **Plannen**, **Lesfiches**, **Afdrukken deze
+week** en **Instellingen**. Staan er nog wijzigingen klaar, dan zie je daar ook hoeveel.
 
-> **Bijwerken naar een nieuwere versie (makkelijk):** dubbelklik `update.bat` in de map — dat
-> haalt de laatste versie op en vervangt de bestanden. **Herstart daarna Chrome** (of klik op de
-> extensiepagina het **↻ (vernieuwen)**-icoon bij de extensie). Als de extensie zelf meldt dat er
-> een nieuwe versie is, verschijnt bovenaan de planner een balkje met een downloadlink.
->
-> **Handmatig bijwerken:** download opnieuw de ZIP, vervang de bestanden in dezelfde map, en klik
-> op de extensiepagina op het **↻ (vernieuwen)**-icoon bij de extensie.
+**De eerste keer** opent een korte wizard:
 
----
+1. **Vakken**: duid aan welke van je Questi-tags echte vakken zijn (wiskunde, taal …).
+2. **Lesrooster**: kies per lesuur het vak. PatchGoblin stelt voor wat het al in je agenda ziet
+   (met een oranje rand); bevestig of pas aan.
+3. **Agenda**: zet "Vak als beschrijving" alleen aan als je klaswebsite (bv. Enderklas) de
+   beschrijving van een les als vak toont.
 
-## Openen
+Alles kan later nog in **Instellingen**.
 
-Op je Questi-agenda (de kalenderpagina) verschijnen **twee knoppen** in de werkbalk, naast de
-zoom/Week/print-knoppen:
+## 3. Plannen
 
-- **"Weekplanner"** — opent de volledige weekplanner. (Of druk op **Alt + P**, of klik het
-  extensie-icoon in je browserwerkbalk.)
-- **"Lesfiches"** — opent de **Lesfiche-manager** (zie onder).
+![Plannen: links je lesfiches, rechts deze week en volgende week](docs/img/01-plannen.png)
 
-De knoppen verschijnen **enkel op de kalenderpagina**. Sluiten doe je met het **✕** rechtsboven
-(of **Alt + P** voor de planner).
+Het venster heeft links een zijbalk met drie tabbladen: **Plannen · Lesfiches · Afdrukken**.
 
----
+- **Rechts** staan **deze week en volgende week** onder elkaar. Elke kaart is een lesuur: bovenaan
+  het vak in de kleur van je Questi-tag, daaronder de les. Een gestippelde kaart heeft nog geen
+  lesfiche. Met **← →** blader je een week verder; **Vandaag** brengt je terug. Vakantieweken
+  worden overgeslagen.
+- **Links** staat je lijst met lesfiches. Kies bovenaan een **vak**, verfijn met de subtags
+  (blok 4, blok 5 …), of kies **Ik / Collega** om de fiches van een collega of een methode te zien.
+  **Filter** klapt zoeken, leerjaar en sorteren open.
+- Achter elke fiche staat wanneer je ze gebruikte: groen **gepland** (staat in deze weken),
+  een grijs ✓ (dit schooljaar al gegeven), of de laatste datum / **nooit**.
 
-## De weekplanner gebruiken
+**Een les plannen**
 
-1. **Kies je week.** De planner opent op de week die je in Questi bekijkt; lukt dat niet, dan op de
-   week van vandaag (de statusregel zegt welke van de twee). In de bovenbalk (naast de zoekbalk)
-   kies je *1 week* of *2 weken* en blader je met **← / Deze week / →**.
-2. **Zoek lesfiches.** Onderaan staan filterpanelen: kies een vak, verfijn met de sub-tags
-   (blok 1, blok 2 …) of gebruik de zoekbalk. Via **Lesfiches laden** (links) laad je je
-   **Eigen lesfiches**, die van **Collega's**, of **Methodes** (uitgeverij-fiches — die krijgen
-   een oranje **"methode"**-label en zijn alleen-lezen sjablonen).
-3. **Plan lesuren.**
-   - **Sleep** een lesfiche vanuit een paneel op een leeg lesuur — de titel van het lesuur wordt
-     meteen de titel van de fiche.
-   - Of **klik** op een lesuur om handmatig een fiche te kiezen, het als gymles te markeren, of
-     het **leeg te maken**.
-   - Sleep een ingevuld lesuur naar een ander om het te **verplaatsen of te wisselen**.
-   - Met **"Add selectie"** vul je meerdere gekozen fiches in één keer in.
-   - **Kopieer vorige week** toont een **rooster** — klik de lesuren die je wil overnemen; ze
-     landen in de lege lesuren op hetzelfde moment deze week.
-4. **Vergist? Ctrl + Z** (of **"Ongedaan maken"**) draait je laatste actie terug.
-5. **Controleer & wegschrijven.** Klik **"Controleer & wegschrijven"** voor een voor/na-overzicht
-   (groen = gewijzigd, oranje = nog leeg, rood = overschrijft). Klik **"Goedkeuren en
-   wegschrijven"** — dat schrijft meteen weg (geen aparte knop meer). Daarna vernieuwt de pagina.
+- **Sleep** een fiche uit de lijst op een lesuur. Het lesuur krijgt de titel en het vak van de fiche.
+- **Klik** op een lesuur om een fiche te kiezen, de titel aan te passen, het vak te wijzigen, het
+  leeg te maken, of het te markeren als **Lichamelijke opvoeding / zwemmen** (geen fiche, enkel
+  een titel).
+- Sleep een ingevulde kaart naar een ander lesuur om te **verplaatsen of te wisselen**.
+- **Ctrl + Z** draait je laatste actie terug.
 
-### Goed om te weten
+![Klaargezette wijzigingen: groene kaarten en een teller](docs/img/02-staged.png)
 
-- **Niets wordt geschreven** tot je goedkeurt; tot dan blijft alles enkel in de planner staan.
-- Wijzigingen gelden **enkel voor die ene week** (herhalende reeksen blijven ongemoeid).
-- **Lichamelijke opvoeding / zwemmen.** Vink in het lesuur-venster **"Lichamelijke opvoeding /
-  zwemmen"** aan: het lesuur krijgt meteen de titel *Lichamelijke opvoeding* en er wordt geen
-  lesfiche gekoppeld. Onder het titelveld verschijnen twee knoppen — **Lichamelijke opvoeding** en
-  **Zwemmen** — om te wisselen. Vink je het weer uit, dan komt de oude titel terug (bv. "M3").
-  Een titel die je zelf typte blijft staan. De knoppen verschijnen bij elk gymuur, ook bij lesuren
-  die Questi al zo noemt.
-- **Titel aanpassen.** In het lesuur-venster staat bovenaan een veld **Titel**. Handig voor dingen
-  die ingepland moeten worden maar geen lesfiche nodig hebben (een toets, een uitstap): typ een
-  titel, kies geen fiche, en schrijf weg. Zit er wél een fiche aan het lesuur, dan waarschuwt het
-  venster: Questi zet bij het wegschrijven de fichetitel terug.
-- **Vak klopt niet met de fiche?** Het label onder een les is het vak dat jij voor dat lesuur in
-  **Instellingen** hebt gezet. Hoort de gekoppelde fiche bij een ànder vak, dan krijgt de cel een
-  oranje randje en een label als "≠ Wiskunde" — zo zie je meteen dat er een rekenles in een
-  taal-uur staat. Bij methodefiches kan het vak niet opgehaald worden; die krijgen dus nooit een
-  waarschuwing (liever geen melding dan een verkeerde).
-- **Themarijen** (hele-week-items zoals WO en Godsdienst) staan bovenaan het rooster, elk op een
-  **eigen rij**, even hoog als een gewoon lesuur. De naam van het thema staat in de balk zelf.
-  Herkent de planner het thema niet (bv. een titel als "Camino 3 – …"), dan staat er
-  *geen vaktag*: klik de balk, kies een **Vak**, en de rij is meteen benoemd — die keuze wordt
-  onthouden en komt bij het wegschrijven ook in de titel terecht. Afkortingen die vanzelf herkend
-  worden: `WO`/`wero`, `godsdienst`, `muvo`/`muzo`, `LO`/`turnen`. Heb je er drie (bv. ook MUVO), dan krijg je er drie —
-  ze worden afgeleid uit je tags, niet uit een vaste lijst. Een hele-dag-item dat bij geen enkele
-  tag hoort (bv. een schooluitstap) krijgt een eigen rij met zijn eigen titel.
-  Bij het wegschrijven krijgt zo'n item de titel `"Godsdienst — <fichetitel>"`: zo weet de planner
-  ook na een herlaadbeurt nog welk thema het is (voordien raakte dat kwijt zodra je er een fiche in
-  legde, en verdween er één van de twee rijen). De beschrijving in Questi blijft
-  `"Zie themafiche."`. Een **lesuur** met vak WO of Godsdienst krijgt als beschrijving de **naam van
-  de themafiche** van die week (is er geen, dan de vaknaam) — zo staat er iets zinnigs op de
-  klaswebsite in plaats van "Zie themafiche.". Zo'n lesuur mag ook gewoon een eigen lesfiche krijgen.
-- **Instellingen** (vast vak per lesuur) blijft bewaard en geldt voor elke week.
-- **Diagnose** (links onderaan) draait een zelftest als er iets niet automatisch gevonden werd.
+Wat je verandert, wordt eerst **klaargezet**: de kaart krijgt een groene rand en bovenaan staat
+hoeveel wijzigingen er wachten. Je kan gerust verder bladeren en een hele maand vooruit plannen —
+klaargezette wijzigingen blijven staan tot je ze wegschrijft of de pagina herlaadt.
 
----
+**Het menu Alles** (onderaan de zijbalk) bevat de rest:
 
-## De Lesfiche-manager gebruiken
+| Groep | Wat |
+|---|---|
+| Deze weken | **Kopieer vorige week** · **Titels opschonen** (haalt Questi's `* … (1)` uit titels) · **Vakken herstellen** · **Ongedaan maken** · **Vernieuwen** · **Balans** (lesuren per vak) |
+| Lesfiches | **Zoek in alle lesfiches** (jij, collega's en methodes tegelijk) · **Eigen lesfiches herladen** · **Lesfiches van collega's** · **Methodes** |
+| Overzicht | **Methodevoortgang** |
 
-Open via de **"Lesfiches"**-knop in de werkbalk. Hiermee beheer je je **volledige eigen
-fiche-bibliotheek** (los van de kalender).
+**Themarijen.** Hele-week-items zoals WO of Godsdienst staan als brede balk bovenaan elke week.
+Leg er de themafiche van die week in. Herkent PatchGoblin het thema niet, klik dan de balk en kies
+het vak: dat wordt onthouden.
 
-- **Overzicht + filteren.** Bovenaan staan je tags: **Alle eigen lesfiches**, **Zonder tag**
-  (handig om te zien wat nog getagd moet worden / oude leerjaren), en je **vakken**. Klik een vak
-  → je ziet **Alle [vak]** (alles onder dat vak, ook via sub-tags) plus de sub-tags (blok 1…).
-  Rechts bovenaan filter je op **leerjaar** en zoek je op titel. Klik een **kolomkop** (Titel /
-  Leerjaar / Laatst gebruikt / Tags) om te **sorteren**.
-- **Titel snel aanpassen.** Klik op een titel in de lijst om hem **direct** te bewerken.
-  **Dubbelklik** op een rij voor de volledige editor: titel, leerjaren, zichtbaarheid, tags, alle
-  tekstvelden (ook extra velden zoals WEET/KEN/KAN) en **+ Tekstveld toevoegen**. Sjabloon,
-  bijlagen en leerplan-/methodedoelen staan er ter info bij (die bewerk je in Questi). Leerjaren
-  en zichtbaarheid zijn **proef**: na het wegschrijven controleert de manager of Questi ze echt
-  overnam en meldt het als dat niet zo is.
-- **Meerdere tegelijk.** Vink fiches aan (of **Alles selecteren**), dan links: **Tags bewerken**
-  (toevoegen/verwijderen, of een **nieuwe tag** maken) of **Verwijderen**.
-- **Eén bevestiging.** Al je wijzigingen (titels, inhoud, tags) worden **klaargezet** en pas
-  weggeschreven via **"Wijzigingen controleren"** → goedkeuren. Doelen en niet-gewijzigde tags
-  blijven altijd behouden.
-- **Verwijderen** is definitief: typ `VERWIJDER`, test eerst met één fiche, dan de rest.
-- **1/2 kolommen** en **Diagnose** (zelftest) staan links. **Importeren** komt binnenkort (OPSTAP).
-- **Lesdoelen invullen**. Links → **Lesdoelen invullen** zet de lijst om in een invulblad:
-  per fiche **Titel · WEET · KEN · KAN**. **Tab** = volgende vak, **Enter** = zelfde kolom, volgende
-  fiche (**Shift+Enter** = nieuwe regel). Ook de titel pas je hier aan. De doelen worden **in de
-  lesfiche zelf** bewaard (drie extra tekstvelden WEET / KEN / KAN, zichtbaar in Questi en voor je
-  collega's) — dus op elke computer. Het ⓘ-icoon naast een titel toont de doelen van de methode.
-  Alles loopt via **Wijzigingen controleren**; bij 5 of meer fiches wordt eerst een back-up (JSON)
-  gedownload. **Lokale doelen overnemen** zet doelen die je vroeger in het afdrukvoorbeeld typte
-  in de fiches. Tip: zet in Questi **"Onthouden"** aan op WEET/KEN/KAN, dan krijgt elke nieuwe
-  fiche die velden vanzelf.
-- ⚠ **Een ingeplande les houdt de fiche-versie waarmee ze gepland is** (Questi: "aanpassingen …
-  niet automatisch bijgewerkt in het gekoppelde agenda item"). Het Lesdoelen-afdrukvoorbeeld neemt
-  dan de doelen van de nieuwste fiche met dezelfde titel, en zet **"nieuwere versie"** op die kaart
-  (alleen op het scherm).
+## 4. Controleren en wegschrijven
 
----
+![Controleer: elke wijziging op een rij, met een vinkje](docs/img/03-controleer.png)
 
-## Methodevoortgang gebruiken
+Klik **Controleer** (onderaan de zijbalk). Je ziet alles wat klaarstaat, in de volgorde waarin het
+naar Questi gaat: eerst nieuwe tags, dan aangepaste lesfiches, dan de lesuren in je agenda.
 
-Open via **"Methodevoortgang"** in de zijbalk van de weekplanner. Het toont per methode welke
-lessen je **al gegeven** hebt en welke nog **open** staan. Het **leest alleen** — er wordt nooit
-iets naar Questi geschreven.
+- Elke rij heeft een **vinkje**. Wat je uitvinkt, blijft klaargezet voor later.
+- Met het **vuilbakje** gooi je een wijziging weg: het lesuur gaat terug naar wat er in Questi staat.
+- **Toon als rooster** toont de weken voor en na naast elkaar.
+- Bij aangepaste lesfiches wordt eerst een **back-up** (JSON-bestand) gedownload.
 
-Hoe het "gegeven" bepaalt: elke lesfiche heeft in Questi een **laatst-gebruikt-datum**. Ligt die
-binnen het **gekozen schooljaar**, dan telt de les als gegeven. Een fiche die je vorig jaar
-gebruikte staat dus terecht weer op open, met de oude datum er grijs bij.
+Klik **Wegschrijven**. Een lesuur uit een herhalende reeks wordt altijd **alleen voor die ene
+week** aangepast, nooit de hele reeks. Daarna herlaadt Questi en opent PatchGoblin vanzelf weer op
+dezelfde weken.
 
-**Schooljaar kiezen.** Rechts bovenaan staat een schooljaarkiezer (huidig + de twee vorige). Handig
-om terug te kijken naar wat je vorig jaar gaf terwijl je het nieuwe jaar plant. Let op: Questi rolt
-het schooljaar al door in de zomer, dus tussen die rol en **1 september** staat alles op open —
-dat klopt (het nieuwe jaar is nog niet begonnen) en de panel zegt het ook met zoveel woorden.
+**Als iets misgaat** zegt het venster per onderdeel wat lukte en wat niet. Wat niet lukte, blijft
+klaargezet. Antwoordt Questi niet (bv. een trage verbinding), dan kijkt PatchGoblin zelf na of het
+toch aankwam. Lukt ook dat niet, dan staat het er als **onzeker** bij: kijk het even na in Questi
+voor je opnieuw wegschrijft.
 
-Een methode toevoegen kan op twee manieren:
+## 5. Doelen
 
-- **Uit Questi** — de methodes die je school heeft. Alle lessen komen in één keer binnen, je hoeft
-  niets te kiezen. Loopt de methode over meerdere leerjaren, dan vraagt hij welk leerjaar je volgt.
-- **Uit eigen lesfiches** — kies je **hoofdtag** (het vak), daarna open je de Lesfiche-manager in
-  **selectiemodus** en vink je aan welke fiches de methode vormen. Dat doe je één keer. De
-  **subtags** onder je hoofdtag worden automatisch de **thema's** in de tabel. In selectiemodus zijn
-  alle bewerk- en verwijderknoppen verborgen, dus er kan niets misgaan.
+![Doelen: per les WEET, KEN en KAN](docs/img/04-doelen.png)
 
-In de tabel:
+Schakel bovenaan van **Plannen** naar **Doelen**. Je ziet één week, en op elke kaart de
+**WEET / KEN / KAN**-doelen van de lesfiche. Bovenaan staat hoeveel lessen nog geen doelen hebben.
+Klik de balk van de andere week om te wisselen.
 
-- **Voortgangsbalk** bovenaan (`23/41 gegeven`), en per thema een eigen tellertje.
-- **Gaten** worden gemarkeerd: staan er open lessen tussen twee gegeven lessen, dan zie je
-  "les 14–15 overgeslagen".
-- **Klik op een statuspil** om te wisselen: automatisch → gegeven → open → automatisch. Een
-  handmatige keuze wint altijd van de berekende en is gemerkt met **handmatig**; het kruisje zet
-  hem terug op automatisch.
-- **Sorteren** op volgorde / a–z / datum, filteren met **alleen open**, en zoeken op titel.
-- Halen de titels geen lesnummers op (bv. `Les 12: …`), dan gebruikt hij de volgorde van Questi en
-  kun je rijen **verslepen**. Die volgorde wordt onthouden.
-- **Exporteer** geeft een CSV van de volledige lijst.
-- Lessen worden **gegroepeerd per thema** in de volgorde van je subtags ("Blok 1", "Blok 2", …).
-  Fiches die onder geen enkele subtag hangen komen onderaan bij **Overige**.
+De doelen staan **in de lesfiche zelf** (drie extra tekstvelden WEET, KEN en KAN). Ze zijn dus ook
+zichtbaar in Questi, op je andere computer en voor collega's met wie je de fiche deelt. Invullen
+doe je in **Lesfiches** (zie hieronder).
 
-**Back-up (tussen computers).** De knop **Back-up** rechts bovenaan exporteert al je methodes naar
-één JSON-bestand en leest zo'n bestand ook weer in. Handig om je opzet van je schoollaptop naar je
-thuis-pc te zetten zonder alles opnieuw aan te vinken. Alleen jouw instellingen reizen mee (welke
-fiches, hun volgorde, handmatige aanpassingen); titels en datums worden op de andere computer
-gewoon opnieuw uit Questi gelezen. Bij importeren zie je eerst wat er nieuw is en wat overschreven
-wordt. Komt het bestand van een andere school, dan waarschuwt hij — lesfiche-ids zijn per school.
+## 6. Lesfiches
 
-Alleen jouw keuzes worden bewaard (welke fiches, hun volgorde, handmatige aanpassingen). Titels en
-datums worden élke keer opnieuw opgehaald, zodat de tabel nooit uit de pas loopt met Questi.
+![Lesfiches: tagboom links, je bibliotheek als tabel](docs/img/05-lesfiches.png)
+
+Het tabblad **Lesfiches** toont je hele bibliotheek.
+
+- **Links** je tags als boom: **Alle eigen lesfiches**, **Zonder tag** en je vakken met hun
+  subtags. Met **✎** naast een eigen tag hernoem of herkleur je hem, of hang je hem onder een
+  ander vak. **+ Tag** maakt een nieuwe.
+- **Rechts** een tabel met titel, leerjaar, laatst gebruikt en tags. Klik een kolomkop om te
+  sorteren, filter op leerjaar of zoek op titel.
+- **Een titel aanpassen**: klik erop en typ.
+- **Meerdere tegelijk**: vink fiches aan en kies **Tags bewerken** of **Verwijderen**. Verwijderen
+  is definitief: je typt eerst `VERWIJDER` en er wordt automatisch een back-up gedownload.
+- **Lesdoelen invullen** zet de lijst om in een invulblad: per fiche Titel · WEET · KEN · KAN.
+  **Tab** = volgend vak, **Enter** = zelfde kolom, volgende fiche.
+
+![De volledige editor van één lesfiche](docs/img/06-fiche-editor.png)
+
+**Dubbelklik** een fiche voor de volledige editor: titel, leerjaren, zichtbaarheid, tags, alle
+tekstvelden (ook WEET/KEN/KAN) en **+ Tekstveld toevoegen**. Sjabloon, bijlagen en
+leerplandoelen staan er ter info bij.
+
+**+ Nieuwe fiche** maakt een fiche zonder Questi's editor: kies een sjabloon, vul titel, leerjaren,
+tags, tekstvelden en WEET/KEN/KAN in, en kies de **leerplandoelen** met de echte Op.Stap-kiezer.
+
+Ook hier wordt alles eerst **klaargezet** en pas weggeschreven via dezelfde **Controleer** als bij
+Plannen. Fiches die je aanpast en die al in je agenda staan, kan je daar meteen laten meeverhuizen
+naar de nieuwe versie.
+
+## 7. Afdrukken
+
+![Afdrukken: Lesdoelen-versie op A4](docs/img/07-afdrukken.png)
+
+Het tabblad **Afdrukken** toont een voorbeeld op A4 van de week die in Questi staat (dus niet je
+klaargezette wijzigingen — die zegt het er ook bij).
+
+- **Versie**: **Gewoon** (je weekplanning) of **Lesdoelen** op 1 of 2 A4, met per les
+  schrijflijnen voor WEET, KEN en KAN. Op de vrije woensdagnamiddag staan de thema's en de legende
+  met je vakkleuren.
+- **Op het blad**: weeknummer en afdrukdatum, labels, legende.
+- **Andere agenda's meeprinten**, bv. die van de zorgjuf. Klik een item om het te verbergen.
+- **Opmerking voor deze week** komt mee op het blad.
+- "**N kaarten zonder doelen · nu invullen**" brengt je meteen naar die fiches.
+- **Bewaar als PDF** of **Afdrukken** opent het afdrukvenster van je browser.
+
+## 8. Instellingen
+
+![Instellingen: het lesrooster](docs/img/08-instellingen.png)
+
+**Instellingen** (onderaan de zijbalk, of via het snelmenu):
+
+- **Lesrooster**: welk vak je op welk lesuur geeft. PatchGoblin vult lege uren ook zelf aan met
+  wat het in je agenda ziet; wat je met de hand zet, blijft.
+- **Vakken**: welke tags vakken zijn, hun volgorde en afkortingen.
+- **Agenda**: o.a. "Vak als beschrijving schrijven".
+- **Collega's & methodes**: wiens fiches je in de lijst kan kiezen.
+- **Afdrukken**: standaardversie en wat er op het blad komt.
+- **Weergave**: licht, donker of volgens je computer.
+- **Delen & back-up**: je instellingen als bestand bewaren of overnemen van een collega.
+  Vakken gaan mee op naam en kleur, dus het werkt ook met de tags van iemand anders.
+
+## 9. Methodevoortgang
+
+![Methodevoortgang: welke lessen al gegeven zijn](docs/img/09-methodes.png)
+
+Via **Alles → Methodevoortgang**. Per methode zie je welke lessen je dit schooljaar al gaf en welke
+nog open staan, gegroepeerd per thema of blok, met een voortgangsbalk en de **overgeslagen**
+lessen. Het **leest alleen**: er wordt nooit iets naar Questi geschreven.
+
+- Een methode komt **uit Questi** (de methodes van je school) of **uit eigen lesfiches** (kies een
+  vak en vink één keer aan welke fiches de methode vormen; de subtags worden de thema's).
+- "Gegeven" = de lesfiche werd binnen het gekozen **schooljaar** gebruikt. Rechtsboven kies je het
+  schooljaar. Klik een statuspil om het met de hand te zetten.
+- **Exporteer** geeft een CSV; **Back-up** neemt je methodes mee naar een andere computer.
+
+## 10. Lukt het niet?
+
+- **Geen PatchGoblin-knop?** Herlaad Questi (F5) en kijk of de extensie aan staat op de
+  extensiepagina.
+- **Na een update doet iets raar?** Klik op de extensiepagina op ↻ bij PatchGoblin **en** herlaad
+  je Questi-tabblad. Meldt de statusregel "Instellingen niet bewaard", dan is dat precies dit.
+- **Iets klopt niet?** Open **Debug** (onderaan de zijbalk): de **Zelftest** leest alleen en zegt
+  wat er mis is. Klik **Opslaan als .json** en stuur dat bestand mee met je vraag. Het bevat geen
+  wachtwoord, cookies of sessie — wel je schoolnaam, tags, titels van lesfiches (kan je weglaten)
+  en de laatste foutmeldingen.
+- **PatchGoblin weer weg?** Klik op de extensiepagina op **Verwijderen**. Je agenda in Questi
+  blijft zoals hij is.
 
 ---
 
@@ -445,7 +442,7 @@ fiches appear in the owner selectors, filter panels, and global search (badged *
 |---|---|
 | `manifest.json` | MV3; content scripts `planner.js` → `lessons.js` → `methodes.js` → `content.js`, css `planner.css` + `lessons.css` + `methodes.css`, on `*://www.questi.com/*`. |
 | `background.js` | Service worker; relays the toolbar/Alt+P toggle to the tab. |
-| `content.js` | Boot/relay; injects the **Weekplanner** + **Lesfiches** toolbar chips (only on `…/calendar`). |
+| `content.js` | Boot/relay; injects the single **PatchGoblin** launcher button + quick menu (only on `…/calendar`); reopens the planner after our own write. |
 | `planner.js` / `planner.css` | The week planner (`#qwp-overlay`). Exports `window.__QWP_SHARED` (ctx + helpers) and `window.__QWP_OPEN_LESSONS`. |
 | `lessons.js` / `lessons.css` | The Lesfiche-manager — mounted as the planner's Lesfiches tab (`mount()`), standalone `#qwl-overlay` for `openPicker()` (read-only selectiemodus used by the Methodes panel); consumes `__QWP_SHARED`; own storage key `qwp_lessons_v1`. Its staged edits are written by the planner's shared Controleer. |
 | `methodes.js` / `methodes.css` | Methodevoortgang (`#qwm-overlay`); consumes `__QWP_SHARED`; storage key `qwp_methodes_v1`. **Never writes to Questi.** |
