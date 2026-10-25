@@ -118,19 +118,39 @@
   function pendingCount() {
     try { var n = typeof window.__QWP_PENDING_COUNT === "function" ? window.__QWP_PENDING_COUNT() : 0; return n > 0 ? n : 0; } catch (e) { return 0; }
   }
+  // UnQuesti mark: a calendar with a bolt on an amber tile — same drawing as the extension icons.
+  function markSvg(size) {
+    return '<svg aria-hidden="true" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" style="display:block;flex:0 0 auto;">' +
+      '<rect width="24" height="24" rx="5.5" fill="#FFB343"/>' +
+      '<g fill="none" stroke="#1e2a33" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<rect x="4" y="6" width="16" height="14.5" rx="2.6"/><path d="M4 10h16M8.5 3.6v4M15.5 3.6v4"/></g>' +
+      '<path d="M13.2 11.2 9.2 16h2.7l-1 3.6 4-5h-2.7z" fill="#1e2a33"/></svg>';
+  }
+  // Menu icons, stroke style as in the app's own menus.
+  var ICONS = {
+    plan: '<path d="M3 5h18v15H3zM3 9h18M8 3v4M16 3v4"/>',
+    fiches: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/>',
+    print: '<path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>'
+  };
+  function icoSvg(name) {
+    return '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + "</svg>";
+  }
+  // Launcher: same shape language as the app's buttons — 8px corners, a 2px hard shadow — in the
+  // UnQuesti colours (ink fill, amber shadow), so it reads as a foreign but tidy object in Questi.
   function makeLauncher(floating) {
     var wrap = document.createElement("span");
     wrap.setAttribute(LAUNCHER_ATTR, "1");
-    wrap.style.cssText = "display:inline-flex;align-items:stretch;height:32px;margin:0 6px 0 10px;border-radius:7px;background:#1e2a33;color:#fff;" +
-      "box-shadow:3px 3px 0 #FFB343;vertical-align:middle;white-space:nowrap;font:" + FONT + ";";
+    wrap.style.cssText = "display:inline-flex;align-items:stretch;height:32px;margin:0 6px 0 10px;border-radius:8px;background:#1e2a33;color:#fff;" +
+      "box-shadow:2px 2px 0 #FFB343;vertical-align:middle;white-space:nowrap;font:" + FONT + ";";
     if (floating) wrap.style.cssText += "position:fixed;top:56px;right:20px;z-index:2147482000;";
     var main = document.createElement("button");
     main.type = "button";
     main.title = "UnQuesti openen (" + SHORTCUT + ")";
-    main.style.cssText = "display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 5px;border:none;background:transparent;color:#fff;cursor:pointer;font:" + FONT + ";letter-spacing:-.01em;";
-    main.innerHTML = '<span aria-hidden="true" style="width:22px;height:22px;border-radius:5px;background:#FFB343;color:#1e2a33;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;">U</span>' +
-      "<span>UnQuesti</span>" +
-      (IS_BETA ? '<span style="padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.14);color:#FFB343;font-size:9.5px;letter-spacing:.06em;">BETA</span>' : "") +
+    main.style.cssText = "display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 5px;border:none;border-radius:8px 0 0 8px;background:transparent;color:#fff;cursor:pointer;font:" + FONT + ";letter-spacing:-.01em;";
+    main.innerHTML = markSvg(22) + "<span>UnQuesti</span>" +
+      (IS_BETA ? '<span style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#FFB343;font-size:9.5px;letter-spacing:.06em;">BETA</span>' : "") +
       '<span data-uq-badge="1" style="display:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#FFB343;color:#1e2a33;font-size:11px;align-items:center;justify-content:center;"></span>';
     main.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); closeMenu(); toggle(); });
     var caret = document.createElement("button");
@@ -138,9 +158,13 @@
     caret.setAttribute("aria-label", "UnQuesti snelmenu");
     caret.setAttribute("aria-haspopup", "menu");
     caret.setAttribute("aria-expanded", "false");
-    caret.style.cssText = "width:30px;border:none;border-left:1px solid rgba(255,255,255,.18);border-radius:0 7px 7px 0;background:rgba(255,255,255,.08);color:#FFB343;cursor:pointer;font:700 12px/1 system-ui,sans-serif;";
-    caret.textContent = "▾";
+    caret.style.cssText = "width:30px;display:inline-flex;align-items:center;justify-content:center;border:none;border-left:1px solid rgba(255,255,255,.16);border-radius:0 8px 8px 0;background:transparent;color:#FFB343;cursor:pointer;";
+    caret.innerHTML = '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
     caret.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); if (_menu) closeMenu(); else openMenu(wrap, caret); });
+    [main, caret].forEach(function (b) {
+      b.addEventListener("mouseenter", function () { b.style.background = "rgba(255,255,255,.08)"; });
+      b.addEventListener("mouseleave", function () { b.style.background = "transparent"; });
+    });
     wrap.appendChild(main);
     wrap.appendChild(caret);
     refreshBadge(wrap);
@@ -153,42 +177,50 @@
     b.style.display = n ? "inline-flex" : "none";
     b.title = n ? n + " wijziging(en) klaar om te controleren" : "";
   }
-  // ----- Quick menu -----
+  // ----- Quick menu: same look as the app's Alles menu (ink border, amber offset shadow, icon tiles) -----
   var _menu = null;
-  function menuItem(title, sub, hint, onClick) {
+  var MENU_FONT = "system-ui,'Segoe UI',Helvetica,Arial,sans-serif";
+  function menuItem(icon, title, sub, hint, onClick, tone) {
     var b = document.createElement("button");
     b.type = "button";
     b.setAttribute("role", "menuitem");
-    b.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;border-radius:7px;padding:8px 10px;cursor:pointer;color:#1e2a33;font:600 13.5px/1.25 system-ui,'Segoe UI',sans-serif;";
-    b.innerHTML = '<span style="flex:1 1 auto;display:flex;flex-direction:column;"><span style="font-weight:700;"></span><span style="font-size:12px;font-weight:500;color:#6b7a82;"></span></span>' +
-      '<span style="font-size:11px;font-weight:700;color:#6b7a82;"></span>';
-    var spans = b.querySelectorAll("span span");
-    spans[0].textContent = title; spans[1].textContent = sub || "";
-    if (!sub) spans[1].style.display = "none";
-    b.lastChild.textContent = hint || "";
-    b.addEventListener("mouseenter", function () { b.style.background = "#eef2f4"; });
+    b.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:none;background:transparent;border-radius:9px;padding:7px 8px;cursor:pointer;color:#1e2a33;font-family:" + MENU_FONT + ";";
+    var tile = document.createElement("span");
+    tile.style.cssText = "flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;" +
+      (tone === "amber" ? "background:#FFB343;color:#1e2a33;" : "background:#eef2f4;color:#2D5BE3;");
+    tile.innerHTML = icoSvg(icon);
+    var txt = document.createElement("span");
+    txt.style.cssText = "flex:1 1 auto;min-width:0;display:flex;flex-direction:column;";
+    var t = document.createElement("span"); t.style.cssText = "font-size:14px;font-weight:700;line-height:1.25;"; t.textContent = title;
+    txt.appendChild(t);
+    if (sub) { var d = document.createElement("span"); d.style.cssText = "font-size:12px;color:#6b7a82;line-height:1.3;"; d.textContent = sub; txt.appendChild(d); }
+    b.appendChild(tile); b.appendChild(txt);
+    if (hint) { var k = document.createElement("span"); k.style.cssText = "flex:0 0 auto;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#4a5a63;background:#eef2f4;"; k.textContent = hint; b.appendChild(k); }
+    b.addEventListener("mouseenter", function () { b.style.background = "#f1f4f6"; });
     b.addEventListener("mouseleave", function () { b.style.background = "transparent"; });
     b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); closeMenu(); onClick(); });
     return b;
   }
+  function menuSep() { var s = document.createElement("div"); s.style.cssText = "height:1px;margin:4px 6px;background:#e3e9ec;"; return s; }
   function openMenu(wrap, caret) {
     closeMenu();
     var r = wrap.getBoundingClientRect();
     var m = document.createElement("div");
     m.setAttribute("role", "menu");
     m.setAttribute("aria-label", "UnQuesti");
-    m.style.cssText = "position:fixed;z-index:2147482500;top:" + Math.round(r.bottom + 8) + "px;left:" + Math.round(Math.max(8, r.left)) + "px;width:270px;" +
-      "background:#fff;border:2px solid #1e2a33;border-radius:10px;box-shadow:4px 4px 0 #FFB343;padding:6px;box-sizing:border-box;";
+    m.style.cssText = "position:fixed;z-index:2147482500;top:" + Math.round(r.bottom + 10) + "px;left:" + Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 310))) + "px;width:300px;" +
+      "display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid #1e2a33;border-radius:14px;box-shadow:5px 5px 0 #FFB343;padding:8px;box-sizing:border-box;";
+    var head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;gap:8px;padding:4px 8px 8px;font:800 14px/1 " + MENU_FONT + ";color:#1e2a33;";
+    head.innerHTML = markSvg(20) + "<span>UnQuesti</span>" + (IS_BETA ? '<span style="margin-left:auto;padding:2px 6px;border-radius:6px;background:#fff0e0;color:#8a3b12;font-size:10px;font-weight:700;letter-spacing:.06em;">BETA</span>' : "");
+    m.appendChild(head);
     var n = pendingCount();
-    m.appendChild(menuItem("Plannen", "deze week en volgende", SHORTCUT, toggle));
-    m.appendChild(menuItem("Lesfiches", "beheren en doelen invullen", "", openLessons));
-    m.appendChild(menuItem("Afdrukken deze week", "weekplanning of lesdoelen", "", openPrint));
-    if (n) {
-      var sep = document.createElement("div"); sep.style.cssText = "height:1px;background:#e3e9ec;margin:4px 6px;"; m.appendChild(sep);
-      m.appendChild(menuItem(n + " wijziging" + (n === 1 ? "" : "en") + " controleren", "nog niet weggeschreven", "", toggle));
-    }
-    var sep2 = document.createElement("div"); sep2.style.cssText = "height:1px;background:#e3e9ec;margin:4px 6px;"; m.appendChild(sep2);
-    m.appendChild(menuItem("Instellingen", "", "", openSettings));
+    m.appendChild(menuItem("plan", "Plannen", "deze week en volgende", SHORTCUT, toggle));
+    m.appendChild(menuItem("fiches", "Lesfiches", "beheren en doelen invullen", "", openLessons));
+    m.appendChild(menuItem("print", "Afdrukken deze week", "weekplanning of lesdoelen", "", openPrint));
+    if (n) { m.appendChild(menuSep()); m.appendChild(menuItem("check", n + " wijziging" + (n === 1 ? "" : "en") + " controleren", "nog niet weggeschreven", "", toggle, "amber")); }
+    m.appendChild(menuSep());
+    m.appendChild(menuItem("settings", "Instellingen", "", "", openSettings));
     document.body.appendChild(m);
     caret.setAttribute("aria-expanded", "true");
     _menu = { el: m, caret: caret };
