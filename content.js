@@ -118,10 +118,11 @@
   function pendingCount() {
     try { var n = typeof window.__QWP_PENDING_COUNT === "function" ? window.__QWP_PENDING_COUNT() : 0; return n > 0 ? n : 0; } catch (e) { return 0; }
   }
-  // PatchGoblin mark: the app icon itself (icons/icon48.png, web-accessible on questi.com).
+  // PatchGoblin mark: the goblin's head on transparent (icons/head48.png, web-accessible on questi.com) —
+  // the square app icon is charcoal too and would vanish on the charcoal launcher.
   function markSvg(size) {
-    var src = ""; try { src = chrome.runtime.getURL("icons/icon48.png"); } catch (e) {}
-    return '<img alt="" aria-hidden="true" src="' + src + '" width="' + size + '" height="' + size + '" style="display:block;flex:0 0 auto;border-radius:' + Math.round(size * .22) + 'px;">';
+    var src = ""; try { src = chrome.runtime.getURL("icons/head48.png"); } catch (e) {}
+    return '<img alt="" aria-hidden="true" src="' + src + '" width="' + size + '" height="' + size + '" style="display:block;flex:0 0 auto;border-radius:' + Math.round(size * .22) + 'px;object-fit:contain;">';
   }
   // Menu icons, stroke style as in the app's own menus.
   var ICONS = {

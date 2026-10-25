@@ -102,7 +102,7 @@ exported for settings.js too.
   ("Goblin", from the PatchGoblin brand sheet) on `#qwp-overlay`, token names kept from UnQuesti: `--uq-blue #8B5CF6` Mischief Purple, `--uq-blue-ink #6D3FE0` for text/white-on (active/selected, the **changed**
   border on cards), `--uq-amber #7ED957` Goblin Green (Controleer fill with charcoal ink, badges, the 3px top strip on menus — no hard offset shadows; menus use a light border + soft shadow),
   `--uq-orange #F59E0B` Warning Orange (attention: zonder doelen, warnings), `--uq-cyan #7ED957` (gepland marker,
-  focus ring, selection tint — never text). Ink is Charcoal `#1E1F27`. White text on purple only on `--uq-blue-ink`. The toolbar launcher shows `icons/icon48.png` (web-accessible). Vak/tag colours
+  focus ring, selection tint — never text). Ink is Charcoal `#1E1F27`. White text on purple only on `--uq-blue-ink`. Icons come from the mascot sheet: `icon128`/`icon48` = the square tile, `icon16` = the head alone; the toolbar launcher shows `icons/head48.png` (web-accessible), since a charcoal tile vanishes on the charcoal button. Vak/tag colours
   on cards stay the teacher's own Questi tag colours.
 - Overlays set `html.qwX-locked` to freeze the page behind them.
 
