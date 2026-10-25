@@ -40,7 +40,7 @@ Flat repo. `icons/` and `reference/` are the only folders.
 | `background.js` | 41 | Service worker. Relays the toolbar/Alt+P toggle to the tab; serves `QWP_CHECK_VERSION`. |
 | `content.js` | 131 | Boot/relay. Injects the toolbar chips into Questi's calendar header. Builds no UI itself. |
 | `planner.js` / `planner.css` | 3179 / 474 | Week planner `#qwp-overlay`. Also holds context detection, the API layer, print, and the Zelftest. Exports `__QWP_SHARED`. |
-| `lessons.js` / `lessons.css` | 1035 / 157 | Lesfiche-manager `#qwl-overlay`. Fiche + tag CRUD, and a read-only pick mode. |
+| `lessons.js` / `lessons.css` | 1906 / 256 | Lesfiche-manager. Mounted as the planner's **Lesfiches** tab; standalone `#qwl-overlay` for pick mode. Fiche + tag CRUD. |
 | `methodes.js` / `methodes.css` | 802 / 153 | Methodevoortgang `#qwm-overlay`. Read-only progress tracker. |
 | `settings.js` / `settings.css` | 1215 / 217 | Instellingen + first-run setup wizard `#qws-overlay`. Settings export/import, Zelftest `.json`. |
 | `version.json`, `update.bat` | | Self-update: `.bat` pulls the repo ZIP; the in-app banner compares `manifest.json` against the GitHub `version.json`. Bump **both** on release. |
@@ -64,10 +64,10 @@ the chips. There are no modules — everything crosses file boundaries through `
 |---|---|---|
 | `__QWP_SHARED` | planner | ctx + API + DOM helpers used by lessons/methodes |
 | `__QWP_TOGGLE` | planner | open/close the planner (action click, Alt+P) |
-| `__QWP_OPEN_LESSONS` | planner | open the Lesfiche-manager |
+| `__QWP_OPEN_LESSONS` | planner | open (or boot) the planner on its **Lesfiches** tab |
 | `__QWP_PRINT` | planner | headless print — does not need the overlay |
 | `__QWP_TEST` | planner | debug handles |
-| `__QWP_LESSONS` | lessons | `{ open, close, openPicker, runSequential }` |
+| `__QWP_LESSONS` | lessons | `{ open, close, openPicker, runSequential, createUserTag, mount, unmount, isMounted, pendingCount, pendingSummary, backupPending, writeTags, writeFiches, afterSharedWrite }` |
 | `__QWP_METHODES` | methodes | `{ open, close }` |
 | `__UQ_SETTINGS` | settings | `{ open(sectionId?), openSetup, close, exportSettings, saveDebugJson, vakTops }` |
 | `__QWP_BOOTED` | content | double-injection guard |
@@ -82,7 +82,8 @@ storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`, and f
 `state, view, loadState, saveState, setStatus, ownTagsList, anyTagById, topTagIdOf, panelTopTags,
 computeTimeRows, isNoSchool, renderTimetable, reloadSlotVakLabels, reloadAndRender, isThemaSlot,
 themaIdentity, setThemaVakOverride, ensureThemaKeys, normTitle, stripQuestiDecoration, fetchPeople,
-loadColleagueFiches, METHOD_PREFIX, openDiagnose, recentApiErrors, noteApiError, DAY_NAMES`.
+loadColleagueFiches, METHOD_PREFIX, openDiagnose, recentApiErrors, noteApiError, DAY_NAMES`, and for
+lessons.js (mounted tab): `refreshStaged, openReview`.
 `state` and `view` are the planner's own objects, by reference. `__QWP_LESSONS.createUserTag` is
 exported for settings.js too.
 
@@ -161,7 +162,7 @@ Writes: `PATCH /cal/items/{id}` (writes **do** send `schoolyear`; `groups` are o
 ## Feature notes
 
 **Planner (UnQuesti "Plannen" window).** `buildShell`: a 360px sidebar — tabs Plannen · Lesfiches
-(`openLessonsManager`) · Afdrukken (`openPrintFromPlanner`, the loaded weeks' STORED planning), vak
+(`setTab`, see "Lesfiche-manager") · Afdrukken (`openPrintFromPlanner`, the loaded weeks' STORED planning), vak
 chips (`renderVakToggle`), `Ik | Collega ▾` (`renderSource` + `openSourceMenu`, colleagues and
 methodes), a folding filter (`applyFilterFold`; the button says "Filter •" when a folded filter
 still hides fiches), ONE fiche list, and `Alles · Instellingen · Debug · Controleer` pinned to the
@@ -171,8 +172,10 @@ Row date: planned in the loaded weeks (by fiche **id**, staged state) → green 
 school year → muted ✓; else last date or "nooit". Every old sidebar action lives in the **Alles**
 menu (`openAlles`) — add new tools there, not as loose buttons. **Instellingen** calls
 `window.__UQ_SETTINGS.open()` when that module exists, else the planner's own `openInstellingen`.
-Controleer's badge and the header's "N wijzigingen" are `stagedCount()` (same filter as
-`buildCommitPlan`). Main column: header (← → step ONE week and `confirm()` before discarding staged
+Controleer's badge, the header's "N wijzigingen" and the launcher badge (`__QWP_PENDING_COUNT`) are
+`totalStagedCount()` = `stagedCount()` (same filter as `buildCommitPlan`) + the manager's staged fiche
+edits and tags to create; week navigation's discard warning still uses `stagedCount()` (only calendar
+edits die with a week reload). Main column: header (← → step ONE week and `confirm()` before discarding staged
 edits, Vandaag, `Plannen | Doelen`), then `view.weeks = 2` ALWAYS — this week and next, **stacked**,
 one `.qwp-wk` section and 5-column grid per week (`weekSection`); one review covers both.
 `renderTimetable` keeps the scroll position. Cards (`cellFor`) use the Lesdoelen-print look: top bar
@@ -259,11 +262,37 @@ marking `s.vakReset` so `applyStoredVakken` leaves it alone until reload. A lesu
 thema vak gets its `"Lesuur N"` placeholder back (`placeholderTitleFor`: position among the same
 calendar's recurring lesuren that day) instead of keeping another vak's themafiche name.
 
-**Lesfiche-manager.** Edits are *staged* into `mgr.pending` and only written through the
-"Wijzigingen controleren" gate. Tag catalog CRUD writes immediately. Bulk delete is guarded by a
-typed `VERWIJDER` plus an automatic JSON backup. `openPicker({title, preselected, startTagId,
-onDone, onCancel})` opens the same overlay in **read-only pick mode**: every write affordance is
-hidden, and `mgr.pickStore` keeps selections alive across tag switches.
+**Lesfiche-manager.** One `mgr` state, two hosts. **Mounted** (normal use): the planner's Lesfiches tab
+(`setTab("lesfiches")`) toggles `.qwp-tab-lf` on `#qwp-overlay` — CSS hides every `.qwp-plan-only` part
+and shows `#qwp-lf-side` / `#qwp-lf-main` — and calls `__QWP_LESSONS.mount(side, main, {onClose})`:
+a tag tree in the sidebar (`renderTagTree`), header + selection bar + table + **side-sheet** editor
+(`openSheet` → `fillEditor`, same editor as the standalone modal) in main. The bottom bar stays.
+**Standalone** `#qwl-overlay`: pick mode, and a direct `open()`; it keeps its own "Wijzigingen
+controleren" gate (`openReviewEdits` → `writePending` → `writeFiches`). Both hosts use the same element
+ids, so lookups go through `E(id)` (active host only) — never `document.getElementById`. While the
+standalone overlay is up over a mounted manager, the mounted list state is stashed
+(`enterStandalone`/`leaveStandalone`); `openPicker` no longer clears `mgr.pending`. Edits are *staged*
+into `mgr.pending`; on the mounted tab "+ Tag" stages into `mgr.pendingTags` too (shown "nieuw" in the
+tree, click to take it back) — both in memory only, gone on a page reload, as before. Every pending
+change calls `notifyPending()` → `S().refreshStaged()`. Tag **delete** still writes immediately (confirm).
+Bulk delete is guarded by a typed `VERWIJDER` plus an automatic JSON backup. `openPicker({title,
+preselected, startTagId, onDone, onCancel})` opens the standalone overlay in **read-only pick mode**:
+every write affordance is hidden, and `mgr.pickStore` keeps selections alive across tag switches.
+
+**One shared Controleer** (planner `openReview`, bottom-bar Controleer and the header count). Lists in
+write order: (1) tags to create, (2) staged fiche edits (`L.pendingSummary()`), (3) calendar rows from
+`buildCommitPlan` plus opt-in **"Fiche-versie"** rows — clean lesuren in the loaded weeks that already
+hold a fiche being edited. Every row has a checkbox (left out = stays staged); "Toon als rooster" folds
+out the old/new grids. A fiche backup (`L.backupPending`, reads snapshots it lacks) is ticked by default.
+`runSharedWrite`: backup → `L.writeTags` → `L.writeFiches` (each PATCH mints a new id; it returns
+`map[key] = {oldId,newId,subject}`) → **remap** every slot whose `ficheContentId` is an old id written in
+this run to the new id (a newly assigned fiche always; an already-attached one only when its row or
+Fiche-versie row is ticked; a title equal to the old fiche title follows the rename) → `buildCommitPlan`
+again, filtered to the ticked rows → `doCommit` (single occurrence). A lesuur that would newly receive a
+fiche whose write **failed** is held back and reported — never attached silently. `doCommit` marks
+`p.done` per row and hands off to `_commitAfter`; `finishSharedWrite` takes written rows as stored
+(orig* = current) so left-out rows stay staged, reloads the page only when everything landed and nothing
+is left, and otherwise shows a per-phase summary in the commit overlay.
 
 **Methodevoortgang.** Read-only. Status derives from one field: `last_used_date` inside the chosen
 school year. Two sources — a Questi vendor library, or your own fiches picked once via
