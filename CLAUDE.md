@@ -324,7 +324,9 @@ standalone overlay is up over a mounted manager, the mounted list state is stash
 into `mgr.pending`; on the mounted tab "+ Tag" stages into `mgr.pendingTags` too (shown "nieuw" in the
 tree, click to take it back) — both in memory only, gone on a page reload, as before. The ✎ on an own
 tag (`openRenameTag`) renames/recolours it straight away: `PATCH /cal/lessons/user-tags/{id}` with exactly
-`{ title, color, schoolId }` (captured); Questi lower-cases the title, so the tree shows the reply. Every pending
+`{ title, color, parent, schoolId }`; Questi lower-cases the title, so the tree shows the reply. **Always send
+`parent`** (0 = head tag): without it Questi turns a subtag into a head tag (shipped in v1.5.0). The
+dialog's "Hoort bij" moves a tag; a tag with subtags stays a head tag. Every pending
 change calls `notifyPending()` → `S().refreshStaged()`. Tag **delete** still writes immediately (confirm).
 Bulk delete is guarded by a typed `VERWIJDER` plus an automatic JSON backup. `openPicker({title,
 preselected, startTagId, onDone, onCancel})` opens the standalone overlay in **read-only pick mode**:

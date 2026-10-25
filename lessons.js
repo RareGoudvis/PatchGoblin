@@ -173,10 +173,12 @@
       { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
       .then(resolveJson("POST user-tag", body.title, body));
   }
-  // Rename / recolour a user tag. Captured from Questi's own tag dialog: PATCH with exactly
-  // { title, color, schoolId }; the reply is the stored tag (Questi lower-cases the title).
-  function renameUserTag(id, title, color) {
-    var body = { title: title, color: color, schoolId: sid() };
+  // Rename / recolour / move a user tag. Captured from Questi's tag dialog: PATCH { title, color,
+  // schoolId }; the reply is the stored tag (Questi lower-cases the title). That capture was on a
+  // head tag: WITHOUT `parent` Questi makes the tag a head tag (shipped in v1.5.0 — a renamed subtag
+  // lost its vak), so `parent` is always sent, with the create call's key (0 = head tag).
+  function renameUserTag(id, title, color, parent) {
+    var body = { title: title, color: color, parent: Number(parent) || 0, schoolId: sid() };
     return fetch(api() + "/lessons/user-tags/" + id,
       { method: "PATCH", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
       .then(resolveJson("PATCH user-tag", id, body));
@@ -561,28 +563,37 @@
     var nameInp = h("input", { class: "qwl-input", type: "text", value: (tag.title || "").trim(), "aria-label": "Naam" });
     var colInp = h("input", { class: "qwl-colorinp", type: "color", value: /^#[0-9a-f]{6}$/i.test(tag.color || "") ? tag.color : "#cccccc", "aria-label": "Kleur" });
     var note = h("div", { class: "qwl-note" });
-    var par = tag.parent ? ownTagById(tag.parent) : null;
+    // "Hoort bij": head tag, or a subtag of one of the own head tags. A tag that has subtags itself
+    // stays a head tag (Questi's tree is two levels deep).
+    var hasKids = mgr.ownTags.some(function (k) { return String(k.parent) === String(tag.id); });
+    var heads = S().topTagsForOwner(mgr.ownTags, ctx().ownerId).filter(function (t) { return t.type === "user" && String(t.id) !== String(tag.id); })
+      .sort(function (a, b) { return (a.title || "").localeCompare(b.title || "", "nl"); });
+    var parSel = h("select", { class: "qwl-input", "aria-label": "Hoort bij", disabled: hasKids ? "true" : null },
+      [h("option", { value: "0", text: "— hoofdtag (hoort nergens bij) —" })].concat(heads.map(function (t) {
+        return h("option", { value: String(t.id), text: (t.title || "").trim(), selected: String(t.id) === String(tag.parent || 0) ? "selected" : null });
+      })));
     var m = modal("Tag wijzigen", [
       h("label", { class: "qwl-flabel", text: "Naam" }), nameInp,
       h("label", { class: "qwl-flabel", text: "Kleur" }), colInp,
-      h("div", { class: "qwl-note", text: (par ? "Subtag van " + (par.title || "").trim() + ". " : "") + "Wordt meteen in Questi aangepast; alle fiches houden deze tag. Questi bewaart namen in kleine letters." }),
+      h("label", { class: "qwl-flabel", text: "Hoort bij" }), parSel,
+      hasKids ? h("div", { class: "qwl-note", text: "Deze tag heeft zelf subtags en blijft daarom een hoofdtag." }) : null,
+      h("div", { class: "qwl-note", text: "Wordt meteen in Questi aangepast; alle fiches houden deze tag. Questi bewaart namen in kleine letters." }),
       note
     ], []);
     var ft = m.querySelector(".qwl-modal-ft");
     var save = h("button", { class: "qwl-btn", text: "Opslaan", onclick: function () {
-      var title = nameInp.value.trim(), color = colInp.value;
+      var title = nameInp.value.trim(), color = colInp.value, wantParent = Number(parSel.value) || 0;
       if (!title) { note.textContent = "Geef de tag een naam."; return; }
-      if (title === (tag.title || "").trim() && color === tag.color) { m.close(); return; }
+      if (title === (tag.title || "").trim() && color === tag.color && wantParent === (Number(tag.parent) || 0)) { m.close(); return; }
       save.disabled = true; save.textContent = "Opslaan…";
-      renameUserTag(tag.id, title, color).then(function (res) {
-        var before = tag.parent;
+      renameUserTag(tag.id, title, color, wantParent).then(function (res) {
         tag.title = (res && res.title != null) ? res.title : title;
         tag.color = (res && res.color) ? res.color : color;
-        if (res && res.parent != null) tag.parent = res.parent;
+        tag.parent = (res && res.parent != null) ? res.parent : wantParent;
         mgr.dirtyWrites = true; S().invalidateOwnTags();
         m.close(); renderTagTree(); renderTagBar();
-        var moved = String(before || 0) !== String(tag.parent || 0);
-        setStatus("Tag aangepast: ‘" + (tag.title || "").trim() + "’." + (moved ? " Let op: Questi verplaatste de tag naar een andere hoofdtag — kijk het na in Questi." : ""));
+        var off = String(wantParent) !== String(Number(tag.parent) || 0);
+        setStatus("Tag aangepast: ‘" + (tag.title || "").trim() + "’." + (off ? " Let op: Questi plaatste de tag niet waar gevraagd — kijk het na in Questi." : ""));
       }).catch(function (e) {
         save.disabled = false; save.textContent = "Opslaan";
         note.textContent = "Niet gelukt: " + ((e && e.message) || e) + " — er is niets veranderd.";
