@@ -99,6 +99,7 @@ storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`.
 | Key | Owner | Contents |
 |---|---|---|
 | `qwp_state_v6` | planner | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), weeks, panels, split ratio, manual overrides |
+| `qwp_ctx_v1` | planner | detected context per Questi user id (`schoolId, schoolyear, school, calendars, calendarId, groupId, ownDefaultTagId`) — boot starts from it after one `/users/me`, full detection re-verifies in the background and the status says when it changed |
 | `qwp_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
 | `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
@@ -192,6 +193,11 @@ rows are auto-height a wrapped lesson title there stretched the whole row. The t
 in the band, in the same `.qwp-cell-top` slot a normal cell uses for its vak label — that is what
 makes a band exactly as tall as a filled lesuur, rather than a hand-tuned `min-height`. Anything
 added to a band must stay out of flow (see `.qwp-thema-more`) or it will grow the row again.
+
+**Boot speed.** `detectContext` = one `/users/me` + the cached context (`qwp_ctx_v1`, keyed by user id) when
+known, with `detectContextFull` (the old 5–6 request chain) verifying in the background; a different result
+corrects `ctx` and warns in the status line. `hydrateRange` reads item details through `mapLimit(…, 4)`
+instead of one by one. The toolbar launcher badge reads `__QWP_PENDING_COUNT` (no request).
 
 **Opening week.** `detectViewedWeekStart` reads Questi's own `/cal/items` requests out of the
 performance timeline. It must match `/cal/items?` **only** (`/cal/items/count` is a MONTH query —

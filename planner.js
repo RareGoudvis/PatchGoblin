@@ -374,7 +374,49 @@
   }
   function calIdOf(c) { return c && (c.id != null ? c.id : (c.calendarId != null ? c.calendarId : c.id_calendar)); }
 
+  // Detected context per Questi user, saved under qwp_ctx_v1: { "<user id>": { schoolId, schoolyear,
+  // school, calendars, calendarId, groupId, ownDefaultTagId, savedAt } }. School, calendar, class and
+  // own tag barely ever change, yet detecting them is a chain of 5–6 dependent requests. So a known
+  // user starts from the saved context after ONE request (/users/me) and the full detection runs in
+  // the background; if it finds something different the context is corrected and the status says so.
+  // Keyed by user id, so another teacher logging in on the same browser never inherits a context.
+  var CTX_KEY = "qwp_ctx_v1";
+  var CTX_FIELDS = ["schoolId", "schoolyear", "school", "calendars", "calendarId", "groupId", "ownDefaultTagId"];
+  function ctxSnapshot() { var o = {}; CTX_FIELDS.forEach(function (k) { o[k] = ctx[k]; }); return o; }
+  function saveCtxCache(userId) {
+    if (userId == null || ctx.schoolId == null) return;
+    storeGet(CTX_KEY).then(function (all) {
+      all = all || {}; var snap = ctxSnapshot(); snap.savedAt = Date.now(); all[String(userId)] = snap;
+      storeSet(CTX_KEY, all);
+    });
+  }
+  // The fields that change behaviour if they differ (school name/calendar list are cosmetic).
+  function ctxKey(o) { return [o.schoolId, JSON.stringify(o.schoolyear), o.calendarId, o.groupId, o.ownDefaultTagId].join("|"); }
   function detectContext() {
+    return Promise.all([bootUsersMe(), storeGet(CTX_KEY)]).then(function (r) {
+      var me = r[0], cached = me != null && r[1] ? r[1][String(me)] : null;
+      if (!cached || cached.schoolId == null || cached.calendarId == null) {
+        return detectContextFull().then(function (c) { saveCtxCache(ctx.ownerId); return c; });
+      }
+      ctx.ownerId = me;
+      CTX_FIELDS.forEach(function (k) { if (cached[k] !== undefined) ctx[k] = cached[k]; });
+      if (state.workingCalendarId != null && (ctx.calendars || []).some(function (c) { return String(c.id) === String(state.workingCalendarId); })) ctx.calendarId = state.workingCalendarId;
+      ctx.ready = true;
+      ctx.fromCache = true;
+      console.log("[QWP] context from cache (user " + me + ") — verifying in the background:", ctxSnapshot());
+      var before = ctxKey(cached);
+      detectContextFull().then(function () {
+        ctx.fromCache = false;
+        saveCtxCache(ctx.ownerId);
+        if (ctxKey(ctxSnapshot()) !== before) {
+          console.warn("[QWP] cached context was stale → corrected:", ctxSnapshot());
+          setStatus("Let op: je Questi-context is gewijzigd (school, agenda of klas). Herlaad de week voor je wegschrijft.");
+        }
+      });
+      return ctx;
+    });
+  }
+  function detectContextFull() {
     // Fallback hints (used only if the bootstrap calls come up empty).
     var net = sniffFromRequests(), scr = scrapeContext(), cook = sniffCookies();
     var hintSchoolId = net.schoolId != null ? net.schoolId : (scr.schoolId != null ? scr.schoolId : (cook.schoolId != null ? cook.schoolId : state.manualSchoolId));
@@ -1078,9 +1120,9 @@
         else if (!s.isFullday && isThemaVak(s.vak)) s.themaFiche = true;
       });
       var need = slots.filter(function (s) { return s.idCalendar !== "cal_holidays" && (s.hasAtt || !/^Lesuur\s*\d+$/.test(s.title)); });
-      var chain = Promise.resolve();
-      need.forEach(function (s) {
-        chain = chain.then(function () {
+      // One detail read per lesuur — the boot's biggest cost. Four at a time (never a burst; see
+      // mapLimit) instead of strictly one after another; each slot only touches its own fields.
+      return mapLimit(need, 4, function (s) {
           return fetchItemDetail(s.itemId).then(function (d) {
             if (!d) return;
             s.origDescription = d.description || ""; s.description = s.origDescription;
@@ -1096,9 +1138,7 @@
             if (d.starttime) { s.starttime = d.starttime; if (!s.time) s.time = String(d.starttime).slice(0, 5); }
             s.endtime = d.endtime || ""; s._hydrated = true;
           }).catch(function () {});
-        });
-      });
-      return chain.then(function () { return slots; });
+      }).then(function () { return slots; });
     });
   }
 
