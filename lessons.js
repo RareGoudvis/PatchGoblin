@@ -304,11 +304,9 @@
       h("div", { class: "qwl-mtitle" }, [h("span", { id: "qwl-title", text: "Lesfiches" }), h("span", { class: "qwl-msub", id: "qwl-count", text: "" })]),
       h("span", { class: "qwl-status", id: "qwl-status", text: "" }),
       h("span", { class: "qwl-hspacer" }),
-      h("button", { class: "qwl-mbtn qwl-mbtn-new", onclick: function () { openNewFiche(null); }, title: "Een nieuwe lesfiche maken — wordt aangemaakt bij Controleer", text: "+ Nieuwe fiche" }),
       searchInput(), gradeSelect(), seg,
       h("button", { class: "qwl-mbtn", id: "qwl-cols", onclick: toggleCols, text: "" }),
       h("button", { class: "qwl-mbtn", onclick: reload, title: "Deze tag opnieuw uit Questi laden", text: "Vernieuwen" }),
-      h("button", { class: "qwl-mbtn qwl-mbtn-muted", onclick: openDiag, title: "Zelftest — leest alleen", text: "Diagnose" }),
       h("button", { class: "qwl-x", onclick: closeMounted, title: "Sluiten", text: "✕" })
     ]);
     var selbar = h("div", { class: "qwl-selbar" }, [
@@ -318,7 +316,8 @@
       h("button", { class: "qwl-mbtn qwl-mbtn-danger", id: "qwl-del", onclick: openDeleteModal, text: "Verwijderen" }),
       h("button", { class: "qwl-mbtn", id: "qwl-goalsimport", onclick: importLocalGoals, title: "Doelen die je eerder in het afdrukvoorbeeld typte (alleen in deze browser) in de fiches zetten", text: "Lokale doelen overnemen" }),
       h("span", { class: "qwl-hspacer" }),
-      h("span", { class: "qwl-mnote", text: "Klaargezet wordt pas weggeschreven via Controleer." })
+      h("span", { class: "qwl-mnote", text: "Klaargezet wordt pas weggeschreven via Controleer." }),
+      h("button", { class: "qwl-mbtn qwl-mbtn-new", onclick: function () { openNewFiche(null); }, title: "Een nieuwe lesfiche maken — wordt aangemaakt bij Controleer", text: "+ Nieuwe fiche" })
     ]);
     var listWrap = h("div", { class: "qwl-listwrap", id: "qwl-listwrap" });
     var sheet = h("aside", { class: "qwl-sheet", id: "qwl-sheet", "aria-label": "Fiche bewerken", style: "display:none" });
@@ -1350,8 +1349,10 @@
     var st = prev ? JSON.parse(JSON.stringify(prev)) : { templateId: null, subject: "", grades: [], visibility: "school", tags: [], text: {}, goals: {}, selected: {} };
     var sorted = templates.slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || ""), "nl"); });
     function tplById(id) { return sorted.filter(function (t) { return String(t.id) === String(id); })[0] || null; }
-    // A new fiche starts in the tag you are looking at.
-    if (!prev && mgr.tagFilter != null && String(mgr.tagFilter) !== String(allOwnTagId())) st.tags = [Number(mgr.tagFilter)];
+    // A new fiche starts in the tag you are looking at (a vak or a subtag) — only a real own tag,
+    // never "Alle eigen lesfiches" / "Zonder tag".
+    var here = mgr.tagFilter != null ? ownTagById(mgr.tagFilter) : null;
+    if (!prev && here && here.type === "user") st.tags = [Number(here.id)];
     function draw() {
       bd.innerHTML = "";
       var colL = h("div", { class: "qwl-nf-col" }), colR = h("div", { class: "qwl-nf-col" });
