@@ -192,11 +192,11 @@ html.qwl-locked { overflow: hidden; }
  * ===================================================================== */
 .qwl-mounted, .qwl-mounted * { box-sizing: border-box; }
 .qwl-mounted {
-  --bg: #f4f6f7; --panel: #ffffff; --ink: #1e2a33; --muted: #6b7a82;
+  --bg: #f4f6f7; --panel: #ffffff; --ink: #1E1F27; --muted: #6b7a82;
   --line: #e3e9ec; --accent: #304651; --accent-weak: #eef2f4;
   --accent2: #e4e642; --danger: #b3261e; --danger-weak: #fbe9e7; --ok-weak: #d4edda;
   --field: #ffffff; --soft: #eef2f4;
-  --uq-blue: #4272FF; --uq-blue-ink: #2D5BE3; --uq-blue-tint: #edf2ff; --uq-amber: #FFB343; --uq-cyan: #42EAFF; --uq-cyan-tint: #e9fcff;
+  --uq-blue: #8B5CF6; --uq-blue-ink: #6D3FE0; --uq-blue-tint: #f2edfe; --uq-amber: #7ED957; --uq-cyan: #7ED957; --uq-cyan-tint: #edf9e6;
   color: var(--ink);
 }
 .qwl-mside { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
@@ -270,11 +270,11 @@ html.qwl-locked { overflow: hidden; }
 .qwl-mounted .qwl-x { width: 34px; height: 34px; border: 1px solid #d5dbdf; border-radius: 8px; background: #fff; cursor: pointer; color: var(--muted); font-size: 15px; }
 
 /* New fiche */
-.qwl-mbtn.qwl-mbtn-new { background: #FFB343; border-color: #FFB343; color: #1e2a33; }
+.qwl-mbtn.qwl-mbtn-new { background: #7ED957; border-color: #7ED957; color: #1E1F27; }
 /* The Op.Stap web component brings its own styles (shadow DOM); this only gives it room. */
 .qwl-opstap { display: block; margin: 4px 0; }
 .qwl-modal-box.qwl-newfiche { width: min(1180px, 94vw); height: 90vh; }
-.qwl-modal-box.qwl-newfiche .qwl-modal-hd { border-top: 4px solid #FFB343; }
+.qwl-modal-box.qwl-newfiche .qwl-modal-hd { border-top: 4px solid #7ED957; }
 .qwl-modal-box.qwl-newfiche .qwl-modal-bd { flex: 1 1 auto; min-height: 0; padding: 18px 22px; }
 .qwl-nf-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; align-items: start; }
 .qwl-nf-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

@@ -99,10 +99,10 @@ exported for settings.js too.
 - Design tokens are duplicated per overlay as CSS custom properties (`--ink --muted --line
   --surface --accent #304651 --accent2 #e4e642 --change #137a3a --thema --danger`), matching
   Questi's own Angular-Material theme. The planner's PatchGoblin block adds the brand palette
-  ("Glowing horizon") on `#qwp-overlay`: `--uq-blue #4272FF` (active/selected, the **changed**
-  border on cards), `--uq-amber #FFB343` (Controleer fill with dark ink, badges, the 3px top strip on menus — no hard offset shadows; menus use a light border + soft shadow),
-  `--uq-orange #FF7E42` (attention: zonder doelen, warnings), `--uq-cyan #42EAFF` (gepland marker,
-  focus ring, selection tint — never text). White text on blue only at ≥14px bold. Vak/tag colours
+  ("Goblin", from the PatchGoblin brand sheet) on `#qwp-overlay`, token names kept from UnQuesti: `--uq-blue #8B5CF6` Mischief Purple, `--uq-blue-ink #6D3FE0` for text/white-on (active/selected, the **changed**
+  border on cards), `--uq-amber #7ED957` Goblin Green (Controleer fill with charcoal ink, badges, the 3px top strip on menus — no hard offset shadows; menus use a light border + soft shadow),
+  `--uq-orange #F59E0B` Warning Orange (attention: zonder doelen, warnings), `--uq-cyan #7ED957` (gepland marker,
+  focus ring, selection tint — never text). Ink is Charcoal `#1E1F27`. White text on purple only on `--uq-blue-ink`. The toolbar launcher shows `icons/icon48.png` (web-accessible). Vak/tag colours
   on cards stay the teacher's own Questi tag colours.
 - Overlays set `html.qwX-locked` to freeze the page behind them.
 

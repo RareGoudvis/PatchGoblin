@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PatchGoblin for Questi",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "PatchGoblin — plan je lesweken in Questi: lesfiches slepen, lesdoelen, afdrukken en één controle voor alles naar Questi gaat.",
   "permissions": [
     "storage",
@@ -37,6 +37,12 @@
       "description": "PatchGoblin openen of sluiten"
     }
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/icon48.png"],
+      "matches": ["*://*.questi.com/*", "*://questi.com/*"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": [

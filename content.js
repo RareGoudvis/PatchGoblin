@@ -118,19 +118,10 @@
   function pendingCount() {
     try { var n = typeof window.__QWP_PENDING_COUNT === "function" ? window.__QWP_PENDING_COUNT() : 0; return n > 0 ? n : 0; } catch (e) { return 0; }
   }
-  // PatchGoblin mark: a goblin who is done with it all (half-shut eyes, plaster on the head) on an
-  // amber tile — same drawing as icons/icon*.png.
+  // PatchGoblin mark: the app icon itself (icons/icon48.png, web-accessible on questi.com).
   function markSvg(size) {
-    return '<svg aria-hidden="true" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" style="display:block;flex:0 0 auto;">' +
-      '<rect width="24" height="24" rx="5.5" fill="#FFB343"/>' +
-      '<path d="M6.6 11.2 1.3 12.9 6.4 15.4ZM17.4 11.2 22.7 12.9 17.6 15.4Z" fill="#8FCB5A" stroke="#1e2a33" stroke-width="1.1" stroke-linejoin="round"/>' +
-      '<ellipse cx="12" cy="13.6" rx="6.1" ry="5.9" fill="#8FCB5A" stroke="#1e2a33" stroke-width="1.2"/>' +
-      '<g transform="rotate(-28 14.9 9.4)"><rect x="12.9" y="8.6" width="4" height="1.7" rx=".7" fill="#F4E3C8" stroke="#1e2a33" stroke-width=".55"/></g>' +
-      '<ellipse cx="9.4" cy="13.4" rx="1.65" ry="1.15" fill="#fff"/><ellipse cx="14.6" cy="13.4" rx="1.65" ry="1.15" fill="#fff"/>' +
-      '<circle cx="9.55" cy="13.95" r=".62" fill="#1e2a33"/><circle cx="14.75" cy="13.95" r=".62" fill="#1e2a33"/>' +
-      '<path d="M7.75 13.25Q9.4 11.9 11.05 13.25ZM12.95 13.25Q14.6 11.9 16.25 13.25Z" fill="#8FCB5A"/>' +
-      '<path d="M7.6 13.25h3.6M12.8 13.25h3.6M9.9 17.45 14.3 17.15" stroke="#1e2a33" stroke-width="1.1" stroke-linecap="round"/>' +
-      '<path d="M12.9 17.25l.45.75.4-.8z" fill="#fff" stroke="#1e2a33" stroke-width=".35"/></svg>';
+    var src = ""; try { src = chrome.runtime.getURL("icons/icon48.png"); } catch (e) {}
+    return '<img alt="" aria-hidden="true" src="' + src + '" width="' + size + '" height="' + size + '" style="display:block;flex:0 0 auto;border-radius:' + Math.round(size * .22) + 'px;">';
   }
   // Menu icons, stroke style as in the app's own menus.
   var ICONS = {
@@ -148,7 +139,7 @@
   function makeLauncher(floating) {
     var wrap = document.createElement("span");
     wrap.setAttribute(LAUNCHER_ATTR, "1");
-    wrap.style.cssText = "display:inline-flex;align-items:stretch;height:32px;margin:0 6px 0 10px;border-radius:8px;background:#1e2a33;color:#fff;" +
+    wrap.style.cssText = "display:inline-flex;align-items:stretch;height:32px;margin:0 6px 0 10px;border-radius:8px;background:#1E1F27;color:#fff;" +
       "box-shadow:0 1px 3px rgba(30,42,51,.25);vertical-align:middle;white-space:nowrap;font:" + FONT + ";";
     if (floating) wrap.style.cssText += "position:fixed;top:56px;right:20px;z-index:2147482000;";
     var main = document.createElement("button");
@@ -156,15 +147,15 @@
     main.title = "PatchGoblin openen (" + SHORTCUT + ")";
     main.style.cssText = "display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 5px;border:none;border-radius:8px 0 0 8px;background:transparent;color:#fff;cursor:pointer;font:" + FONT + ";letter-spacing:-.01em;";
     main.innerHTML = markSvg(22) + "<span>PatchGoblin</span>" +
-      (IS_BETA ? '<span style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#FFB343;font-size:9.5px;letter-spacing:.06em;">BETA</span>' : "") +
-      '<span data-uq-badge="1" style="display:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#FFB343;color:#1e2a33;font-size:11px;align-items:center;justify-content:center;"></span>';
+      (IS_BETA ? '<span style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#7ED957;font-size:9.5px;letter-spacing:.06em;">BETA</span>' : "") +
+      '<span data-uq-badge="1" style="display:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#7ED957;color:#1E1F27;font-size:11px;align-items:center;justify-content:center;"></span>';
     main.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); closeMenu(); toggle(); });
     var caret = document.createElement("button");
     caret.type = "button";
     caret.setAttribute("aria-label", "PatchGoblin snelmenu");
     caret.setAttribute("aria-haspopup", "menu");
     caret.setAttribute("aria-expanded", "false");
-    caret.style.cssText = "width:30px;display:inline-flex;align-items:center;justify-content:center;border:none;border-left:1px solid rgba(255,255,255,.16);border-radius:0 8px 8px 0;background:transparent;color:#FFB343;cursor:pointer;";
+    caret.style.cssText = "width:30px;display:inline-flex;align-items:center;justify-content:center;border:none;border-left:1px solid rgba(255,255,255,.16);border-radius:0 8px 8px 0;background:transparent;color:#7ED957;cursor:pointer;";
     caret.innerHTML = '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
     caret.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); if (_menu) closeMenu(); else openMenu(wrap, caret); });
     [main, caret].forEach(function (b) {
@@ -193,7 +184,7 @@
     b.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:none;background:transparent;border-radius:9px;padding:7px 8px;cursor:pointer;color:#fff;font-family:" + MENU_FONT + ";";
     var tile = document.createElement("span");
     tile.style.cssText = "flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;" +
-      (tone === "amber" ? "background:#FFB343;color:#1e2a33;" : "background:rgba(255,255,255,.09);color:#FFB343;");
+      (tone === "amber" ? "background:#7ED957;color:#1E1F27;" : "background:rgba(255,255,255,.09);color:#7ED957;");
     tile.innerHTML = icoSvg(icon);
     var txt = document.createElement("span");
     txt.style.cssText = "flex:1 1 auto;min-width:0;display:flex;flex-direction:column;";
@@ -215,10 +206,10 @@
     m.setAttribute("role", "menu");
     m.setAttribute("aria-label", "PatchGoblin");
     m.style.cssText = "position:fixed;z-index:2147482500;top:" + Math.round(r.bottom + 10) + "px;left:" + Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 310))) + "px;width:300px;" +
-      "display:flex;flex-direction:column;gap:2px;background:#1e2a33;color:#fff;border:1px solid #1e2a33;border-radius:12px;box-shadow:0 10px 28px rgba(30,42,51,.28),0 2px 6px rgba(30,42,51,.12);padding:8px;box-sizing:border-box;";
+      "display:flex;flex-direction:column;gap:2px;background:#1E1F27;color:#fff;border:1px solid #1E1F27;border-radius:12px;box-shadow:0 10px 28px rgba(30,42,51,.28),0 2px 6px rgba(30,42,51,.12);padding:8px;box-sizing:border-box;";
     var head = document.createElement("div");
     head.style.cssText = "display:flex;align-items:center;gap:8px;padding:4px 8px 8px;font:800 14px/1 " + MENU_FONT + ";color:#fff;";
-    head.innerHTML = markSvg(20) + "<span>PatchGoblin</span>" + (IS_BETA ? '<span style="margin-left:auto;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#FFB343;font-size:10px;font-weight:700;letter-spacing:.06em;">BETA</span>' : "");
+    head.innerHTML = markSvg(20) + "<span>PatchGoblin</span>" + (IS_BETA ? '<span style="margin-left:auto;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#7ED957;font-size:10px;font-weight:700;letter-spacing:.06em;">BETA</span>' : "");
     m.appendChild(head);
     var n = pendingCount();
     m.appendChild(menuItem("plan", "Plannen", "deze week en volgende", SHORTCUT, toggle));

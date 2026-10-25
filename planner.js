@@ -28,7 +28,7 @@
   // Beta channel: a sideloaded copy whose manifest name contains "BETA" (see content.js). Only
   // labels the UI; the beta/stable coexistence rules live in content.js and background.js.
   var IS_BETA = (function () { try { return /BETA/.test(chrome.runtime.getManifest().name || ""); } catch (e) { return false; } })();
-  var BETA_PILL_STYLE = "display:inline-block;padding:2px 7px;border-radius:8px;background:#FFB343;color:#1e2a33;font:700 11px/1.3 inherit;letter-spacing:.04em;vertical-align:middle;";
+  var BETA_PILL_STYLE = "display:inline-block;padding:2px 7px;border-radius:8px;background:#7ED957;color:#1E1F27;font:700 11px/1.3 inherit;letter-spacing:.04em;vertical-align:middle;";
   function betaPill() { return IS_BETA ? h("span", { style: BETA_PILL_STYLE, title: "Testversie — schrijft naar je echte Questi-account", text: "BETA" }) : null; }
 
   // ---------- Fixed (non-account) config ----------
@@ -1979,7 +1979,7 @@
   var PRINT_CSS =
     '@page { size: A4 landscape; margin: 10mm; }' +
     '* { box-sizing: border-box; }' +
-    'body { font: 11.5px/1.4 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e2a33; margin: 0; }' +
+    'body { font: 11.5px/1.4 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1E1F27; margin: 0; }' +
     // One page = one .psheet, fixed to the A4-landscape printable area (277×190mm ≈ 1047×718px@96dpi).
     // overflow:hidden + the JS scale on .psheet-inner mean content can never spill to a 2nd page.
     '.psheet-scale { page-break-after: always; }' +
@@ -1998,7 +1998,7 @@
     'td.pc { background: #fbfcfc; border: 1px solid #dfe6ea; border-radius: 8px; vertical-align: top; padding: 8px 11px; }' +
     'td.filled { background: #fff; border-color: #e3e9ec; padding-left: 12px; }' +
     '.pc-vak { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #8a949b; }' +
-    '.pc-title { font-weight: 600; line-height: 1.3; color: #1e2a33; }' +
+    '.pc-title { font-weight: 600; line-height: 1.3; color: #1E1F27; }' +
     'tr.pthemarow td.pthema { background: #f4f3e8; color: #5a5836; border: 1px solid #e6e3c8; border-radius: 8px; padding: 9px 12px; font-size: 12px; font-weight: 700; }' +
     '.pthema-k { font-weight: 800; text-transform: uppercase; font-size: 9.5px; letter-spacing: .08em; opacity: .7; margin-right: 8px; }' +
     'tr.pbreak td { border: none; height: 7px; padding: 0; background: transparent; }' +
@@ -2512,10 +2512,10 @@
   // Readable text on a vak-coloured header bar: dark ink on light colours (taal yellow), white on dark.
   function goalsInkOn(color) {
     var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color || "").trim());
-    if (!m) return "#1e2a33";
+    if (!m) return "#1E1F27";
     var hx = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
     var r = parseInt(hx.slice(0, 2), 16), g = parseInt(hx.slice(2, 4), 16), b = parseInt(hx.slice(4, 6), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? "#1e2a33" : "#fff";
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? "#1E1F27" : "#fff";
   }
   function goalsCellHtml(pv, s, xs, time, innerH, n) {
     var p = printCellParts(pv, s);
@@ -2604,7 +2604,7 @@
   var PRINT_GOALS_CSS =
     '@page { size: A4 landscape; margin: 6mm; }' +
     '* { box-sizing: border-box; }' +
-    'body { font: 11px/1.4 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e2a33; margin: 0; }' +
+    'body { font: 11px/1.4 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1E1F27; margin: 0; }' +
     '.psheet-scale { page-break-after: always; }' +
     '.psheet-scale:last-child { page-break-after: auto; }' +
     '.gsheet { width: 1076px; height: ' + GOALS_PAGE_H + 'px; overflow: hidden; background: #fff; padding: 4px 3px; }' +
@@ -2619,7 +2619,7 @@
     'td.gfilled { background: #fff; border: 1px solid #111; padding: 0; }' +
     '.gc-in { position: relative; display: flex; flex-direction: column; overflow: hidden; }' +
     // The header is always 2 title lines tall, so every card's write lines start at the same height.
-    '.gc-top { flex: none; display: flex; align-items: flex-start; gap: 6px; line-height: 14px; height: 33px; padding: 2px 8px 3px 9px; background: #eef2f4; color: #1e2a33; }' +
+    '.gc-top { flex: none; display: flex; align-items: flex-start; gap: 6px; line-height: 14px; height: 33px; padding: 2px 8px 3px 9px; background: #eef2f4; color: #1E1F27; }' +
     '.gc-title { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }' +
     '.gc-x { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; display: flex; gap: 3px; }' +
     '.gc-mm { flex: none; font-size: 9px; font-weight: 700; color: #b3261e; background: #fff; padding: 0 3px; }' +
@@ -2628,7 +2628,7 @@
     '.gc-xt { font-size: 9px; font-weight: 800; line-height: 12px; background: #fff; padding: 0 3px; margin-top: 1px; }' +
     '.xl-h { display: flex; align-items: center; gap: 4px; font-weight: 800; margin: 5px 0 1px; }' +
     '.xl-h i { flex: none; width: 7px; height: 7px; }' +
-    '.xl-r { display: grid; grid-template-columns: 2.1em 3em 1fr; color: #1e2a33; }' +
+    '.xl-r { display: grid; grid-template-columns: 2.1em 3em 1fr; color: #1E1F27; }' +
     '.xl-r b { font-weight: 800; }' +
     '.xl-r span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
     '.xl-off, .xl-more { display: none; }' +
@@ -2643,7 +2643,7 @@
     '.gl-ico { position: absolute; left: 0; top: 1px; bottom: 1px; width: 18px; display: flex; align-items: center; justify-content: center; background: #eeeeee; color: #666; line-height: 0; }' +
     '.gl-vw { writing-mode: vertical-rl; transform: rotate(180deg); font: 800 7.5px/1 "Segoe UI", Roboto, Arial, sans-serif; letter-spacing: .06em; white-space: nowrap; }' +
     '.gl[data-n="3"] .gl-vw { font-size: 6.5px; letter-spacing: .02em; }' +   // 1 A4: a 1-line tab is only ~6mm tall
-    '.gl-txt { height: 100%; margin-left: 26px; background-image: repeating-linear-gradient(to bottom, transparent 0 calc(100cqh / var(--k) / 2 + 5px), #bdbdbd calc(100cqh / var(--k) / 2 + 5px) calc(100cqh / var(--k) / 2 + 6px), transparent calc(100cqh / var(--k) / 2 + 6px) calc(100cqh / var(--k))); font-size: 9.5px; line-height: calc(100cqh / var(--k)); color: #1e2a33; white-space: pre-wrap; overflow: hidden; overflow-wrap: anywhere; outline: none; cursor: text; }' +
+    '.gl-txt { height: 100%; margin-left: 26px; background-image: repeating-linear-gradient(to bottom, transparent 0 calc(100cqh / var(--k) / 2 + 5px), #bdbdbd calc(100cqh / var(--k) / 2 + 5px) calc(100cqh / var(--k) / 2 + 6px), transparent calc(100cqh / var(--k) / 2 + 6px) calc(100cqh / var(--k))); font-size: 9.5px; line-height: calc(100cqh / var(--k)); color: #1E1F27; white-space: pre-wrap; overflow: hidden; overflow-wrap: anywhere; outline: none; cursor: text; }' +
     '.gc-ctl { display: none; }' +
     '.gc-src { display: none; }' +
     'td.gxcell { background: repeating-linear-gradient(135deg,#fffaf0,#fffaf0 8px,#fff6e6 8px,#fff6e6 16px); border: 1px dashed #e7cf94; padding: 2px 6px; white-space: nowrap; }' +

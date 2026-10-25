@@ -12,16 +12,16 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
   /* "Glowing horizon" brand palette (lead, 2026-10). blue = primary accent / selected / ON;
      amber = action buttons + badges (dark ink on it); orange = attention, guessed slots;
      cyan = focus ring + subtle tint only, never text. Vak colours stay the user's Questi tag colours. */
-  --uq-blue:#4272FF; --uq-amber:#FFB343; --uq-orange:#FF7E42; --uq-cyan:#42EAFF;
+  --uq-blue:#8B5CF6; --uq-amber:#7ED957; --uq-orange:#F59E0B; --uq-cyan:#7ED957;
   /* --uq-blue-ink: the same blue, a step deeper (~5.7:1 against white either way) for anything that
      carries text — white on it, or it as text colour. Plain --uq-blue stays for borders/fills/tints. */
-  --uq-blue-ink:#2D5BE3;
-  --ink:#1e2a33; --muted:#6b7a82; --faint:#93a0a7;
+  --uq-blue-ink:#6D3FE0;
+  --ink:#1E1F27; --muted:#6b7a82; --faint:#93a0a7;
   --line:#e3e9ec; --line-soft:#eef2f4; --line-strong:#d5dbdf;
   --surface:#ffffff; --canvas:#f4f6f7; --raised:#fafbfb;
-  --accent:var(--uq-blue-ink); --accent-weak:#eef3ff; --accent-line:#c5d4ff;
+  --accent:var(--uq-blue-ink); --accent-weak:#f2edfe; --accent-line:#d9cbfb;
   --accent2:var(--uq-amber);
-  --change:var(--uq-blue-ink); --change-weak:#eef3ff;
+  --change:var(--uq-blue-ink); --change-weak:#f2edfe;
   --thema:#9a3d0f; --thema-weak:#fff3ec; --thema-line:var(--uq-orange);
   --danger:#b3261e; --danger-weak:#fbe5e3;
   --radius:12px; --radius-sm:8px;

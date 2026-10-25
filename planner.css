@@ -15,12 +15,12 @@
 html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 
 #qwp-overlay {
-  --ink:#1e2a33; --muted:#6b7a82; --faint:#8b94a0;
+  --ink:#1E1F27; --muted:#6b7a82; --faint:#8b94a0;
   --line:#e3e9ec; --line-soft:#eef1f5; --line2:#d5dbdf; --soft:#eef2f4; --band-line:#e7cf94;
-  /* PatchGoblin brand palette ("Glowing horizon"). --uq-blue for borders/fills/tints; --uq-blue-ink
+  /* PatchGoblin brand palette ("Goblin": green, purple, orange on charcoal). --uq-blue for borders/fills/tints; --uq-blue-ink
      (a step deeper, ~5.7:1 against white) wherever blue carries text. --uq-cyan is never a text colour. */
   --qwp-side-w:360px; /* sidebar width; the user drags it (state.sideWidth → inline style) */
-  --uq-blue:#4272FF; --uq-blue-ink:#2D5BE3; --uq-blue-tint:#edf2ff; --uq-amber:#FFB343; --uq-orange:#FF7E42; --uq-orange-tint:#fff1e9; --uq-orange-ink:#8a3b12; --uq-cyan:#42EAFF; --uq-cyan-tint:#e9fcff;
+  --uq-blue:#8B5CF6; --uq-blue-ink:#6D3FE0; --uq-blue-tint:#f2edfe; --uq-amber:#7ED957; --uq-orange:#F59E0B; --uq-orange-tint:#fef3dc; --uq-orange-ink:#8a4b00; --uq-cyan:#7ED957; --uq-cyan-tint:#edf9e6;
   --surface:#ffffff; --canvas:#ffffff; --raised:#fbfcfe;
   /* Questi brand tokens (from their Angular-Material theme): primary slate #304651,
      accent lime #e4e642, warn #f44336. Blends the panel into the host app. */
