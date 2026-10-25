@@ -1,5 +1,5 @@
 {
-  "version": "1.7.4",
+  "version": "1.7.5",
   "url": "https://github.com/RareGoudvis/ce-questi-utility",
   "notes": "Stable channel (branch 'main'). Bump this and manifest.json 'version' together on every release."
 }

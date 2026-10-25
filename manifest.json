@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PatchGoblin for Questi",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "PatchGoblin — plan je lesweken in Questi: lesfiches slepen, lesdoelen, afdrukken en één controle voor alles naar Questi gaat.",
   "permissions": [
     "storage",

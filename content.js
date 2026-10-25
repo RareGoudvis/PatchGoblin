@@ -247,8 +247,20 @@
     if (stableActive) { removeLauncher(); showDormantNotice(); return; } // beta stays out of the way
     if (haveLauncher()) return;                         // idempotent
     var anchor = findToolbarAnchor();
-    if (anchor && anchor.parentNode) { anchor.parentNode.insertBefore(makeLauncher(false), anchor.nextSibling); return; }
-    if (document.body) document.body.appendChild(makeLauncher(true)); // fallback
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(makeLauncher(false), anchor.nextSibling);
+    else if (document.body) document.body.appendChild(makeLauncher(true)); // fallback
+    maybeReopen();
+  }
+  // The planner reloads Questi after a write and leaves a note (sessionStorage "pg_reopen", this tab
+  // only): open it again, on the weeks it showed. Only a fresh note (< 2 min) counts, and only once.
+  var _reopenDone = false;
+  function maybeReopen() {
+    if (_reopenDone) return; _reopenDone = true;
+    var note = null;
+    try { note = JSON.parse(sessionStorage.getItem("pg_reopen") || "null"); sessionStorage.removeItem("pg_reopen"); } catch (e) { note = null; }
+    if (!note || !note.at || Date.now() - note.at > 120000) return;
+    window.__PG_REOPEN_WEEK = note.week || null;
+    setTimeout(toggle, 400);   // let Questi's calendar finish its own first requests
   }
   var _luPending = false;
   function scheduleLauncher() {

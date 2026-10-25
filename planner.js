@@ -5397,7 +5397,7 @@
       updateCommitOverlay(1, 1);
       msg2("Klaar — Questi wordt vernieuwd…");
       var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) { var gob = goblinImg("goblin-full.png", "qwp-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
-      setTimeout(function () { try { location.reload(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
+      setTimeout(function () { try { reloadAndReopen(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
       return;
     }
     // Otherwise: a summary per phase. Failed rows stay staged; nothing was guessed.
@@ -5461,7 +5461,7 @@
       updateCommitOverlay(plan.length, plan.length);
       var m = elId("qwp-commit-msg"); if (m) m.textContent = "Klaar — Questi wordt vernieuwd…";
       var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) { var gob = goblinImg("goblin-full.png", "qwp-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
-      setTimeout(function () { try { location.reload(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
+      setTimeout(function () { try { reloadAndReopen(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
     }
     function next() {
       if (i >= plan.length) { finish(); return; }
@@ -5687,6 +5687,13 @@
   // ---------- Boot / toggle ----------
   function show() { if (els.root) els.root.classList.add("qwp-show"); document.documentElement.classList.add("qwp-locked"); }
   function hide() { if (els.root) els.root.classList.remove("qwp-show"); document.documentElement.classList.remove("qwp-locked"); var p = elId("qwp-pop"); if (p) p.remove(); }
+  // After a write PatchGoblin reloads Questi (its own SPA must show the change). A note in this tab's
+  // sessionStorage makes content.js open the planner again afterwards, on the same weeks.
+  var REOPEN_KEY = "pg_reopen";
+  function reloadAndReopen() {
+    try { sessionStorage.setItem(REOPEN_KEY, JSON.stringify({ week: view.weekStart || null, at: Date.now() })); } catch (e) {}
+    location.reload();
+  }
   function toggle() { if (!els.root) { boot(); return; } var open = els.root.classList.toggle("qwp-show"); document.documentElement.classList.toggle("qwp-locked", open); }
   window.__QWP_TOGGLE = toggle;
   // Sidebar tabs. Plannen and Lesfiches swap the sidebar body and the main column inside this one
@@ -5925,7 +5932,10 @@
       // Open on the week the user is viewing in Questi (else today): seed weekOffset before the
       // first reloadWeek so currentWeekRange() lands on it. Nav buttons work from this base.
       var ow = resolveOpenWeek(), todayMon = mondayOf(isoDate(new Date()));
-      if (ow.fromQuesti && todayMon) view.weekOffset = Math.round((addDays(ow.start, 0) - addDays(todayMon, 0)) / 604800000);
+      // Reopened after our own write: back on the weeks that were showing (content.js passes them on).
+      var back = window.__PG_REOPEN_WEEK; window.__PG_REOPEN_WEEK = null;
+      if (back && todayMon && addDays(back, 0)) view.weekOffset = Math.round((addDays(back, 0) - addDays(todayMon, 0)) / 604800000);
+      else if (ow.fromQuesti && todayMon) view.weekOffset = Math.round((addDays(ow.start, 0) - addDays(todayMon, 0)) / 604800000);
       else view.weekOffset = 0;
       view.weekFromQuesti = ow.fromQuesti;
       return loadEverything().then(function () {

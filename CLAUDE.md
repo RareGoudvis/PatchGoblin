@@ -296,7 +296,9 @@ performance timeline. It must match `/cal/items?` **only** (`/cal/items/count` i
 matching it made `mondayOf` roll 1 Aug back to 27 Jul, i.e. a live August request produced a July
 week), require a week-shaped range, skip our own reads (marked `qwp=1` by `apiItems`), and sanity-
 check the distance from today. `resolveOpenWeek()` is the single answer used by both the planner
-and print, and the status line says which rule fired.
+and print, and the status line says which rule fired. After our own write the page reloads via
+`reloadAndReopen` (note `pg_reopen` in sessionStorage); `content.js` reopens the planner and
+`window.__PG_REOPEN_WEEK` puts it back on the same weeks.
 
 **Vak follows the fiche.** The description is published — Enderklas shows it as the vak — so a
 lesuur with a fiche gets the fiche's OWN vak. On assign: `syncFicheVakken` → `applyFicheVakken`. On
