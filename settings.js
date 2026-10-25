@@ -550,7 +550,7 @@
         field("Versie", selectEl([{ v: "plain", n: "Gewoon" }, { v: "goals1", n: "Lesdoelen · 1 A4" }, { v: "goals2", n: "Lesdoelen · 2 A4" }], prefs.mode, function (v) { put("mode", v); })),
         field("Labels bij lesdoelen", selectEl([{ v: "word", n: "WEET / KEN / KAN" }, { v: "icon", n: "Pictogrammen" }], prefs.tabs, function (v) { put("tabs", v); })),
         h("label", { class: "qws-check" }, [legend, h("span", { text: "Vakkenlegende" })]),
-        h("label", { class: "qws-check" }, [hideEmpty, h("span", { text: "Lege doelen weglaten (label + lijnen)" })])
+        h("label", { class: "qws-check" }, [hideEmpty, h("span", { text: "Lege doelen weglaten" })])
       ]));
       var hidMsg = h("span", { class: "qws-muted", text: hidden ? (hidden + " item(s) van andere agenda’s verborgen op de Lesdoelen-afdruk.") : "Geen verborgen items." });
       holder.appendChild(card([cardTitle("Andere agenda’s"),

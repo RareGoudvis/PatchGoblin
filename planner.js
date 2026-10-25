@@ -2985,7 +2985,7 @@
     P.goalsOnly = [
       h("div", { class: "qpp-seg", role: "group", "aria-label": "Labels op de kaart" }, [tabBtn("word", "WEET / KEN / KAN"), tabBtn("icon", "Icoontjes")]),
       h("label", { class: "qpp-check" }, [P.legendChk, h("span", { text: "Vakkenlegende in het woensdagvak" })]),
-      h("label", { class: "qpp-check", title: "Een WEET/KEN/KAN zonder tekst krijgt geen label en geen lijnen. Uitvinken brengt alles terug." }, [P.hideEmptyChk, h("span", { text: "Lege doelen weglaten (label + lijnen)" })])
+      h("label", { class: "qpp-check", title: "Een WEET/KEN/KAN zonder tekst krijgt geen label en geen lijnen. Uitvinken brengt alles terug." }, [P.hideEmptyChk, h("span", { text: "Lege doelen weglaten" })])
     ];
     // Only meaningful for Gewoon: its note block prints ruled lines when no text was typed.
     P.notesRow = h("label", { class: "qpp-check" }, [P.notesChk, h("span", { text: "Lege notitieregels als er geen opmerking is" })]);
