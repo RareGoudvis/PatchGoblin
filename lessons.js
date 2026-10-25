@@ -86,6 +86,7 @@
         if (r.ok && !(j && j.status === "error")) return (j && j.result !== undefined) ? j.result : j;
         var msg = (j && (j.error_msg || j.message)) || ("HTTP " + r.status);
         console.error("[QWL] " + kind + " " + id + " faalde:", msg, sent ? ("| sent: " + JSON.stringify(sent)) : "");
+        if (S() && S().noteApiError) S().noteApiError(kind, id, r.status, msg);   // Zelftest .json report
         throw new Error(msg);
       });
     };
@@ -1548,5 +1549,6 @@
   }
 
   // ---------- Export ----------
-  window.__QWP_LESSONS = { open: open, close: close, openPicker: openPicker, runSequential: runSequential };
+  // createUserTag: settings.js creates a missing vak on import/setup — only after an explicit confirm.
+  window.__QWP_LESSONS = { open: open, close: close, openPicker: openPicker, runSequential: runSequential, createUserTag: createUserTag };
 })();

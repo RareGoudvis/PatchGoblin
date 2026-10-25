@@ -42,6 +42,7 @@ Flat repo. `icons/` and `reference/` are the only folders.
 | `planner.js` / `planner.css` | 3179 / 474 | Week planner `#qwp-overlay`. Also holds context detection, the API layer, print, and the Zelftest. Exports `__QWP_SHARED`. |
 | `lessons.js` / `lessons.css` | 1035 / 157 | Lesfiche-manager `#qwl-overlay`. Fiche + tag CRUD, and a read-only pick mode. |
 | `methodes.js` / `methodes.css` | 802 / 153 | Methodevoortgang `#qwm-overlay`. Read-only progress tracker. |
+| `settings.js` / `settings.css` | 1215 / 217 | Instellingen + first-run setup wizard `#qws-overlay`. Settings export/import, Zelftest `.json`. |
 | `version.json`, `update.bat` | | Self-update: `.bat` pulls the repo ZIP; the in-app banner compares `manifest.json` against the GitHub `version.json`. Bump **both** on release. |
 
 Docs (all gitignored except `README.md`): `brief.md` (API/build reference), `featues.md` (sic —
@@ -53,7 +54,7 @@ roadmap), `reference/questi-api-samples.md` (captured calls).
 `content_scripts.js` order is **significant**:
 
 ```
-planner.js  →  lessons.js  →  methodes.js  →  content.js
+planner.js  →  lessons.js  →  methodes.js  →  settings.js  →  content.js
 ```
 
 `planner.js` defines the shared bridge; the others consume it; `content.js` boots last and injects
@@ -68,6 +69,7 @@ the chips. There are no modules — everything crosses file boundaries through `
 | `__QWP_TEST` | planner | debug handles |
 | `__QWP_LESSONS` | lessons | `{ open, close, openPicker, runSequential }` |
 | `__QWP_METHODES` | methodes | `{ open, close }` |
+| `__UQ_SETTINGS` | settings | `{ open(sectionId?), openSetup, close, exportSettings, saveDebugJson, vakTops }` |
 | `__QWP_BOOTED` | content | double-injection guard |
 
 Each consumer starts with `function S() { return window.__QWP_SHARED; }`. Adding a helper to a
@@ -76,7 +78,13 @@ consumer that planner already has is a bug — export the existing one instead.
 `__QWP_SHARED` currently exposes: `ctx, API, API_ROOT, jget, qs, xsrfToken, writeHeaders,
 fetchTags, fetchOwnTags, fetchSharedTags, invalidateOwnTags, topTagsForOwner, childTags, tagTitle,
 tagColor, ownerName, h, detectContext, fetchMethods, fetchMethodLessons, fetchAllFichesByTag,
-storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`.
+storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`, and for settings.js:
+`state, view, loadState, saveState, setStatus, ownTagsList, anyTagById, topTagIdOf, panelTopTags,
+computeTimeRows, isNoSchool, renderTimetable, reloadSlotVakLabels, reloadAndRender, isThemaSlot,
+themaIdentity, setThemaVakOverride, ensureThemaKeys, normTitle, stripQuestiDecoration, fetchPeople,
+loadColleagueFiches, METHOD_PREFIX, openDiagnose, recentApiErrors, noteApiError, DAY_NAMES`.
+`state` and `view` are the planner's own objects, by reference. `__QWP_LESSONS.createUserTag` is
+exported for settings.js too.
 
 ## UI conventions
 
@@ -84,8 +92,8 @@ storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`.
   `planner.js`, shared as `S().h`. `attrs` understands `class`, `text`, `style`, `on*` handlers;
   anything else becomes an attribute, and `null` values are skipped.
 - Each module owns a fullscreen overlay and a CSS prefix: `qwp-` (planner), `qwl-` (lessons),
-  `qwm-` (methodes). Never style a bare element globally.
-- z-index: planner `2147483000` < methodes `2147483050` < lessons `2147483100` — the manager opens
+  `qwm-` (methodes), `qws-` (settings). Never style a bare element globally.
+- z-index: planner `2147483000` < settings `2147483020` < methodes `2147483050` < lessons `2147483100` — the manager opens
   *on top of* the methodes panel in pick mode.
 - Design tokens are duplicated per overlay as CSS custom properties (`--ink --muted --line
   --surface --accent #304651 --accent2 #e4e642 --change #137a3a --thema --danger`), matching
@@ -103,7 +111,7 @@ storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`.
 
 | Key | Owner | Contents |
 |---|---|---|
-| `qwp_state_v6` | planner | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), `weeks` (print default only — Plannen always shows 2), `panels[0]` (sidebar list filter), `mainMode` (`plan`/`doelen`), `filterOpen`, `doelenWeek`, manual overrides. `panelCount`, `pickerView`, `splitRatio`, `sideCollapsed` are legacy and unused |
+| `qwp_state_v6` | planner (+ settings UI) | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), `weeks` (print default only — Plannen always shows 2), `panels[0]` (sidebar list filter), `mainMode` (`plan`/`doelen`), `filterOpen`, `doelenWeek`, manual overrides, `saveThrottleMs`; settings fields `vakTags` (top-tag ids that are vakken, `null` = all), `vakOrder` (legend order, `null` = A→Z), `setupDone`, `writeVakDescription` (missing in stored state ⇒ `true`, brand-new install ⇒ `false`). `panelCount`, `pickerView`, `splitRatio`, `sideCollapsed` are legacy and unused |
 | `qwp_ctx_v1` | planner | detected context per Questi user id (`schoolId, schoolyear, school, calendars, calendarId, groupId, ownDefaultTagId`) — boot starts from it after one `/users/me`, full detection re-verifies in the background and the status says when it changed |
 | `qwp_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
@@ -279,6 +287,29 @@ are listed in the Wednesday box and their start time shows under the card's own 
 list row hides it — by `id_repeat` when it recurs, so in every week — and hidden items never print.
 `fetchPrintExtras` returns the raw `items` per week for this, next to the `cells`/`inject` the plain
 layout uses.
+
+**Settings module** (`settings.js`, `#qws-overlay`). Owns no storage key: it edits the planner's
+`state` through `__QWP_SHARED` and persists with `saveState()`; print defaults go to `qwp_print_v1`.
+Seven sections (Lesrooster, Vakken, Agenda, Collega's & methodes, Afdrukken, Delen & back-up, Over)
+and a 5-step first-run wizard that auto-opens once (planner dispatches `qwp:loaded` at the end of
+`loadEverything`; the wizard opens when `state.settings` is empty and `setupDone` is false; closing
+it sets `setupDone`). The old `openInstellingen` modal delegates to `__UQ_SETTINGS.open("lesrooster")`.
+The only Questi write is creating a tag (missing vak), always behind a confirm. Wizard lesrooster
+suggestions are bootstrap guesses (rule 3b) — fiche/description vak first, else the ORIGINAL item
+title matched to vak names — drawn with an orange border, and dropped unless confirmed.
+**Export/import** (`format: "unquesti-settings"`, `version: 1`) carries tags by **title + colour (+
+parent title), never by id**; import maps them onto the importer's own tags (exact → alias table →
+prefix, the last two flagged as a guess), offers "aanmaken in Questi" for missing ones, and applies
+only on Importeren. Thema overrides keyed `rep:<id_repeat>` are exported as the title of a loaded item
+(else skipped, and the UI says so) and imported against the importer's loaded whole-week items.
+**"Vak als beschrijving schrijven"** (`state.writeVakDescription`): off ⇒ `computeDirty` ignores the
+description and `buildCommitPlan` echoes the stored one — the vak and the bar's `"Zie themafiche."`
+alike. A slot hydrate never read (`descEcho`) is read in `doCommit` just before its PATCH; a failed
+read fails that row rather than blanking the description. Vakken selection (`vakTags`/`vakOrder`)
+drives the settings UI only so far — the planner's own vak lists and the print legend do not read it yet.
+**Zelftest `.json`**: `saveDebugJson` writes rows, ctx ids, the settings export and the last 20 API
+errors (`noteApiError` ring buffer in planner: kind, id, status, message — never a body, cookie or
+token); "titels van lesfiches weglaten" replaces every known lesuur/fiche title with `[titel]`.
 
 **Gym / LO.** `s.isGym` means "title only, no fiche": `descFor` returns null (empty description),
 the commit sends `attachments: []`, and the slot is excluded from targeting. The trigger is the
