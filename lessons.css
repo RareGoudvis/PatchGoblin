@@ -205,6 +205,11 @@ html.qwl-locked { overflow: hidden; }
 .qwl-tree { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 8px 8px; display: flex; flex-direction: column; gap: 1px; }
 .qwl-tnode { display: flex; align-items: center; gap: 9px; width: 100%; border: none; text-align: left; border-radius: 7px; padding: 6px 10px; background: transparent; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
 .qwl-tnode:hover { background: #f6f8f9; }
+.qwl-tedit { margin-left: auto; flex: 0 0 auto; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--muted); font-size: 13px; opacity: 0; }
+.qwl-tnode:hover .qwl-tedit, .qwl-tedit:focus { opacity: 1; }
+.qwl-tedit:hover { background: #e8edf0; color: var(--ink); }
+.qwl-tedit + .qwl-tcaret { margin-left: 4px; }
+.qwl-colorinp { width: 56px; height: 34px; padding: 2px; border: 1px solid #d5dbdf; border-radius: 7px; background: #fff; cursor: pointer; }
 .qwl-tnode.d1 { padding-left: 34px; font-weight: 500; }
 .qwl-tnode.active, .qwl-tnode.active:hover { background: var(--uq-blue-tint); box-shadow: inset 3px 0 0 var(--uq-blue); font-weight: 700; }
 .qwl-tsq { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 3px; }

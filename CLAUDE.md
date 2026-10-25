@@ -322,7 +322,9 @@ ids, so lookups go through `E(id)` (active host only) — never `document.getEle
 standalone overlay is up over a mounted manager, the mounted list state is stashed
 (`enterStandalone`/`leaveStandalone`); `openPicker` no longer clears `mgr.pending`. Edits are *staged*
 into `mgr.pending`; on the mounted tab "+ Tag" stages into `mgr.pendingTags` too (shown "nieuw" in the
-tree, click to take it back) — both in memory only, gone on a page reload, as before. Every pending
+tree, click to take it back) — both in memory only, gone on a page reload, as before. The ✎ on an own
+tag (`openRenameTag`) renames/recolours it straight away: `PATCH /cal/lessons/user-tags/{id}` with exactly
+`{ title, color, schoolId }` (captured); Questi lower-cases the title, so the tree shows the reply. Every pending
 change calls `notifyPending()` → `S().refreshStaged()`. Tag **delete** still writes immediately (confirm).
 Bulk delete is guarded by a typed `VERWIJDER` plus an automatic JSON backup. `openPicker({title,
 preselected, startTagId, onDone, onCancel})` opens the standalone overlay in **read-only pick mode**:

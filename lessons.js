@@ -173,6 +173,14 @@
       { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
       .then(resolveJson("POST user-tag", body.title, body));
   }
+  // Rename / recolour a user tag. Captured from Questi's own tag dialog: PATCH with exactly
+  // { title, color, schoolId }; the reply is the stored tag (Questi lower-cases the title).
+  function renameUserTag(id, title, color) {
+    var body = { title: title, color: color, schoolId: sid() };
+    return fetch(api() + "/lessons/user-tags/" + id,
+      { method: "PATCH", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
+      .then(resolveJson("PATCH user-tag", id, body));
+  }
   // Delete a user tag. action "unlink" (fiches keep, lose this tag) or "move" (re-tag fiches to
   // secondTagId, then delete). Bodyless DELETE — same header shape as deleteFiches.
   function deleteUserTag(id, action, secondTagId) {
@@ -507,11 +515,14 @@
   // for creation show greyed with "nieuw" — they exist only after Controleer.
   function renderTagTree() {
     var tree = mgr.els.tree; if (!tree) return; tree.innerHTML = "";
-    function node(label, color, depth, active, onclick, extra) {
+    function node(label, color, depth, active, onclick, extra, tag) {
+      var edit = (tag && tag.type === "user") ? h("span", { class: "qwl-tedit", role: "button", tabindex: "0", title: "Naam of kleur wijzigen", "aria-label": "Tag " + label + " wijzigen",
+        onclick: function (e) { e.stopPropagation(); e.preventDefault(); openRenameTag(tag); },
+        onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); openRenameTag(tag); } }, text: "✎" }) : null;
       return h("button", { class: "qwl-tnode d" + depth + (active ? " active" : "") + (onclick ? "" : " off"), role: "treeitem", "aria-selected": active ? "true" : "false", onclick: onclick || null, disabled: onclick ? null : "true" }, [
         h("span", { class: "qwl-tsq", style: "background:" + (color || "#c9d2d7") }),
         h("span", { class: "qwl-tlbl", text: label }),
-        extra || null
+        edit, extra || null
       ]);
     }
     function newBadge() { return h("span", { class: "qwl-tnew", text: "nieuw" }); }
@@ -521,19 +532,19 @@
     var tops = S().topTagsForOwner(mgr.ownTags, ctx().ownerId);
     var buckets = tops.filter(function (t) { return !isSubjectTop(t); }), subjects = tops.filter(isSubjectTop);
     buckets.forEach(function (t) {
-      tree.appendChild(node((t.title || "").trim(), t.color || null, 0, String(mgr.tagFilter) === String(t.id) && mgr.unionParent == null, function () { mgr.expandedTop = null; loadList(t.id); }));
+      tree.appendChild(node((t.title || "").trim(), t.color || null, 0, String(mgr.tagFilter) === String(t.id) && mgr.unionParent == null, function () { mgr.expandedTop = null; loadList(t.id); }, null, t));
     });
     var zt = ownTagById(1) || { id: 1, title: "Zonder tag" };
     tree.appendChild(node((zt.title || "Zonder tag").trim(), null, 0, String(mgr.tagFilter) === "1", function () { mgr.expandedTop = null; loadList(1); }));
     subjects.forEach(function (t) {
       var open = String(mgr.expandedTop) === String(t.id);
       tree.appendChild(node((t.title || "").trim(), t.color, 0, String(mgr.unionParent) === String(t.id), function () { loadListUnion(t.id); },
-        h("span", { class: "qwl-tcaret", text: open ? "▾" : "▸" })));
+        h("span", { class: "qwl-tcaret", text: open ? "▾" : "▸" }), t));
       if (!open) return;
       mgr.ownTags.filter(function (k) { return String(k.parent) === String(t.id); })
         .sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); })
         .forEach(function (k) {
-          tree.appendChild(node((k.title || "").trim(), k.color || t.color, 1, String(mgr.tagFilter) === String(k.id) && mgr.unionParent == null, function () { loadList(k.id); }));
+          tree.appendChild(node((k.title || "").trim(), k.color || t.color, 1, String(mgr.tagFilter) === String(k.id) && mgr.unionParent == null, function () { loadList(k.id); }, null, k));
         });
       pendingUnder(t.id).forEach(function (p) { tree.appendChild(node(p.title, p.color, 1, false, function () { dropPendingTag(p); }, newBadge())); });
     });
@@ -543,6 +554,44 @@
       var par = p.parent ? ownTagById(p.parent) : null;
       tree.appendChild(node((par ? (par.title || "").trim() + " › " : "") + p.title, p.color, 0, false, function () { dropPendingTag(p); }, newBadge()));
     });
+  }
+  // Rename / recolour an existing tag. Like the rest of the tag catalog this writes straight away
+  // (the dialog is the confirmation); every fiche keeps the tag, only its name/colour change.
+  // Questi lower-cases titles, so the tree shows what came back, and says so when it differs.
+  function openRenameTag(tag) {
+    var nameInp = h("input", { class: "qwl-input", type: "text", value: (tag.title || "").trim(), "aria-label": "Naam" });
+    var colInp = h("input", { class: "qwl-colorinp", type: "color", value: /^#[0-9a-f]{6}$/i.test(tag.color || "") ? tag.color : "#cccccc", "aria-label": "Kleur" });
+    var note = h("div", { class: "qwl-note" });
+    var par = tag.parent ? ownTagById(tag.parent) : null;
+    var m = modal("Tag wijzigen", [
+      h("label", { class: "qwl-flabel", text: "Naam" }), nameInp,
+      h("label", { class: "qwl-flabel", text: "Kleur" }), colInp,
+      h("div", { class: "qwl-note", text: (par ? "Subtag van " + (par.title || "").trim() + ". " : "") + "Wordt meteen in Questi aangepast; alle fiches houden deze tag. Questi bewaart namen in kleine letters." }),
+      note
+    ], []);
+    var ft = m.querySelector(".qwl-modal-ft");
+    var save = h("button", { class: "qwl-btn", text: "Opslaan", onclick: function () {
+      var title = nameInp.value.trim(), color = colInp.value;
+      if (!title) { note.textContent = "Geef de tag een naam."; return; }
+      if (title === (tag.title || "").trim() && color === tag.color) { m.close(); return; }
+      save.disabled = true; save.textContent = "Opslaan…";
+      renameUserTag(tag.id, title, color).then(function (res) {
+        var before = tag.parent;
+        tag.title = (res && res.title != null) ? res.title : title;
+        tag.color = (res && res.color) ? res.color : color;
+        if (res && res.parent != null) tag.parent = res.parent;
+        mgr.dirtyWrites = true; S().invalidateOwnTags();
+        m.close(); renderTagTree(); renderTagBar();
+        var moved = String(before || 0) !== String(tag.parent || 0);
+        setStatus("Tag aangepast: ‘" + (tag.title || "").trim() + "’." + (moved ? " Let op: Questi verplaatste de tag naar een andere hoofdtag — kijk het na in Questi." : ""));
+      }).catch(function (e) {
+        save.disabled = false; save.textContent = "Opslaan";
+        note.textContent = "Niet gelukt: " + ((e && e.message) || e) + " — er is niets veranderd.";
+      });
+    } });
+    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
+    ft.appendChild(save);
+    setTimeout(function () { try { nameInp.focus(); nameInp.select(); } catch (e) {} }, 0);
   }
   // A staged tag is not a list yet — clicking it offers to take it back out of Controleer.
   function dropPendingTag(p) {
