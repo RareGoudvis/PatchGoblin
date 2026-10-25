@@ -3868,7 +3868,7 @@
       if (first != null) { p.filterVak = first; p.filterTagId = first; p.unionMode = true; }
     }
     function pick(id) {
-      p.filterVak = id; p.filterTagId = id; p.unionMode = true; state.panels[pi].filterVak = id; saveState();
+      p.filterVak = id; p.filterTagId = id; p.unionMode = true; p.autoBlock = true; state.panels[pi].filterVak = id; saveState();
       renderVakToggle(pi); renderSubcats(pi); applyPanelAccent(pi); loadAndRenderList(pi);
     }
     function tile(id, label, color, extra) {
@@ -3933,12 +3933,31 @@
   function loadAndRenderList(pi) {
     var p = view.panels[pi];
     if (p.filterVak == null) { renderPickList(pi); return; }
-    if (view.ficheCache[panelCacheKey(p)]) { renderPickList(pi); return; }
+    function ready() { if (p.autoBlock) { p.autoBlock = false; autoPickBlock(pi); } renderPickList(pi); }
+    if (view.ficheCache[panelCacheKey(p)]) { ready(); return; }
     p.loading = true; renderPickList(pi);
     var prom = p.unionMode
       ? ensureFichesUnion(p.source, p.filterVak, childTags(p.filterVak, p.source).map(function (t) { return t.id; }))
       : ensureFiches(p.source, p.filterTagId);
-    prom.then(function () { p.loading = false; renderPickList(pi); });
+    prom.then(function () { p.loading = false; ready(); });
+  }
+  // Right after a vak is picked: open on the first subtag (blok 1, blok 2 … in order) that still
+  // holds a fiche not used this school year and not planned in the loaded weeks — "where you are"
+  // in the methode. The chosen chip shows it and the status line says so; "Alle" brings back the
+  // whole vak. A vak without subtags, or with everything used, stays on "Alle".
+  function autoPickBlock(pi) {
+    var p = view.panels[pi]; if (!p.unionMode) return;
+    var kids = childTags(p.filterVak, p.source); if (!kids.length) return;
+    var planned = plannedFicheDates();
+    for (var i = 0; i < kids.length; i++) {
+      var list = view.ficheCache[cacheKey(p.source, kids[i].id)] || [];
+      var open = list.some(function (f) { var c = ficheDateInfo(f, planned).cls; return c === "never" || c === "old"; });
+      if (!open) continue;
+      p.unionMode = false; p.filterTagId = kids[i].id;
+      renderSubcats(pi);
+      setStatus("“" + (kids[i].title || "").trim() + "” gekozen: daar staat je eerstvolgende les. Kies ‘Alle’ voor het hele vak.");
+      return;
+    }
   }
   function ficheGrades(f) { var g = f && f.grades; return Array.isArray(g) ? g : []; }
   function panelGradeOptions(pi) {
