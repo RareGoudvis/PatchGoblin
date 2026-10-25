@@ -1389,9 +1389,9 @@
       var on = id === active;
       return h("button", { class: "qwp-tab" + (on ? " active" : ""), "data-tab": id, "aria-current": on ? "page" : null, title: on ? null : title, text: label, onclick: fn });
     }
-    // The goblin's head sits in front of the tabs: no extra height in the sidebar.
+    // The whole goblin (tape and wrench included) stands in front of the tabs.
     return h("div", { class: "qwp-tabrow" }, [
-      goblinImg("head96.png", "qwp-goblin-head"),
+      goblinImg("goblin-full.png", "qwp-goblin-head"),
       h("nav", { class: "qwp-tabs", "aria-label": "Onderdelen" }, [
         tab("plan", "Plannen", "Terug naar de weekplanning", function () { goTab("plan"); }),
         tab("lesfiches", "Lesfiches", "Lesfiche-manager openen", function () { goTab("lesfiches"); }),

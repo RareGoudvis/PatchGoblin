@@ -767,7 +767,7 @@ html[data-pg-theme="dark"] #qwp-overlay {
 /* Mascot: the head in front of the sidebar tabs, the whole goblin when everything was written. */
 .qwp-tabrow { display:flex; align-items:center; gap:8px; }
 .qwp-tabrow .qwp-tabs { flex:1 1 auto; min-width:0; }
-.qwp-goblin-head { flex:0 0 auto; width:34px; height:34px; object-fit:contain; }
+.qwp-goblin-head { flex:0 0 auto; width:auto; height:54px; margin:-4px 0 -4px -4px; object-fit:contain; }
 .qwp-goblin-full { display:block; width:auto; height:150px; margin:0 auto 8px; }
 
 /* ---- Semantic tokens for fills, badges, notes and stripes (light here, dark below) ---- */
