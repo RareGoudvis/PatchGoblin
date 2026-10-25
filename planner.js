@@ -112,7 +112,24 @@
     if (Array.isArray(s.panels) && s.panels.length) {
       state.panels = [0, 1, 2].map(function (i) { return Object.assign(mkPanel(), state.panels[i], s.panels[i] || {}); });
     }
+    mergeUqSettings(s);
   }
+  // ---- UnQuesti settings fields (UI lives in settings.js; kept here because the planner reads them) ----
+  // vakTags:  top-tag ids that count as vakken, null = every own top tag (the pre-settings behaviour).
+  // vakOrder: legend order of vak tag ids, null = alphabetical.
+  // setupDone: the first-run wizard was shown (finished or dismissed) — it auto-opens only once.
+  // writeVakDescription: write the vak into each item's description (Enderklas reads it there).
+  //   Brand-new install → false (no stored state, the default below). Stored state WITHOUT the
+  //   field = a user from before the setting existed → true, so their commits do not change.
+  state.vakTags = null; state.vakOrder = null; state.setupDone = false; state.writeVakDescription = false;
+  function mergeUqSettings(s) {
+    if (Array.isArray(s.vakTags)) state.vakTags = s.vakTags;
+    if (Array.isArray(s.vakOrder)) state.vakOrder = s.vakOrder;
+    if (s.setupDone != null) state.setupDone = !!s.setupDone;
+    if (s.saveThrottleMs != null) state.saveThrottleMs = s.saveThrottleMs;   // was saved but never restored
+    state.writeVakDescription = s.writeVakDescription != null ? !!s.writeVakDescription : true;
+  }
+  function writesDescriptions() { return state.writeVakDescription !== false; }
   function saveState() {
     try {
       if (chrome && chrome.storage && chrome.storage.local) { var o = {}; o[STORE_KEY] = state; chrome.storage.local.set(o); }
@@ -527,6 +544,7 @@
     return lessonsGet(params).then(function (res) {
       if (res.status < 400) { var r = lessonsResult(res); console.log("[QWP] /lessons ok:", res.url, "→", r.items.length, "of", r.total); return r; }
       console.error("[QWP] /lessons HTTP " + res.status + " URL:", res.url, "body:", JSON.stringify(res.j));
+      noteApiError("GET lessons", ownerId, res.status, (res.j && (res.j.error_msg || res.j.message)) || ("HTTP " + res.status));
       return { items: [], total: 0 };
     }).catch(function (err) { console.error("[QWP] /lessons failed:", err); return { items: [], total: 0 }; });
   }
@@ -554,6 +572,7 @@
     return lessonsGet(params).then(function (res) {
       if (res.status < 400) return lessonsResult(res);
       console.error("[QWP] /lessons(tag " + tagId + ") HTTP " + res.status + " URL:", res.url, "body:", JSON.stringify(res.j));
+      noteApiError("GET lessons(tag)", tagId, res.status, (res.j && (res.j.error_msg || res.j.message)) || ("HTTP " + res.status));
       return { items: [], total: 0 };
     }).catch(function (err) { console.error("[QWP] /lessons(tag) failed:", err); return { items: [], total: 0 }; });
   }
@@ -614,6 +633,16 @@
   }
   function fetchPeople() { return jget(API + "/items/shares/possible-participants?" + qs({ schoolId: ctx.schoolId })).then(function (j) { return ((j && j.result) || []).map(function (p) { return { id: p.id, name: ((p.firstname || "") + " " + (p.lastname || "")).trim() }; }); }).catch(function () { return []; }); }
 
+  // Last ~20 API errors, in memory only, for the Zelftest "Opslaan als .json" report. Holds the
+  // call kind, id, HTTP status and Questi's error text — never a request body, cookie or token.
+  var _apiErrors = [];
+  function noteApiError(kind, id, status, msg) {
+    try {
+      _apiErrors.push({ at: new Date().toISOString(), kind: String(kind || ""), id: id == null ? null : String(id).slice(0, 80), status: status || 0, msg: String(msg == null ? "" : msg).slice(0, 300) });
+      if (_apiErrors.length > 20) _apiErrors.shift();
+    } catch (e) { /* never let diagnostics break a caller */ }
+  }
+  function recentApiErrors() { return _apiErrors.slice(); }
   // Resolve a JSON response and throw the server's error_msg on any failure, so the
   // real code (e.g. "1234 - …") reaches the UI instead of a silent/opaque abort.
   function resolveWrite(kind, id, r, sent) {
@@ -625,6 +654,7 @@
       // non-technical users for something the tool already recovers from. Real errors stay red.
       var gw = (r.status === 502 || r.status === 503 || r.status === 504 || r.status === 408 || r.status === 524 || r.status === 0);
       (gw ? console.warn : console.error)("[QWP] " + kind + " " + id + (gw ? " gateway-timeout (wordt geverifieerd):" : " failed:"), msg, "| body:", JSON.stringify(j), "| sent:", JSON.stringify(sent));
+      noteApiError(kind, id, r.status, msg);
       var err = new Error(msg); err.httpStatus = r.status; throw err;
     });
   }
@@ -1013,7 +1043,8 @@
   function slotKeyStd(dayIdx, time) { return dayIdx + "|" + time; }
 
   function computeDirty(s) {
-    var descChanged = toHtmlDesc(descFor(s)) !== (s.origDescription || "");
+    // "Vak als beschrijving schrijven" off → a description difference is never a reason to write.
+    var descChanged = writesDescriptions() && toHtmlDesc(descFor(s)) !== (s.origDescription || "");
     var titleChanged = (s.title || "") !== (s.origTitle || "");
     var ficheChanged = (s.ficheContentId || null) !== (s.origFicheContentId || null);
     return descChanged || titleChanged || ficheChanged;
@@ -1138,10 +1169,23 @@
       // (otherwise the fiche keeps overriding the title). With a fiche, omit the key so the
       // separate POST /attachments survives.
       if (!hasFiche) body.attachments = [];
+      // "Vak als beschrijving schrijven" off (state.writeVakDescription): the description is left
+      // exactly as stored — the vak AND the whole-week bar's "Zie themafiche." alike, because both
+      // are the planner writing into a field the teacher may use for something else. The PATCH
+      // still carries `description` (the captured body always does; omitting it is untested), so
+      // it echoes the stored value. A slot hydrate skipped (placeholder "Lesuur N", no fiche) never
+      // read it: doCommit reads the item first (descEcho) rather than blanking it with "".
+      var descEcho = false;
+      if (!writesDescriptions()) {
+        nd = null;
+        if (s._hydrated) body.description = s.origDescription || "";
+        else { body.description = ""; descEcho = true; }
+      }
       return {
         itemId: s.itemId, label: (s.title || "lesuur") + " (" + DAY_ABBR[s.dayIdx] + " " + (s.time || "") + ", wk " + (s.weekIdx + 1) + ")",
         old: { title: s.origTitle, desc: s.origDescription, fiche: s.origFicheTitle || "(geen)" },
-        neu: { title: s.title, desc: toHtmlDesc(nd), fiche: (s.isGym ? "(geen — gym)" : (s.ficheTitle || "(geen)")) },
+        neu: { title: s.title, desc: writesDescriptions() ? toHtmlDesc(nd) : (s.origDescription || ""), fiche: (s.isGym ? "(geen — gym)" : (s.ficheTitle || "(geen)")) },
+        descEcho: descEcho,
         patchBody: body, range: range,
         themaTagId: (isThemaSlot(s) && s.themaTagId != null) ? s.themaTagId : null,
         // Only re-POST the attachment when the fiche actually CHANGED. A description- or title-only
@@ -3668,6 +3712,7 @@
       ]);
     }
     function addRow(row) { rows.push(row); list.appendChild(rowEl(row)); list.scrollTop = list.scrollHeight; }
+    var omitChk = h("input", { type: "checkbox" });
 
     var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
       h("div", { class: "qwp-modal-box wide qwp-diag-modal" }, [
@@ -3677,6 +3722,13 @@
           list
         ]),
         h("div", { class: "qwp-modal-ft" }, [
+          // "Opslaan als .json": one file with rows + ctx + settings + recent errors, built by
+          // settings.js (it owns the settings export). Never cookies, xsrf token or session.
+          h("label", { class: "qwp-note", style: "margin-right:auto;display:inline-flex;align-items:center;gap:6px", title: "Laat namen van lesfiches en lesuren weg uit het .json-bestand" }, [omitChk, h("span", { text: "titels van lesfiches weglaten" })]),
+          h("button", { class: "qwp-btn qwp-ghost", text: "Opslaan als .json", onclick: function () {
+            if (window.__UQ_SETTINGS && window.__UQ_SETTINGS.saveDebugJson) window.__UQ_SETTINGS.saveDebugJson(rows, { omitTitles: omitChk.checked, toolVersion: TOOL_VERSION });
+            else setStatus("Opslaan als .json kan niet: de instellingen-module (settings.js) is niet geladen.");
+          } }),
           h("button", { class: "qwp-btn qwp-ghost", text: "Rapport kopiëren", onclick: function () { copyDiagReport(rows); } }),
           h("button", { class: "qwp-btn", text: "Sluiten", onclick: function () { modal.remove(); } })
         ])
@@ -3890,7 +3942,10 @@
   }
 
   // ---------- Instellingen ----------
+  // Superseded by settings.js (Instellingen → Lesrooster/Agenda). The body below is the legacy
+  // fallback for when that module is not loaded; delete it once the new planner shell lands.
   function openInstellingen() {
+    if (window.__UQ_SETTINGS && window.__UQ_SETTINGS.open) { window.__UQ_SETTINGS.open("lesrooster"); return; }
     var old = elId("qwp-modal"); if (old) old.remove();
     computeTimeRows();
     if (!view.timeRows.length) { setStatus("Geen rooster geladen — open eerst een week met lesuren."); return; }
@@ -4272,7 +4327,10 @@
       // POST the fiche first (Questi then retitles the item "* <fiche> (1)"), THEN PATCH title +
       // description=vak. The PATCH deliberately writes OUR plain title (or the thema-prefixed one)
       // and never adopts Questi's decorated response title. (No-fiche rows carry attachments:[].)
-      (p.fiche ? ((p.fiche.isMethod || view.methodFicheIds[String(p.fiche.contentId)]) ? postMethodAttachment(p.itemId, p.fiche.contentId, p.fiche.groups) : postAttachment(p.itemId, p.fiche.contentId, p.fiche.groups)) : Promise.resolve(null))
+      // descEcho (descriptions off, never read at hydrate): copy the stored description into the
+      // PATCH first, so it is echoed instead of blanked. A failed read fails this row — never guess.
+      (p.descEcho ? fetchItemDetail(p.itemId).then(function (d) { if (!d) throw new Error("beschrijving niet gelezen"); p.patchBody.description = d.description || ""; }) : Promise.resolve())
+        .then(function () { return p.fiche ? ((p.fiche.isMethod || view.methodFicheIds[String(p.fiche.contentId)]) ? postMethodAttachment(p.itemId, p.fiche.contentId, p.fiche.groups) : postAttachment(p.itemId, p.fiche.contentId, p.fiche.groups)) : Promise.resolve(null); })
         .then(function () { return patchItem(p.itemId, p.patchBody, p.range); })
         .then(function () { ok++; })
         // Continue on error. A gateway timeout (504 …) usually still lands → re-read + verify
@@ -4474,6 +4532,8 @@
       var note = elId("qwp-side-note"); if (note) note.textContent = (groupFor(myId()) || { items: [] }).items.length + " eigen lesfiches geladen.";
       setStatus(state.colleagues.length ? ("Klaar. Collega's: " + state.colleagues.map(function (c) { return c.name; }).join(", ")) : "Klaar.");
       quickHealthCheck();
+      // Week, tags and fiches are in: settings.js listens for this to auto-open first-run setup.
+      try { document.dispatchEvent(new CustomEvent("qwp:loaded")); } catch (e) {}
     });
   }
   // Cheap on-open sanity check — if anything that breaks writes/fiches is missing, make the
@@ -4554,6 +4614,17 @@
     fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet,
     // Lesdoelen in the fiche (lessons.js goals mode, print)
     ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread,
-    mapLimit: mapLimit
+    mapLimit: mapLimit,
+    // Settings module (settings.js). `state`/`view` are shared BY REFERENCE: settings edits the
+    // planner's own qwp_state_v6 object and persists it through saveState, never a copy.
+    state: state, view: view, loadState: loadState, saveState: saveState, setStatus: setStatus,
+    ownTagsList: ownTagsList, anyTagById: anyTagById, topTagIdOf: topTagIdOf, panelTopTags: panelTopTags,
+    computeTimeRows: computeTimeRows, isNoSchool: isNoSchool, renderTimetable: renderTimetable,
+    reloadSlotVakLabels: reloadSlotVakLabels, reloadAndRender: reloadAndRender,
+    isThemaSlot: isThemaSlot, themaIdentity: themaIdentity, setThemaVakOverride: setThemaVakOverride,
+    ensureThemaKeys: ensureThemaKeys, normTitle: normTitle, stripQuestiDecoration: stripQuestiDecoration,
+    fetchPeople: fetchPeople, loadColleagueFiches: loadColleagueFiches, METHOD_PREFIX: METHOD_PREFIX,
+    openDiagnose: openDiagnose, recentApiErrors: recentApiErrors, noteApiError: noteApiError,
+    DAY_NAMES: DAY_NAMES
   };
 })();
