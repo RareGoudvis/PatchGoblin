@@ -133,7 +133,11 @@ fiche-bibliotheek** (los van de kalender).
   Rechts bovenaan filter je op **leerjaar** en zoek je op titel. Klik een **kolomkop** (Titel /
   Leerjaar / Laatst gebruikt / Tags) om te **sorteren**.
 - **Titel snel aanpassen.** Klik op een titel in de lijst om hem **direct** te bewerken.
-  **Dubbelklik** op een rij voor de volledige editor (titel + inhoud).
+  **Dubbelklik** op een rij voor de volledige editor: titel, leerjaren, zichtbaarheid, tags, alle
+  tekstvelden (ook extra velden zoals WEET/KEN/KAN) en **+ Tekstveld toevoegen**. Sjabloon,
+  bijlagen en leerplan-/methodedoelen staan er ter info bij (die bewerk je in Questi). Leerjaren
+  en zichtbaarheid zijn **proef**: na het wegschrijven controleert de manager of Questi ze echt
+  overnam en meldt het als dat niet zo is.
 - **Meerdere tegelijk.** Vink fiches aan (of **Alles selecteren**), dan links: **Tags bewerken**
   (toevoegen/verwijderen, of een **nieuwe tag** maken) of **Verwijderen**.
 - **Eén bevestiging.** Al je wijzigingen (titels, inhoud, tags) worden **klaargezet** en pas

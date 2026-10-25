@@ -126,10 +126,17 @@
       if (goalFields[k] || !goals[k]) return;
       fields.push({ field_type: "text", title: k.toUpperCase(), description: "", order: ++maxOrder, content: goals[k] });
     });
-    return {
+    (opts.newFields || []).forEach(function (nf) {
+      fields.push({ field_type: "text", title: nf.title, description: "", order: ++maxOrder, content: nf.content || "" });
+    });
+    var body = {
       lessonId: ficheId, subject: opts.subject != null ? opts.subject : edit.subject,
       schoolId: sid(), attachments: [], tags: tags, create_tags: opts.create_tags || [], fields: fields
     };
+    // Proef: same keys as the create call; writePending verifies them by reading the new version back.
+    if (opts.grades) body.grades = opts.grades;
+    if (opts.visibility) body.visibility = opts.visibility;
+    return body;
   }
   function writePatch(ficheId, body) {
     return fetch(api() + "/lessons/" + ficheId + "?return_format=short",
@@ -755,17 +762,29 @@
     var m = modal("Bewerk: " + ficheName(f), [h("div", { class: "qwl-loading", text: "Fiche laden…" })], [], "wide");
     readFicheEdit(f.id).then(function (edit) {
       var pend = mgr.pending[f.id];
+      var body = [];
+      function section(label, els) { body.push(h("label", { class: "qwl-flabel", text: label })); (els || []).forEach(function (e) { body.push(e); }); }
+      // --- Titel
       var subjInp = h("input", { class: "qwl-input", type: "text", value: (pend && pend.subject != null ? pend.subject : (edit.subject || "")) });
-      var textFields = (edit.fields || []).filter(function (x) { return x.type === "text"; });
-      var areas = {};
-      var body = [h("label", { class: "qwl-flabel", text: "Titel" }), subjInp];
-      textFields.forEach(function (fld) {
-        body.push(h("label", { class: "qwl-flabel", text: (fld.title || "Tekst") }));
-        var ta = h("textarea", { class: "qwl-textarea", rows: "4" });
-        ta.value = (pend && pend.text && Object.prototype.hasOwnProperty.call(pend.text, fieldKey(fld))) ? pend.text[fieldKey(fld)] : (fld.content != null ? fld.content : "");
-        areas[fieldKey(fld)] = ta; body.push(ta);
-      });
-      // Tags: click a pill to switch it on/off. tags[] is a full replace, so the whole set is staged.
+      section("Titel", [subjInp]);
+      // --- Leerjaren + zichtbaarheid. Proef: Questi's create takes these keys, a PATCH with them was
+      // never captured — writePending re-reads the fiche afterwards and says so if Questi ignored them.
+      var origGrades = (edit.grades || []).slice().sort(), gradeSet = {};
+      ((pend && pend.grades) ? pend.grades : origGrades).forEach(function (g) { gradeSet[g] = true; });
+      var gradeBoxes = h("div", { class: "qwl-gradeboxes" }, GRADES.map(function (g) {
+        var c = h("input", { type: "checkbox" }); c.checked = !!gradeSet[g];
+        c.addEventListener("change", function () { if (c.checked) gradeSet[g] = true; else delete gradeSet[g]; });
+        return h("label", { class: "qwl-gradebox" }, [c, h("span", { text: g })]);
+      }));
+      section("Leerjaren (proef)", [gradeBoxes]);
+      var origVis = edit.visibility || "school", vis = (pend && pend.visibility) || origVis;
+      var visRow = h("div", { class: "qwl-gradeboxes" }, [["private", "Privé"], ["school", "School"]].map(function (o) {
+        var r = h("input", { type: "radio", name: "qwl-vis-" + f.id, value: o[0] }); r.checked = vis === o[0];
+        r.addEventListener("change", function () { if (r.checked) vis = o[0]; });
+        return h("label", { class: "qwl-gradebox" }, [r, h("span", { text: o[1] })]);
+      }));
+      section("Zichtbaarheid (proef)", [visRow]);
+      // --- Tags: click a pill to switch it on/off. tags[] is a full replace, so the whole set is staged.
       var origTags = (edit.tags || []).map(function (t) { return String(t.id); });
       var tagSet = {}; ((pend && pend.tags) ? pend.tags.map(String) : origTags).forEach(function (id) { tagSet[id] = true; });
       var tagSummary = h("span", { class: "qwl-tagsum" });
@@ -784,9 +803,43 @@
         tagSummary.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "qwl-note", text: "geen tags" }));
       }
       drawTags();
-      body.push(h("label", { class: "qwl-flabel", text: "Tags" }));
-      body.push(h("details", { class: "qwl-tagdetails" }, [h("summary", {}, [tagSummary, h("span", { class: "qwl-tagedit", text: "wijzigen" })]), tagPick]));
-      if ((edit.fields || []).some(function (x) { return x.type === "goals"; })) body.push(h("div", { class: "qwl-note", text: "ZILL-doelen blijven ongewijzigd." }));
+      section("Tags", [h("details", { class: "qwl-tagdetails" }, [h("summary", {}, [tagSummary, h("span", { class: "qwl-tagedit", text: "wijzigen" })]), tagPick])]);
+      // --- Text fields: the template's, then the fiche's own extra fields (WEET/KEN/KAN included).
+      var textFields = (edit.fields || []).filter(function (x) { return x.type === "text"; });
+      textFields.sort(function (a, b) { return (a.template_field_id == null) - (b.template_field_id == null); });
+      var areas = {};
+      textFields.forEach(function (fld) {
+        var ta = h("textarea", { class: "qwl-textarea", rows: "4" });
+        ta.value = (pend && pend.text && Object.prototype.hasOwnProperty.call(pend.text, fieldKey(fld))) ? pend.text[fieldKey(fld)] : (fld.content != null ? fld.content : "");
+        areas[fieldKey(fld)] = ta;
+        section((fld.title || "Tekst") + (fld.template_field_id == null ? "  · extra veld" : ""), [ta]);
+      });
+      // --- New extra text fields (Questi's "+ toevoegen → Tekst"), staged like everything else.
+      var newRows = [], newWrap = h("div", { class: "qwl-newfields" });
+      function addNewField(title, content) {
+        var t = h("input", { class: "qwl-input", type: "text", placeholder: "titel van het veld", value: title || "" });
+        var c = h("textarea", { class: "qwl-textarea", rows: "3", placeholder: "inhoud" }); c.value = content || "";
+        var rowEl = h("div", { class: "qwl-newfield" }, [t, c]);
+        newRows.push({ t: t, c: c }); newWrap.appendChild(rowEl);
+      }
+      ((pend && pend.newFields) || []).forEach(function (nf) { addNewField(nf.title, nf.content); });
+      body.push(newWrap);
+      body.push(h("button", { class: "qwl-btn qwl-ghost qwl-addfield", onclick: function () { addNewField("", ""); }, text: "+ Tekstveld toevoegen" }));
+      // --- Read-only: what Questi holds but this editor cannot change.
+      var ro = [];
+      function roRow(k, v) { if (v) ro.push(h("div", { class: "qwl-ro-row" }, [h("span", { class: "qwl-ro-k", text: k }), h("span", { class: "qwl-ro-v", text: v })])); }
+      roRow("Sjabloon", edit.template && edit.template.name);
+      roRow("Eigenaar", edit.owner && ((edit.owner.firstname || "") + " " + (edit.owner.lastname || "")).trim());
+      roRow("Laatst gebruikt", usedOf(edit));
+      roRow("Bijlagen", (edit.attachments || []).map(function (a) { return a.title || a.name || (a.content && (a.content.name || a.content.title)) || "bijlage"; }).join(", "));
+      (edit.fields || []).forEach(function (fld) {
+        if (fld.type === "methods") roRow((fld.title || "Methode") + " (methode)", methodGoalsHint({ fields: [fld] }).replace(/\n/g, " · "));
+        else if (fld.type === "goals") {
+          var n = (fld.selected_goals || []).length || ((fld.content && fld.content.goals) || []).length;
+          roRow((fld.title || "Leerplandoelen") + " (leerplan)", n ? n + " doel(en) gekozen — bewerk in Questi" : "bewerk in Questi");
+        }
+      });
+      if (ro.length) section("Alleen lezen", [h("div", { class: "qwl-ro" }, ro)]);
       body.push(h("div", { class: "qwl-note", text: "Niets wordt geschreven tot je op 'Wijzigingen controleren' klikt en goedkeurt." }));
       var bd = m.querySelector(".qwl-modal-bd"); bd.innerHTML = ""; body.forEach(function (e) { bd.appendChild(e); });
       var ft = m.querySelector(".qwl-modal-ft"); ft.innerHTML = "";
@@ -802,7 +855,16 @@
         });
         var nextTags = Object.keys(tagSet), tagsChanged = nextTags.slice().sort().join() !== origTags.slice().sort().join();
         if (tagsChanged) changes.push({ label: "Tags", oldEl: chipRow(origTags.map(Number)), newEl: chipRow(nextTags.map(Number)) });
-        stagePending(f, edit, { subject: subject, text: text, tags: tagsChanged ? nextTags : null }, changes);
+        var nextGrades = GRADES.filter(function (g) { return gradeSet[g]; }), gradesChanged = nextGrades.join() !== origGrades.join();
+        if (gradesChanged) changes.push({ label: "Leerjaren", old: origGrades.join(", ") || "—", nw: nextGrades.join(", ") || "—" });
+        var visChanged = vis !== origVis;
+        if (visChanged) changes.push({ label: "Zichtbaarheid", old: origVis, nw: vis });
+        var newFields = newRows.map(function (r) { return { title: r.t.value.trim(), content: r.c.value }; }).filter(function (x) { return x.title; });
+        newFields.forEach(function (x) { changes.push({ label: "Nieuw veld: " + x.title, old: "", nw: x.content }); });
+        stagePending(f, edit, {
+          subject: subject, text: text, tags: tagsChanged ? nextTags : null,
+          grades: gradesChanged ? nextGrades : null, visibility: visChanged ? vis : null, newFields: newFields
+        }, changes);
         m.close(); renderList();
         setStatus(pendCount() + " wijziging(en) klaargezet — druk 'Wijzigingen controleren'.");
       }, text: "Bewaar wijziging" }));
@@ -819,6 +881,9 @@
     if (opts.text !== undefined) e.text = opts.text;
     if (opts.tags !== undefined) e.tags = opts.tags;
     if (opts.create_tags !== undefined) e.createTags = opts.create_tags;
+    if (opts.grades !== undefined) e.grades = opts.grades;
+    if (opts.visibility !== undefined) e.visibility = opts.visibility;
+    if (opts.newFields !== undefined) e.newFields = (opts.newFields && opts.newFields.length) ? opts.newFields : null;
     // Goals (goals mode): one kind at a time; typing a kind back to its stored text unstages it.
     var dropLabels = [];
     if (opts.goals) {
@@ -834,10 +899,14 @@
     var origSubject = (e.edit && e.edit.subject != null) ? e.edit.subject : ficheName(f);
     if (opts.subject !== undefined && opts.subject === origSubject) { e.subject = null; dropLabels.push("Titel"); }
     if (opts.tags === null) dropLabels.push("Tags");
-    e.changes = (e.changes || []).filter(function (c) { return dropLabels.indexOf(c.label) < 0 && changes.every(function (n) { return n.label !== c.label; }); }).concat(changes);
+    if (opts.grades === null) dropLabels.push("Leerjaren");
+    if (opts.visibility === null) dropLabels.push("Zichtbaarheid");
+    var resetNew = opts.newFields !== undefined;   // the editor restates the whole list of new fields
+    e.changes = (e.changes || []).filter(function (c) { return dropLabels.indexOf(c.label) < 0 && !(resetNew && c.label.indexOf("Nieuw veld: ") === 0) && changes.every(function (n) { return n.label !== c.label; }); }).concat(changes);
     var textChanged = e.text && e.edit && Object.keys(e.text).some(function (k) { var fld = (e.edit.fields || []).filter(function (x) { return fieldKey(x) === k; })[0]; return fld && (e.text[k] !== (fld.content != null ? fld.content : "")); });
     var goalsChanged = !!(e.goals && Object.keys(e.goals).length);
-    var meaningful = (e.subject != null && e.subject !== origSubject) || (e.tags != null) || (e.createTags && e.createTags.length) || textChanged || goalsChanged;
+    var meaningful = (e.subject != null && e.subject !== origSubject) || (e.tags != null) || (e.createTags && e.createTags.length) || textChanged || goalsChanged
+      || e.grades != null || e.visibility != null || !!(e.newFields && e.newFields.length);
     if (meaningful) mgr.pending[f.id] = e; else delete mgr.pending[f.id];
   }
 
@@ -880,11 +949,14 @@
     if (!downloadFichesBackup(data)) setStatus("Back-up downloaden mislukt — wegschrijven gaat toch door.");
   }
   function writePending(keys) {
-    var prog = progressModal("Wijzigingen wegschrijven");
+    var prog = progressModal("Wijzigingen wegschrijven"), trialMisses = [];
     runSequential(keys, function (id) {
       var p = mgr.pending[id]; if (!p) return Promise.resolve();
       var opts = {}; if (p.subject != null) opts.subject = p.subject; if (p.text) opts.text = p.text; if (p.tags != null) opts.tags = p.tags; if (p.createTags && p.createTags.length) opts.create_tags = p.createTags;
       if (p.goals && Object.keys(p.goals).length) opts.goals = p.goals;
+      if (p.grades) opts.grades = p.grades;
+      if (p.visibility) opts.visibility = p.visibility;
+      if (p.newFields && p.newFields.length) opts.newFields = p.newFields;
       // Inline title edits carry no edit snapshot — fetch it now (for field ids + current tags).
       var editP = p.edit ? Promise.resolve(p.edit) : readFicheEdit(p.fiche.id);
       return editP.then(function (edit) { p.edit = edit; return writePatch(p.fiche.id, buildPatch(p.fiche.id, edit, opts)); }).then(function (result) {
@@ -897,8 +969,21 @@
         if (mgr.selected[oldId]) { delete mgr.selected[oldId]; mgr.selected[newId] = true; }
         // The new version is a new id: goals mode reads it fresh, which also shows what landed.
         delete mgr.pending[id];
+        if (!opts.grades && !opts.visibility) return;
+        // Leerjaren/zichtbaarheid are a trial: read the new version back and say so if Questi ignored them.
+        return readFicheEdit(newId).then(function (after) {
+          if (opts.grades) {
+            var got = (after.grades || []).slice().sort().join(), want = opts.grades.slice().sort().join();
+            if (got === want) p.fiche.grades = after.grades; else trialMisses.push(ficheName(p.fiche) + ": leerjaren");
+          }
+          if (opts.visibility && after.visibility !== opts.visibility) trialMisses.push(ficheName(p.fiche) + ": zichtbaarheid");
+        }).catch(function () { trialMisses.push(ficheName(p.fiche) + ": niet nagelezen"); });
       });
-    }, prog.update).then(function (fails) { if (fails.length < keys.length) mgr.dirtyWrites = true; prog.done(fails, keys.length); renderList(); });
+    }, prog.update).then(function (fails) {
+      if (fails.length < keys.length) mgr.dirtyWrites = true;
+      prog.done(fails, keys.length); renderList();
+      if (trialMisses.length) setStatus("Niet overgenomen door Questi — " + trialMisses.join(" · "));
+    });
   }
 
   // ------------------------------------------------------------------------

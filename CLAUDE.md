@@ -285,6 +285,14 @@ max 4 in flight) and print caps its reads at 4 (`mapLimit`) — keep Questi traf
 follows the fiche's `thread` (same for every version; `qwp_threads_v1`) to the newest version, then the
 newest own fiche with the same title, and marks the card "nieuwere versie".
 
+**Full fiche editor (beta).** Double-click opens every field of the edit view. Editable: title, tags
+(pill picker, full-set replace), all text fields (`fieldKey`), new extra text fields (`opts.newFields`).
+`grades`/`visibility` are a **trial** — the create call's keys, never captured on PATCH — so writePending
+reads the new version back and reports a mismatch instead of trusting it. Template, attachments,
+methode doelen and leerplandoelen are read-only (goal tree + attachment upload are not built).
+Traffic rules: fiche reads are viewport-driven and cached per version (`qwp_goalcache_v1` carries goals
+AND tags), parallel reads go through `mapLimit(…, 4)`, `ficheEditTags` is memoised per id.
+
 **Beta channel.** Branch `beta`, sideloaded from its own folder (git worktree) next to the stable
 addon. Manifest name contains `BETA` — that one string drives everything: `IS_BETA` in content.js,
 planner.js and background.js. The beta has **no manifest CSS**; the worker inserts it on first use

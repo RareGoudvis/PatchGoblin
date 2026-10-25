@@ -163,6 +163,16 @@ html.qwl-locked { overflow: hidden; }
 .qwl-tagsum { flex: 1; min-width: 0; }
 .qwl-tagedit { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: underline; }
 .qwl-tagdetails .qwl-tagpick { max-height: 320px; overflow: auto; }
+/* Full fiche editor: leerjaren / zichtbaarheid, new fields, read-only facts */
+.qwl-gradeboxes { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.qwl-gradebox { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+.qwl-newfields { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.qwl-newfield { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px dashed var(--line); border-radius: 8px; }
+.qwl-addfield { align-self: flex-start; margin-top: 8px; }
+.qwl-ro { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.qwl-ro-row { display: grid; grid-template-columns: 170px 1fr; gap: 10px; font-size: 12.5px; }
+.qwl-ro-k { color: var(--muted); font-weight: 600; }
+.qwl-ro-v { color: var(--ink); white-space: pre-wrap; }
 
 /* delete list */
 .qwl-dellist { max-height: 40vh; overflow-y: auto; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 8px; }
