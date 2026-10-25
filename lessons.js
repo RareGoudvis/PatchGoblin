@@ -1389,7 +1389,7 @@
     var fields = [];
     (tpl.structure || []).forEach(function (fld) {
       if (fld.type === "text") fields.push({ field_type: "text", template_field_id: fld.id, content: st.text[fld.id] || "" });
-      else if (fld.type === "goals") fields.push({ field_type: "goals", template_field_id: fld.id, selected_goals: (st.selected[fld.id] || []).map(Number) });
+      else if (fld.type === "goals") fields.push({ field_type: "goals", template_field_id: fld.id, selected_goals: (st.selected[fld.id] || []).slice() });   // ids as given: numbers (ZILL) or UUID strings (Op.Stap)
     });
     var order = 0;
     GOAL_KINDS.forEach(function (k) { if (String(st.goals[k] || "").trim()) fields.push({ field_type: "text", title: k.toUpperCase(), description: "", order: ++order, content: st.goals[k] }); });
@@ -1470,7 +1470,7 @@
   function goalLabel(n) { return ((n.code ? n.code + " " : "") + stripTags(n.title || n.description || n.name || "")).trim() || ("doel " + n.id); }
   function isGoalNode(n) { return n.is_goal === true || n.is_goal === 1 || (!(n.children && n.children.length) && n.id != null); }
   function openGoalPicker(ver, tpl, selectedIds, onDone) {
-    var sel = {}; (selectedIds || []).forEach(function (id) { sel[String(id)] = true; });
+    var sel = {}; (selectedIds || []).forEach(function (id) { sel[String(id)] = id; });   // key → the id in its own type
     var names = {};
     var search = h("input", { class: "qwl-input", type: "search", placeholder: "Zoek op code of woord…" });
     var count = h("span", { class: "qwl-note" });
@@ -1479,7 +1479,7 @@
     var ftEl = m.querySelector(".qwl-modal-ft");
     ftEl.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
     ftEl.appendChild(h("button", { class: "qwl-btn", onclick: function () {
-      var ids = Object.keys(sel).map(Number);
+      var ids = Object.keys(sel).map(function (k) { return sel[k]; });
       onDone(ids, ids.map(function (id) { return names[String(id)] || ("doel " + id); }));
       m.close();
     }, text: "Klaar" }));
@@ -1495,7 +1495,7 @@
       (function walk(list, path) { (list || []).forEach(function (n) { var lbl = goalLabel(n); if (isGoalNode(n) && n.id != null) { names[String(n.id)] = lbl; flat.push({ n: n, lbl: lbl, path: path }); } walk(n.children, path.concat(lbl)); }); })(t.nodes, []);
       function goalRow(n, lbl, path) {
         var c = h("input", { type: "checkbox" }); c.checked = !!sel[String(n.id)];
-        c.addEventListener("change", function () { if (c.checked) sel[String(n.id)] = true; else delete sel[String(n.id)]; syncCount(); });
+        c.addEventListener("change", function () { if (c.checked) sel[String(n.id)] = n.id; else delete sel[String(n.id)]; syncCount(); });
         return h("label", { class: "qwl-goal" }, [c, h("span", {}, [h("span", { text: lbl }), path ? h("small", { text: path }) : null])]);
       }
       // Tree view: branches open lazily (Op.Stap is large); leaves are the pickable goals.
