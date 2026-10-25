@@ -32,8 +32,8 @@ UnQuesti legt één venster over je Questi-agenda, bereikbaar met één knop in 
 |---|---|
 | Weekplanner, Lesfiche-manager, Lesdoelen-afdruk, Methodevoortgang | werkt (v1.2) |
 | Eén UnQuesti-knop met snelmenu | in aanbouw |
-| Snellere start | in aanbouw |
-| Nieuw venster: Plannen · Lesfiches · Afdrukken | gepland |
+| Snellere start: de week staat er meteen, lesuren vullen zich daarna aan | gebouwd, wordt getest |
+| Nieuw venster: Plannen · Lesfiches · Afdrukken | Plannen en Afdrukken gebouwd (wordt getest), Lesfiches in aanbouw |
 | Eerste installatie, instellingen delen (.json) | gepland |
 
 ## Voor wie

@@ -65,7 +65,7 @@ the chips. There are no modules — everything crosses file boundaries through `
 | `__QWP_SHARED` | planner | ctx + API + DOM helpers used by lessons/methodes |
 | `__QWP_TOGGLE` | planner | open/close the planner (action click, Alt+P) |
 | `__QWP_OPEN_LESSONS` | planner | open the Lesfiche-manager |
-| `__QWP_PRINT` | planner | headless print — does not need the overlay |
+| `__QWP_PRINT` | planner | open the planner on its **Afdrukken** tab (boots it first when needed) |
 | `__QWP_TEST` | planner | debug handles |
 | `__QWP_LESSONS` | lessons | `{ open, close, openPicker, runSequential }` |
 | `__QWP_METHODES` | methodes | `{ open, close }` |
@@ -118,7 +118,7 @@ exported for settings.js too.
 | `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
 | `qwp_threads_v1` | planner (print) + lessons | fiche lineage `{ "<thread>": newest fiche id seen }` — learned from every edit view read/written (the list has no `thread`) |
 | `qwp_goalcache_v1` | lessons (goals mode) + print | goals per fiche VERSION `{ "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }` — exact forever (an id never changes content), so a seen fiche costs no request |
-| `qwp_print_v1` | planner (print) | print window choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool }` |
+| `qwp_print_v1` | planner (Afdrukken tab) + settings | print choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool, meta: bool }` (`meta` = week no. + print date, default on) |
 | `qwp_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
 Generic `storeGet(key)` / `storeSet(key, val)` live in `planner.js` and are shared — use them
@@ -161,7 +161,7 @@ Writes: `PATCH /cal/items/{id}` (writes **do** send `schoolyear`; `groups` are o
 ## Feature notes
 
 **Planner (UnQuesti "Plannen" window).** `buildShell`: a 360px sidebar — tabs Plannen · Lesfiches
-(`openLessonsManager`) · Afdrukken (`openPrintFromPlanner`, the loaded weeks' STORED planning), vak
+(`openLesfichesTab` → `openLessonsManager`) · Afdrukken (`showTab("print")`, see **Afdrukken tab**), vak
 chips (`renderVakToggle`), `Ik | Collega ▾` (`renderSource` + `openSourceMenu`, colleagues and
 methodes), a folding filter (`applyFilterFold`; the button says "Filter •" when a folded filter
 still hides fiches), ONE fiche list, and `Alles · Instellingen · Debug · Controleer` pinned to the
@@ -231,6 +231,23 @@ known, with `detectContextFull` (the old 5–6 request chain) verifying in the b
 corrects `ctx` and warns in the status line. `hydrateRange` reads item details through `mapLimit(…, 4)`
 instead of one by one. The toolbar launcher badge reads `__QWP_PENDING_COUNT` (no request).
 
+**Paint first, details after.** `hydrateRangeLive` resolves at the `/cal/items` LIST stage with
+`{ slots, done, total }`; every lesuur that needs a detail read is marked `_pending` until its
+`/cal/items/{id}` answers (a failed read leaves `_detailFailed`). `reloadWeek` resolves at the list
+stage and sets `view.hydrateP` (true once fully read and repainted, false when a newer load replaced it,
+tracked by `_loadGen`); each detail schedules a 250 ms throttled repaint (`scheduleHydratePaint`, held
+while a card is dragged), and the status line counts `Lesuren laden: x/n`. A list-stage card shows
+Questi's decorated title stripped, a "laden…" pill, and takes no click/drop. `isUnhydrated(s)` is the
+one gate: `computeDirty` returns false, `applyStoredVakken` and `applyThemaLesuurTitles` skip it (the
+latter also while that week's bars are pending), `isTargetable`/empty pools exclude it, undo never
+restores a snapshot taken while it was unread, and `openReview`/`doCommit` plus the bulk tools (Kopieer
+vorige week, Titels opschonen, Vakken herstellen, mass-add) refuse via `busyLoading()` with the reason.
+Controleer gets `.qwp-wait` and a tooltip saying how many lesuren are still loading. `reloadAndRender`
+and `loadEverything` resolve only after `view.hydrateP` (settings.js re-reads titles after it; the
+health check needs `ctx.groupId`, which only a detail supplies; `qwp:loaded` fires after it). Doelen-mode
+goal reads wait for the details too, so Questi only ever sees one 4-wide stream. `hydrateRange` (print)
+still waits for everything.
+
 **Opening week.** `detectViewedWeekStart` reads Questi's own `/cal/items` requests out of the
 performance timeline. It must match `/cal/items?` **only** (`/cal/items/count` is a MONTH query —
 matching it made `mondayOf` roll 1 Aug back to 27 Jul, i.e. a live August request produced a July
@@ -272,11 +289,26 @@ ones; rows are sorted by block rank so a thema is never split. Only the teacher'
 persist; titles and dates are re-fetched live every open. Note Questi rolls `schoolyear` in summer,
 so between the roll and 1 September nothing counts as given — hence the explicit year picker.
 
-**Lesdoelen print.** The print window's "Versie" choice: Gewoon (the original layout, untouched) or
+**Afdrukken tab** (`buildPrintPanel`, built once inside `buildShell`; `showTab` swaps the column pairs via
+`.qwp-main.tab-print`). Sidebar: the same tabs (`tabsNav`), week ← →, Versie cards, Op het blad
+(labels + legend for Lesdoelen, week no. + date), other agendas, "Opmerking voor deze week" (Gewoon
+adds "Lege notitieregels" when it is empty), a note when edits are staged or a detail failed, the
+orange "N kaarten zonder doelen · nu invullen" (own fiches → `openLesfichesTab` when `__QWP_LESSONS`
+exists, else Plannen in Doelen mode; methode cards are typed in the preview), and **Bewaar als PDF** /
+**Afdrukken** pinned at the bottom — both open the browser print dialog; PDF says to pick "Opslaan als
+PDF". Main: the live A4 preview iframe; for the Lesdoelen versions a Voorkant/Achterkant switch hides
+every other page on screen only (`@media screen` style injected by `applyPrintPage`). Entering waits on
+`plannerReady()` (context + tags + week list) and `view.hydrateP`, then follows the planner's first
+week unless the tab was stepped on its own. It prints the STORED planning: `plannerPrintView` reuses
+copies of the planner's slots when they cover the week, are fully read and nothing is staged; otherwise
+`fetchPrintView` reads the week itself. `window.__QWP_PRINT` = `openPrintTab` (boot("print") when the
+planner never opened). The old standalone `#qwp-print-overlay` is gone.
+
+**Lesdoelen print.** The Afdrukken tab's "Versie" choice: Gewoon (the original layout, untouched) or
 Lesdoelen 1 A4 / 2 A4 (`printGoalsDocHtml`). Equal-height cards with WEET/KEN/KAN write lines
 (3 per card on 1 A4, 8 on 2 A4, both ≈7mm; titles fixed at 2 lines — front = first half of the lesuren, back = rest + week info); the
 free Wednesday afternoon holds thema names and the vak legend. Goals live **in the fiche** (see
-"Lesdoelen in the fiche"); `loadPrintFicheGoals` reads them per print window and `goalsRecFor` merges
+"Lesdoelen in the fiche"); `loadPrintFicheGoals` reads them per print-tab visit and `goalsRecFor` merges
 them with the local record. Only a card with no own fiche behind it (fiche-less lesuur, methode fiche)
 is still typed in the preview (`wireGoalsEditor`, listeners attached from the content script —
 Questi's CSP blocks inline scripts) and stored locally. Kinds hide per fiche, all
