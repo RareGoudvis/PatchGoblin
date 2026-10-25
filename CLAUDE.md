@@ -89,7 +89,12 @@ storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`.
   *on top of* the methodes panel in pick mode.
 - Design tokens are duplicated per overlay as CSS custom properties (`--ink --muted --line
   --surface --accent #304651 --accent2 #e4e642 --change #137a3a --thema --danger`), matching
-  Questi's own Angular-Material theme.
+  Questi's own Angular-Material theme. The planner's UnQuesti block adds the brand palette
+  ("Glowing horizon") on `#qwp-overlay`: `--uq-blue #4272FF` (active/selected, the **changed**
+  border on cards), `--uq-amber #FFB343` (Controleer fill with dark ink, badges, hard shadows),
+  `--uq-orange #FF7E42` (attention: zonder doelen, warnings), `--uq-cyan #42EAFF` (gepland marker,
+  focus ring, selection tint — never text). White text on blue only at ≥14px bold. Vak/tag colours
+  on cards stay the teacher's own Questi tag colours.
 - Overlays set `html.qwX-locked` to freeze the page behind them.
 
 ## Storage
@@ -98,7 +103,7 @@ storeGet, storeSet, ficheGoalFields, goalText, noteFicheThread, mapLimit`.
 
 | Key | Owner | Contents |
 |---|---|---|
-| `qwp_state_v6` | planner | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), weeks, panels, split ratio, manual overrides |
+| `qwp_state_v6` | planner | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), `weeks` (print default only — Plannen always shows 2), `panels[0]` (sidebar list filter), `mainMode` (`plan`/`doelen`), `filterOpen`, `doelenWeek`, manual overrides. `panelCount`, `pickerView`, `splitRatio`, `sideCollapsed` are legacy and unused |
 | `qwp_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
 | `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
@@ -146,8 +151,29 @@ Writes: `PATCH /cal/items/{id}` (writes **do** send `schoolyear`; `groups` are o
 
 ## Feature notes
 
-**Planner.** Week grid is one CSS Grid so two weeks sit side by side. Rows, breaks and no-school
-days are all derived from the data, never hardcoded. `vak` (subject) is not an API field — it is
+**Planner (UnQuesti "Plannen" window).** `buildShell`: a 360px sidebar — tabs Plannen · Lesfiches
+(`openLessonsManager`) · Afdrukken (`openPrintFromPlanner`, the loaded weeks' STORED planning), vak
+chips (`renderVakToggle`), `Ik | Collega ▾` (`renderSource` + `openSourceMenu`, colleagues and
+methodes), a folding filter (`applyFilterFold`; the button says "Filter •" when a folded filter
+still hides fiches), ONE fiche list, and `Alles · Instellingen · Debug · Controleer` pinned to the
+bottom. The list is the old panel 0 (`view.panels[0]`, ids `qwp-*-0`), so vak/subtag/union/grade/
+mass-add helpers are unchanged; the 1/2/3 panels, Lijst/Kaart, splitter and sidebar toggle are gone.
+Row date: planned in the loaded weeks (by fiche **id**, staged state) → green "gepland"; used this
+school year → muted ✓; else last date or "nooit". Every old sidebar action lives in the **Alles**
+menu (`openAlles`) — add new tools there, not as loose buttons. **Instellingen** calls
+`window.__UQ_SETTINGS.open()` when that module exists, else the planner's own `openInstellingen`.
+Controleer's badge and the header's "N wijzigingen" are `stagedCount()` (same filter as
+`buildCommitPlan`). Main column: header (← → step ONE week and `confirm()` before discarding staged
+edits, Vandaag, `Plannen | Doelen`), then `view.weeks = 2` ALWAYS — this week and next, **stacked**,
+one `.qwp-wk` section and 5-column grid per week (`weekSection`); one review covers both.
+`renderTimetable` keeps the scroll position. Cards (`cellFor`) use the Lesdoelen-print look: top bar
+in the vak's top-tag colour with `goalsInkOn` ink, title below, green 2px border when dirty, dashed
+when unplanned (`unplanned` = no fiche/gym and a "Lesuur N" title — cosmetic only, never identity).
+**Doelen** mode expands `state.doelenWeek` and folds the other week into a bar; cards show WEET/KEN/
+KAN read-only from `goalsRecFor` after `loadPrintFicheGoals` (expanded week only, mapLimit 4, goal
+cache), and the header counts lesuren without goals (`goalsStateOf`). The review modal still draws
+both weeks side by side with the generic `.qwp-tt` rules — the UnQuesti CSS is scoped to `.qwp-wk`.
+Rows, breaks and no-school days are all derived from the data, never hardcoded. `vak` (subject) is not an API field — it is
 the teacher's per-timeslot tag mapping from `state.settings`. Commit path is
 `buildCommitPlan` → review diff → `doCommit`. Ctrl+Z undo stack, cap 30.
 
@@ -187,11 +213,9 @@ or last version's themafiche name — never a typed title; no themafiche → bac
 thema lesuur still on its placeholder (`themaShowsLiteral`). A lesuur's `themaFiche` comes from its
 **vak tag** (`isThemaVak`, never the title), and such a lesuur may still receive its own fiche.
 
-Layout: the 64px label column is **empty by design**. It once held the row label, and because grid
-rows are auto-height a wrapped lesson title there stretched the whole row. The thema name now sits
-in the band, in the same `.qwp-cell-top` slot a normal cell uses for its vak label — that is what
-makes a band exactly as tall as a filled lesuur, rather than a hand-tuned `min-height`. Anything
-added to a band must stay out of flow (see `.qwp-thema-more`) or it will grow the row again.
+Layout: the 52px label column is **empty by design** on thema rows. It once held the row label,
+and because grid rows are auto-height a wrapped lesson title there stretched the whole row. The
+thema name sits in the band itself (a striped one-line strip in the stacked layout).
 
 **Opening week.** `detectViewedWeekStart` reads Questi's own `/cal/items` requests out of the
 performance timeline. It must match `/cal/items?` **only** (`/cal/items/count` is a MONTH query —
