@@ -1280,14 +1280,13 @@
       // read it: doCommit reads the item first (descEcho) rather than blanking it with "".
       var descEcho = false;
       if (!writesDescriptions()) {
-        nd = null;
         if (s._hydrated) body.description = s.origDescription || "";
         else { body.description = ""; descEcho = true; }
       }
       return {
         itemId: s.itemId, label: (s.title || "lesuur") + " (" + DAY_ABBR[s.dayIdx] + " " + (s.time || "") + ", wk " + (s.weekIdx + 1) + ")",
         old: { title: s.origTitle, desc: s.origDescription, fiche: s.origFicheTitle || "(geen)" },
-        neu: { title: s.title, desc: writesDescriptions() ? toHtmlDesc(nd) : (s.origDescription || ""), fiche: (s.isGym ? "(geen — gym)" : (s.ficheTitle || "(geen)")) },
+        neu: { title: s.title, desc: writesDescriptions() ? descHtml(s) : (s.origDescription || ""), fiche: (s.isGym ? "(geen — gym)" : (s.ficheTitle || "(geen)")) },
         descEcho: descEcho,
         patchBody: body, range: s._range || range,
         themaTagId: (isThemaSlot(s) && s.themaTagId != null) ? s.themaTagId : null,
@@ -5109,7 +5108,12 @@
     for (var i = 0; i < all.length; i++) if (String(all[i].itemId) === String(id)) return all[i];
     return null;
   }
+  // Every way into Controleer (button, header count, launcher) goes through here: an error while
+  // building the review is said in the status line instead of the button silently doing nothing.
   function openReview() {
+    try { openReviewNow(); } catch (e) { console.error("[QWP] openReview:", e); setStatus("Controleer kon niet openen: " + ((e && e.message) || e) + " — er is niets weggeschreven."); }
+  }
+  function openReviewNow() {
     if (busyLoading()) return;   // stored titles/fiches of some lesuren are not read yet
     var old = elId("qwp-modal"); if (old) old.remove();
     var L = lessonsApi(), lp = { tags: [], fiches: [] };
