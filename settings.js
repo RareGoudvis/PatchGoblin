@@ -998,6 +998,14 @@
       var m = matchIn(pool, t);
       if (m) out[key] = { id: m.tag.id, why: "uit de titel “" + t + "”" };
     });
+    // 3) what the planner last saw planned at that day+hour in any week (state.vakSeen), so a
+    // blank week still gets voorstellen.
+    var seen = st().vakSeen || {};
+    P.view.slots.forEach(function (s) {
+      if (s.isFullday || s.idCalendar === "cal_holidays" || !s.time) return;
+      var key = s.dayIdx + "|" + s.time, v = seen[key]; if (!v || settings[key] != null || out[key]) return;
+      if (pool.some(function (t) { return sameId(t.id, v.id); })) out[key] = { id: v.id, why: "laatst gezien op " + String(v.d).split("-").reverse().join("/") };
+    });
     return out;
   }
   function renderSetup() {

@@ -136,6 +136,7 @@
     if (s.vakAbbr && typeof s.vakAbbr === "object") state.vakAbbr = s.vakAbbr;
     if (typeof s.sideWidth === "number" && s.sideWidth > 0) state.sideWidth = s.sideWidth;
     if (s.weekFit === "fit" || s.weekFit === "scroll") state.weekFit = s.weekFit;
+    if (s.vakSeen && typeof s.vakSeen === "object") state.vakSeen = s.vakSeen;
     state.writeVakDescription = s.writeVakDescription != null ? !!s.writeVakDescription : true;
   }
   function writesDescriptions() { return state.writeVakDescription !== false; }
@@ -3445,7 +3446,26 @@
       if (!x.vak || !(x.ficheContentId || stripHtml(x.origDescription || ""))) return;
       var top = topTagIdOf(x.vak); if (top != null) hit = { id: top, week: weekNoOf(x.weekIdx || 0) };
     });
-    return hit;
+    if (hit) return hit;
+    // Nothing planned at this hour in the loaded weeks (a blank week): the last one seen in any week.
+    var seen = (state.vakSeen || {})[slotKeyStd(s.dayIdx, s.time)];
+    return seen && anyTagById(seen.id) ? { id: seen.id, week: isoWeekNo(seen.d) } : null;
+  }
+  // Remembers, per day+hour, the STORED vak of every planned lesuur in a loaded week (fiche or
+  // description; staged edits don't count), newest date wins. Feeds only vakHintFor — never s.vak.
+  function learnVakSeen() {
+    var seen = state.vakSeen || (state.vakSeen = {}), changed = false;
+    view.slots.forEach(function (x) {
+      if (x.isFullday || x.idCalendar === "cal_holidays" || !x.time || !x.vak || isUnhydrated(x) || computeDirty(x)) return;
+      if (!(x.ficheContentId || stripHtml(x.origDescription || ""))) return;
+      var top = topTagIdOf(x.vak), d = String(x.startdate || "").slice(0, 10), k = slotKeyStd(x.dayIdx, x.time);
+      if (top == null || !d) return;
+      var cur = seen[k];
+      if (cur && cur.d > d) return;
+      if (cur && cur.d === d && String(cur.id) === String(top)) return;
+      seen[k] = { id: top, d: d }; changed = true;
+    });
+    if (changed) saveState();
   }
   function cellFor(s, weekIdx, dayIdx, timeLabel, doel) {
     if (!s) {
@@ -5506,6 +5526,7 @@
       view.hydrateP = Promise.all(dones).then(function () {
         if (gen !== _loadGen) return false;
         clearTimeout(_hydPaintT); _hydPaintT = null;
+        learnVakSeen();
         if (els.root) { renderTimetable(); syncRetryBtn(); }
         return true;
       });
