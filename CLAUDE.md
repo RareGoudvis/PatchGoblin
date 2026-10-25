@@ -102,6 +102,7 @@ storeGet, storeSet, ficheGoalFields, goalText, IS_BETA, betaPill`.
 | `qwp_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
 | `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and pre-beta text (own fiches now keep goals in the fiche) |
+| `qwp_threads_v1` | planner (print) + lessons | fiche lineage `{ "<thread>": newest fiche id seen }` — learned from every edit view read/written (the list has no `thread`) |
 | `qwp_print_v1` | planner (print) | print window choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool }` |
 | `qwp_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
@@ -279,7 +280,8 @@ version. `buildPatch` sends every extra field exactly as Questi's editor does, `
 (template id, or `"x"+id` for an extra field) — keying on `template_field_id` alone made all extra
 fields share one `"null"` key. Goals mode in the manager (`makeGoalsTable`) stages into `mgr.pending`
 like any edit and backs up ≥5 goal writes first. A planned lesuur keeps its fiche **version**, so print
-falls back to the newest own fiche with the same title and marks the card "nieuwere versie".
+follows the fiche's `thread` (same for every version; `qwp_threads_v1`) to the newest version, then the
+newest own fiche with the same title, and marks the card "nieuwere versie".
 
 **Beta channel.** Branch `beta`, sideloaded from its own folder (git worktree) next to the stable
 addon. Manifest name contains `BETA` — that one string drives everything: `IS_BETA` in content.js,

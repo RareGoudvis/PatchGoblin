@@ -91,8 +91,13 @@
       });
     };
   }
+  // Every edit view read here also teaches the planner which fiche id is the newest of its thread.
   function readFicheEdit(id) {
-    return jget(api() + "/lessons/" + id + "?" + qs({ schoolId: sid(), return_format: "edit" })).then(function (j) { return (j && j.result) || j; });
+    return jget(api() + "/lessons/" + id + "?" + qs({ schoolId: sid(), return_format: "edit" })).then(function (j) {
+      var r = (j && j.result) || j;
+      if (S().noteFicheThread) S().noteFicheThread(r);
+      return r;
+    });
   }
   // Key for a text field in opts.text / the edit dialog. Template fields use their template_field_id;
   // per-fiche extra fields have none (null), so they key on their own id — keying them all on
@@ -824,6 +829,7 @@
       var editP = p.edit ? Promise.resolve(p.edit) : readFicheEdit(p.fiche.id);
       return editP.then(function (edit) { p.edit = edit; return writePatch(p.fiche.id, buildPatch(p.fiche.id, edit, opts)); }).then(function (result) {
         var newId = result && result.id != null ? result.id : p.fiche.id, oldId = p.fiche.id;
+        if (p.edit && S().noteFicheThread) S().noteFicheThread({ thread: p.edit.thread, id: newId });
         p.fiche.id = newId; if (result && result.subject != null) p.fiche.subject = result.subject;
         if (p.tags != null) mgr.tagChips[newId] = p.tags.map(function (x) { return x; });
         else if (mgr.tagChips[oldId]) mgr.tagChips[newId] = mgr.tagChips[oldId];

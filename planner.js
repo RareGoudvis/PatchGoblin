@@ -1719,6 +1719,37 @@
       _ownFicheByTitle = map; return map;
     }).catch(function () { return {}; });
   }
+  // Fiche lineage, saved under qwp_threads_v1: { "<thread>": newest fiche id seen }. Every version of
+  // a fiche shares its edit view's `thread` (captured 2026-10-25), but the fiche LIST does not carry
+  // it — so the newest version is learned from every edit view read or written here (goals mode reads
+  // each fiche it shows). Lets print follow a fiche through renames; another browser falls back to title.
+  var THREADS_KEY = "qwp_threads_v1", _threads = {}, _threadsSaveT = null;
+  storeGet(THREADS_KEY).then(function (v) { _threads = Object.assign(v || {}, _threads); });
+  function noteFicheThread(edit) {
+    if (!edit || edit.thread == null || edit.id == null) return;
+    var k = String(edit.thread), cur = _threads[k];
+    if (cur != null && Number(cur) >= Number(edit.id)) return;
+    _threads[k] = edit.id;
+    clearTimeout(_threadsSaveT);
+    _threadsSaveT = setTimeout(function () { storeSet(THREADS_KEY, _threads); }, 500);
+  }
+  // A newer version's goals for `edit` (the attached, goal-less version): via its thread first, then
+  // the newest own fiche with the same title. Resolves goals or null.
+  function newerVersionGoals(edit) {
+    var id = edit && edit.id;
+    function tryId(nid) {
+      if (!nid || String(nid) === String(id)) return Promise.resolve(null);
+      return fetchFicheEdit(nid).then(function (e2) { noteFicheThread(e2); return goalsOfEdit(e2); }).catch(function () { return null; });
+    }
+    var viaThread = edit && edit.thread != null ? _threads[String(edit.thread)] : null;
+    return tryId(viaThread).then(function (g) {
+      if (g) return g;
+      return ownFicheByTitle().then(function (map) {
+        var byTitle = map[normSubject(edit && edit.subject)];
+        return String(byTitle) === String(viaThread) ? null : tryId(byTitle);
+      });
+    });
+  }
   // Read the goals of every own fiche on the sheet; resolves true when something new arrived.
   function loadPrintFicheGoals(pv) {
     var ids = {};
@@ -1731,15 +1762,11 @@
     list.forEach(function (id) { _printFicheGoals[id] = { goals: null, src: "loading" }; });
     return Promise.all(list.map(function (id) {
       return fetchFicheEdit(id).then(function (edit) {
+        noteFicheThread(edit);
         var g = goalsOfEdit(edit);
         if (g) { _printFicheGoals[id] = { goals: g, src: "fiche" }; return; }
-        return ownFicheByTitle().then(function (map) {
-          var nid = map[normSubject(edit && edit.subject)];
-          if (!nid || String(nid) === String(id)) { _printFicheGoals[id] = { goals: null, src: "none" }; return; }
-          return fetchFicheEdit(nid).then(function (e2) {
-            var g2 = goalsOfEdit(e2);
-            _printFicheGoals[id] = g2 ? { goals: g2, src: "newer" } : { goals: null, src: "none" };
-          });
+        return newerVersionGoals(edit).then(function (g2) {
+          _printFicheGoals[id] = g2 ? { goals: g2, src: "newer" } : { goals: null, src: "none" };
         });
       }).catch(function () { _printFicheGoals[id] = { goals: null, src: "none" }; });
     })).then(function () { return true; });
@@ -4494,6 +4521,6 @@
     fetchMethods: fetchMethods, fetchMethodLessons: fetchMethodLessons,
     fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet,
     // Lesdoelen in the fiche (lessons.js goals mode, print)
-    ficheGoalFields: ficheGoalFields, goalText: goalText
+    ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread
   };
 })();
