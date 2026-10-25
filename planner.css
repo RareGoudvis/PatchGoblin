@@ -468,7 +468,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 
 /* Weeks, stacked. */
 .qwp-ttwrap { flex:1 1 auto; min-height:0; overflow:auto; padding:12px 20px 16px; display:flex; flex-direction:column; gap:14px; }
-.qwp-wk { flex:0 0 auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:10px 12px 12px; }
+.qwp-wk { flex:0 0 auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px 12px; }
 .qwp-wk .qwp-tt { gap:5px 6px; }
 .qwp-tt-wklbl { align-self:end; font-size:13px; font-weight:700; color:var(--accent); }
 .qwp-wk .qwp-tt-dayhd { justify-content:center; background:none; border:none; padding:0 0 2px; font-size:12.5px; font-weight:700; color:var(--muted); container-type:inline-size; white-space:nowrap; overflow:hidden; }
