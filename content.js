@@ -122,23 +122,23 @@
     var wrap = document.createElement("span");
     wrap.setAttribute(LAUNCHER_ATTR, "1");
     wrap.style.cssText = "display:inline-flex;align-items:stretch;height:32px;margin:0 6px 0 10px;border-radius:7px;background:#1e2a33;color:#fff;" +
-      "box-shadow:3px 3px 0 #e4e642;vertical-align:middle;white-space:nowrap;font:" + FONT + ";";
+      "box-shadow:3px 3px 0 #FFB343;vertical-align:middle;white-space:nowrap;font:" + FONT + ";";
     if (floating) wrap.style.cssText += "position:fixed;top:56px;right:20px;z-index:2147482000;";
     var main = document.createElement("button");
     main.type = "button";
     main.title = "UnQuesti openen (" + SHORTCUT + ")";
     main.style.cssText = "display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 5px;border:none;background:transparent;color:#fff;cursor:pointer;font:" + FONT + ";letter-spacing:-.01em;";
-    main.innerHTML = '<span aria-hidden="true" style="width:22px;height:22px;border-radius:5px;background:#e4e642;color:#1e2a33;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;">U</span>' +
+    main.innerHTML = '<span aria-hidden="true" style="width:22px;height:22px;border-radius:5px;background:#FFB343;color:#1e2a33;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;">U</span>' +
       "<span>UnQuesti</span>" +
-      (IS_BETA ? '<span style="padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.14);color:#e4e642;font-size:9.5px;letter-spacing:.06em;">BETA</span>' : "") +
-      '<span data-uq-badge="1" style="display:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#e4e642;color:#1e2a33;font-size:11px;align-items:center;justify-content:center;"></span>';
+      (IS_BETA ? '<span style="padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.14);color:#FFB343;font-size:9.5px;letter-spacing:.06em;">BETA</span>' : "") +
+      '<span data-uq-badge="1" style="display:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#FFB343;color:#1e2a33;font-size:11px;align-items:center;justify-content:center;"></span>';
     main.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); closeMenu(); toggle(); });
     var caret = document.createElement("button");
     caret.type = "button";
     caret.setAttribute("aria-label", "UnQuesti snelmenu");
     caret.setAttribute("aria-haspopup", "menu");
     caret.setAttribute("aria-expanded", "false");
-    caret.style.cssText = "width:30px;border:none;border-left:1px solid rgba(255,255,255,.18);border-radius:0 7px 7px 0;background:rgba(255,255,255,.08);color:#e4e642;cursor:pointer;font:700 12px/1 system-ui,sans-serif;";
+    caret.style.cssText = "width:30px;border:none;border-left:1px solid rgba(255,255,255,.18);border-radius:0 7px 7px 0;background:rgba(255,255,255,.08);color:#FFB343;cursor:pointer;font:700 12px/1 system-ui,sans-serif;";
     caret.textContent = "▾";
     caret.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); if (_menu) closeMenu(); else openMenu(wrap, caret); });
     wrap.appendChild(main);
@@ -178,7 +178,7 @@
     m.setAttribute("role", "menu");
     m.setAttribute("aria-label", "UnQuesti");
     m.style.cssText = "position:fixed;z-index:2147482500;top:" + Math.round(r.bottom + 8) + "px;left:" + Math.round(Math.max(8, r.left)) + "px;width:270px;" +
-      "background:#fff;border:2px solid #1e2a33;border-radius:10px;box-shadow:4px 4px 0 #e4e642;padding:6px;box-sizing:border-box;";
+      "background:#fff;border:2px solid #1e2a33;border-radius:10px;box-shadow:4px 4px 0 #FFB343;padding:6px;box-sizing:border-box;";
     var n = pendingCount();
     m.appendChild(menuItem("Plannen", "deze week en volgende", SHORTCUT, toggle));
     m.appendChild(menuItem("Lesfiches", "beheren en doelen invullen", "", openLessons));
