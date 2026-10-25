@@ -25,6 +25,12 @@
   if (window.__QWP_PLANNER_LOADED) return;
   window.__QWP_PLANNER_LOADED = true;
 
+  // Beta channel: a sideloaded copy whose manifest name contains "BETA" (see content.js). Only
+  // labels the UI; the beta/stable coexistence rules live in content.js and background.js.
+  var IS_BETA = (function () { try { return /BETA/.test(chrome.runtime.getManifest().name || ""); } catch (e) { return false; } })();
+  var BETA_PILL_STYLE = "display:inline-block;padding:2px 7px;border-radius:8px;background:#e4e642;color:#304651;font:700 11px/1.3 inherit;letter-spacing:.04em;vertical-align:middle;";
+  function betaPill() { return IS_BETA ? h("span", { style: BETA_PILL_STYLE, title: "Testversie — schrijft naar je echte Questi-account", text: "BETA" }) : null; }
+
   // ---------- Fixed (non-account) config ----------
   var API = "/api/cal";
   var ALL_FICHES_TAG = 8; // universal "Alle lesfiches" bucket (brief §3)
@@ -1250,6 +1256,7 @@
           h("button", { class: "qwp-btn qwp-ghost qwp-navarrow", onclick: nextWeek, title: "Volgende week", text: "→" })
         ]),
         buildGlobalSearch(),
+        betaPill(),
         h("button", { class: "qwp-topx", onclick: hide, title: "Sluiten", text: "✕" })
       ]),
       h("div", { class: "qwp-ttwrap", id: "qwp-ttwrap" }),
@@ -4534,7 +4541,7 @@
   // loads after planner.js. `ctx` is shared BY REFERENCE, so lessons.js always sees the
   // live detected context (schoolId/schoolyear/ownerId/…) once detectContext resolves.
   window.__QWP_SHARED = {
-    ctx: ctx, API: API, API_ROOT: API_ROOT,
+    ctx: ctx, API: API, API_ROOT: API_ROOT, IS_BETA: IS_BETA, betaPill: betaPill,
     jget: jget, qs: qs, xsrfToken: xsrfToken, writeHeaders: writeHeaders,
     fetchTags: fetchTags, fetchOwnTags: fetchOwnTags, fetchSharedTags: fetchSharedTags, invalidateOwnTags: invalidateOwnTags,
     topTagsForOwner: topTagsForOwner, childTags: childTags, tagTitle: tagTitle, tagColor: tagColor,

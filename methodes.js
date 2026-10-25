@@ -207,6 +207,7 @@
     if (mm.built) return;
     var header = h("div", { class: "qwm-header" }, [
       h("div", { class: "qwm-title", text: "Methodevoortgang" }),
+      S().betaPill ? S().betaPill() : null,
       h("span", { class: "qwm-status", id: "qwm-status", text: "" }),
       h("span", { class: "qwm-hspacer" }),
       h("button", { class: "qwm-btn ghost sm", onclick: openBackupModal, title: "Alle methodes exporteren of importeren (JSON)", text: "Back-up" }),

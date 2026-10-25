@@ -11,10 +11,56 @@
   if (window.__QWP_BOOTED) return;
   window.__QWP_BOOTED = true;
 
+  // ----- Beta channel -----
+  // A BETA copy (manifest name contains "BETA") is sideloaded next to the stable addon. Both inject
+  // the same overlay ids and class names into the same page, so they must never be live together:
+  //   - the beta's CSS is NOT in its manifest; the worker inserts it only once the beta is the active
+  //     copy (QWP_INSERT_CSS), so beta styles never bleed into the stable overlay;
+  //   - before that, stable is detected by probing for its CSS (manifest CSS is injected before the
+  //     DOM, so it is already there at document_idle); if found, the beta stays dormant and says so;
+  //   - beta chips carry their own data attributes, so neither copy mistakes the other's chips for its own.
+  var IS_BETA = (function () { try { return /BETA/.test(chrome.runtime.getManifest().name || ""); } catch (e) { return false; } })();
+  var stableActive = IS_BETA && (function () {
+    try {
+      var probe = document.createElement("div");
+      probe.className = "qwp-banner"; probe.style.position = "absolute"; probe.style.visibility = "hidden";
+      (document.body || document.documentElement).appendChild(probe);
+      var on = getComputedStyle(probe).display === "flex";   // planner.css: .qwp-banner { display:flex }
+      probe.remove();
+      return on;
+    } catch (e) { return false; }
+  })();
+  var _cssReady = null;
+  function ensureCss() {
+    if (!IS_BETA) return Promise.resolve();
+    if (!_cssReady) _cssReady = new Promise(function (resolve) {
+      try { chrome.runtime.sendMessage({ type: "QWP_INSERT_CSS" }, function () { void chrome.runtime.lastError; resolve(); }); }
+      catch (e) { resolve(); }
+    });
+    return _cssReady;
+  }
+  var _noticeShown = false;
+  function showDormantNotice() {
+    if (_noticeShown || !document.body) return; _noticeShown = true;
+    var n = document.createElement("div");
+    n.setAttribute("data-qwpb-notice", "1");
+    n.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483600;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:#fff7d6;color:#304651;border:1px solid #e4c84a;box-shadow:0 2px 10px rgba(0,0,0,.18);font:600 13px/1.35 urw-din,helvetica,'Segoe UI',Arial,sans-serif;max-width:92vw;";
+    n.innerHTML = "<span>UnQuesti <b>BETA</b> staat uit: de stabiele versie is ook actief. Schakel één van beide uit op chrome://extensions en herlaad de pagina.</span>";
+    var x = document.createElement("button");
+    x.type = "button"; x.textContent = "×"; x.title = "Verbergen";
+    x.style.cssText = "border:none;background:transparent;color:#304651;font-size:18px;line-height:1;cursor:pointer;padding:0 2px;";
+    x.addEventListener("click", function () { n.remove(); });
+    n.appendChild(x);
+    document.body.appendChild(n);
+  }
+  // Every entry point (chip, toolbar action, shortcut) goes through here.
+  function activate(fn) {
+    if (stableActive) { _noticeShown = false; showDormantNotice(); return; }
+    ensureCss().then(function () { try { fn(); } catch (e) { /* no-op */ } });
+  }
+
   function toggle() {
-    if (typeof window.__QWP_TOGGLE === "function") {
-      try { window.__QWP_TOGGLE(); } catch (e) { /* no-op */ }
-    }
+    activate(function () { if (typeof window.__QWP_TOGGLE === "function") window.__QWP_TOGGLE(); });
   }
 
   try {
@@ -26,7 +72,8 @@
   document.addEventListener(
     "keydown",
     function (e) {
-      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "p" || e.key === "P")) {
+      // Stable: Alt+P. Beta: Alt+Shift+P, so the two never fight over one shortcut.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "p" || e.key === "P") && (!IS_BETA || e.shiftKey)) {
         e.preventDefault();
         e.stopPropagation();
         toggle();
@@ -63,7 +110,8 @@
     b.setAttribute(opts.attr, "1");
     b.type = "button";
     b.title = opts.title;
-    b.innerHTML = opts.icon + "<span>" + opts.label + "</span>";
+    b.innerHTML = opts.icon + "<span>" + opts.label + "</span>"
+      + (IS_BETA ? '<span style="padding:2px 6px;border-radius:8px;background:#e4e642;color:#304651;font-size:10px;letter-spacing:.04em;">BETA</span>' : "");
     // Match Questi's own toolbar chips: urw-din font, slate ink (#304651), light-grey pill.
     b.style.cssText = "display:inline-flex;align-items:center;gap:7px;cursor:pointer;height:32px;padding:0 14px;margin:0 4px;border:none;border-radius:16px;background:#eceef0;color:#304651;font:600 13px/1 urw-din,q-urw-din,helvetica,'Segoe UI',Arial,sans-serif;vertical-align:middle;white-space:nowrap;";
     if (floating) b.style.cssText += "position:fixed;top:56px;right:" + (opts.floatRight || 16) + "px;z-index:2147482000;box-shadow:0 1px 4px rgba(0,0,0,.2);";
@@ -72,20 +120,24 @@
     b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); opts.onClick(); });
     return b;
   }
-  var PLANNER_CHIP = { attr: "data-qwp-launcher", title: "Questi Weekplanner (Alt+P)", label: "Weekplanner", icon: CAL_ICON, floatRight: 16, onClick: toggle };
-  var LESSONS_CHIP = { attr: "data-qwl-launcher", title: "Lesfiches beheren", label: "Lesfiches", icon: DOC_ICON, floatRight: 158, onClick: function () { if (typeof window.__QWP_OPEN_LESSONS === "function") window.__QWP_OPEN_LESSONS(); } };
-  var PRINT_CHIP = { attr: "data-qwp-print", title: "Weekplanning afdrukken", label: "Afdrukken", icon: PRINT_ICON, floatRight: 300, onClick: function () { if (typeof window.__QWP_PRINT === "function") window.__QWP_PRINT(); } };
+  var CHIP_ATTR = IS_BETA
+    ? { planner: "data-qwpb-launcher", lessons: "data-qwpb-lessons", print: "data-qwpb-print" }
+    : { planner: "data-qwp-launcher", lessons: "data-qwl-launcher", print: "data-qwp-print" };
+  var PLANNER_CHIP = { attr: CHIP_ATTR.planner, title: "Questi Weekplanner (" + (IS_BETA ? "Alt+Shift+P" : "Alt+P") + ")", label: "Weekplanner", icon: CAL_ICON, floatRight: 16, onClick: toggle };
+  var LESSONS_CHIP = { attr: CHIP_ATTR.lessons, title: "Lesfiches beheren", label: "Lesfiches", icon: DOC_ICON, floatRight: IS_BETA ? 200 : 158, onClick: function () { activate(function () { if (typeof window.__QWP_OPEN_LESSONS === "function") window.__QWP_OPEN_LESSONS(); }); } };
+  var PRINT_CHIP = { attr: CHIP_ATTR.print, title: "Weekplanning afdrukken", label: "Afdrukken", icon: PRINT_ICON, floatRight: IS_BETA ? 380 : 300, onClick: function () { activate(function () { if (typeof window.__QWP_PRINT === "function") window.__QWP_PRINT(); }); } };
   // The launcher belongs only on the calendar view. Questi is an SPA, so the URL can
   // change without a reload — gate on the current path and remove the button elsewhere.
   function onCalendar() { return /\/(calendar|kalender|agenda)/i.test(location.pathname || ""); }
-  function haveChips() { return document.querySelector("[data-qwp-launcher]") && document.querySelector("[data-qwl-launcher]") && document.querySelector("[data-qwp-print]"); }
+  function haveChips() { return document.querySelector("[" + CHIP_ATTR.planner + "]") && document.querySelector("[" + CHIP_ATTR.lessons + "]") && document.querySelector("[" + CHIP_ATTR.print + "]"); }
   function removeLauncher() {
-    var a = document.querySelector("[data-qwp-launcher]"); if (a) a.remove();
-    var b = document.querySelector("[data-qwl-launcher]"); if (b) b.remove();
-    var c = document.querySelector("[data-qwp-print]"); if (c) c.remove();
+    var a = document.querySelector("[" + CHIP_ATTR.planner + "]"); if (a) a.remove();
+    var b = document.querySelector("[" + CHIP_ATTR.lessons + "]"); if (b) b.remove();
+    var c = document.querySelector("[" + CHIP_ATTR.print + "]"); if (c) c.remove();
   }
   function ensureLauncher() {
     if (!onCalendar()) { removeLauncher(); return; }   // off the calendar → no buttons
+    if (stableActive) { removeLauncher(); showDormantNotice(); return; } // beta stays out of the way
     if (haveChips()) return;                            // idempotent (both present)
     removeLauncher();                                   // clear a partial insert, re-add as a pair
     var anchor = findToolbarAnchor();
@@ -120,7 +172,7 @@
     // duplicate insert. (Alt+P already rescues the planner; this is the only rescue for Lesfiches.)
     setTimeout(function () {
       try {
-        if (onCalendar() && !haveChips() && document.body) {
+        if (onCalendar() && !stableActive && !haveChips() && document.body) {
           document.body.appendChild(makeChip(PLANNER_CHIP, true));
           document.body.appendChild(makeChip(LESSONS_CHIP, true));
           document.body.appendChild(makeChip(PRINT_CHIP, true));

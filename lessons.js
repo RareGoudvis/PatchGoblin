@@ -204,6 +204,7 @@
       [h("option", { value: "", text: "Alle leerjaren" })].concat(GRADES.map(function (g) { return h("option", { value: g, text: g }); })));
     var header = h("div", { class: "qwl-header" }, [
       h("div", { class: "qwl-title", id: "qwl-title", text: "Lesfiches beheren" }),
+      S().betaPill ? S().betaPill() : null,
       search, gradeSel,
       h("span", { class: "qwl-status", id: "qwl-status", text: "" }),
       h("span", { class: "qwl-hspacer" }),

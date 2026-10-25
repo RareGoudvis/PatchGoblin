@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "url": "https://github.com/RareGoudvis/ce-questi-utility",
-  "notes": "Bump this 'version' (and manifest.json 'version') on every release. The extension compares its installed version against this file and shows an update banner when this is newer."
+  "notes": "UnQuesti BETA channel (branch 'unquesti'). Bump this and manifest.json 'version' together on every beta release."
 }
