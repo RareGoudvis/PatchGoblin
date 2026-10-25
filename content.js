@@ -1,11 +1,11 @@
-/* UnQuesti — content.js
+/* PatchGoblin — content.js
  * Thin boot/relay layer. planner.js (loaded first, same isolated world) defines
  * window.__QWP_TOGGLE. This script:
  *   - guards against double injection (window.__QWP_BOOTED),
  *   - relays QWP_TOGGLE messages from background (toolbar action / Alt+P command),
  *   - provides an in-page Alt+P keydown fallback (works even if the command key
  *     is unregistered or intercepted by the SPA),
- *   - injects the single UnQuesti launcher button (+ quick menu) into Questi's toolbar.
+ *   - injects the single PatchGoblin launcher button (+ quick menu) into Questi's toolbar.
  * The fullscreen page itself is built lazily by __QWP_TOGGLE. */
 (function () {
   "use strict";
@@ -46,7 +46,7 @@
     var n = document.createElement("div");
     n.setAttribute("data-qwpb-notice", "1");
     n.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483600;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:#fff7d6;color:#304651;border:1px solid #e4c84a;box-shadow:0 2px 10px rgba(0,0,0,.18);font:600 13px/1.35 urw-din,helvetica,'Segoe UI',Arial,sans-serif;max-width:92vw;";
-    n.innerHTML = "<span>UnQuesti <b>BETA</b> staat uit: de stabiele versie is ook actief. Schakel één van beide uit op chrome://extensions en herlaad de pagina.</span>";
+    n.innerHTML = "<span>PatchGoblin <b>BETA</b> staat uit: de stabiele versie is ook actief. Schakel één van beide uit op chrome://extensions en herlaad de pagina.</span>";
     var x = document.createElement("button");
     x.type = "button"; x.textContent = "×"; x.title = "Verbergen";
     x.style.cssText = "border:none;background:transparent;color:#304651;font-size:18px;line-height:1;cursor:pointer;padding:0 2px;";
@@ -83,7 +83,7 @@
     true
   );
 
-  // ----- Launcher: one UnQuesti button inside the Questi toolbar -----
+  // ----- Launcher: one PatchGoblin button inside the Questi toolbar -----
   // A single split button right after the calendar toolbar's print button: the main part opens the
   // planner, the ▾ part opens a quick menu (Plannen, Lesfiches, Afdrukken, Instellingen). It is
   // deliberately styled as a foreign object — dark sticker with a hard yellow shadow — so nobody
@@ -118,13 +118,19 @@
   function pendingCount() {
     try { var n = typeof window.__QWP_PENDING_COUNT === "function" ? window.__QWP_PENDING_COUNT() : 0; return n > 0 ? n : 0; } catch (e) { return 0; }
   }
-  // UnQuesti mark: a calendar with a bolt on an amber tile — same drawing as the extension icons.
+  // PatchGoblin mark: a goblin who is done with it all (half-shut eyes, plaster on the head) on an
+  // amber tile — same drawing as icons/icon*.png.
   function markSvg(size) {
     return '<svg aria-hidden="true" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" style="display:block;flex:0 0 auto;">' +
       '<rect width="24" height="24" rx="5.5" fill="#FFB343"/>' +
-      '<g fill="none" stroke="#1e2a33" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-      '<rect x="4" y="6" width="16" height="14.5" rx="2.6"/><path d="M4 10h16M8.5 3.6v4M15.5 3.6v4"/></g>' +
-      '<path d="M13.2 11.2 9.2 16h2.7l-1 3.6 4-5h-2.7z" fill="#1e2a33"/></svg>';
+      '<path d="M6.6 11.2 1.3 12.9 6.4 15.4ZM17.4 11.2 22.7 12.9 17.6 15.4Z" fill="#8FCB5A" stroke="#1e2a33" stroke-width="1.1" stroke-linejoin="round"/>' +
+      '<ellipse cx="12" cy="13.6" rx="6.1" ry="5.9" fill="#8FCB5A" stroke="#1e2a33" stroke-width="1.2"/>' +
+      '<g transform="rotate(-28 14.9 9.4)"><rect x="12.9" y="8.6" width="4" height="1.7" rx=".7" fill="#F4E3C8" stroke="#1e2a33" stroke-width=".55"/></g>' +
+      '<ellipse cx="9.4" cy="13.4" rx="1.65" ry="1.15" fill="#fff"/><ellipse cx="14.6" cy="13.4" rx="1.65" ry="1.15" fill="#fff"/>' +
+      '<circle cx="9.55" cy="13.95" r=".62" fill="#1e2a33"/><circle cx="14.75" cy="13.95" r=".62" fill="#1e2a33"/>' +
+      '<path d="M7.75 13.25Q9.4 11.9 11.05 13.25ZM12.95 13.25Q14.6 11.9 16.25 13.25Z" fill="#8FCB5A"/>' +
+      '<path d="M7.6 13.25h3.6M12.8 13.25h3.6M9.9 17.45 14.3 17.15" stroke="#1e2a33" stroke-width="1.1" stroke-linecap="round"/>' +
+      '<path d="M12.9 17.25l.45.75.4-.8z" fill="#fff" stroke="#1e2a33" stroke-width=".35"/></svg>';
   }
   // Menu icons, stroke style as in the app's own menus.
   var ICONS = {
@@ -137,7 +143,7 @@
   function icoSvg(name) {
     return '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + "</svg>";
   }
-  // Launcher: same shape language as the app's buttons (8px corners) in the UnQuesti colours —
+  // Launcher: same shape language as the app's buttons (8px corners) in the PatchGoblin colours —
   // ink fill, amber mark — so it reads as a foreign but tidy object in Questi. No offset shadow.
   function makeLauncher(floating) {
     var wrap = document.createElement("span");
@@ -147,15 +153,15 @@
     if (floating) wrap.style.cssText += "position:fixed;top:56px;right:20px;z-index:2147482000;";
     var main = document.createElement("button");
     main.type = "button";
-    main.title = "UnQuesti openen (" + SHORTCUT + ")";
+    main.title = "PatchGoblin openen (" + SHORTCUT + ")";
     main.style.cssText = "display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 5px;border:none;border-radius:8px 0 0 8px;background:transparent;color:#fff;cursor:pointer;font:" + FONT + ";letter-spacing:-.01em;";
-    main.innerHTML = markSvg(22) + "<span>UnQuesti</span>" +
+    main.innerHTML = markSvg(22) + "<span>PatchGoblin</span>" +
       (IS_BETA ? '<span style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#FFB343;font-size:9.5px;letter-spacing:.06em;">BETA</span>' : "") +
       '<span data-uq-badge="1" style="display:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#FFB343;color:#1e2a33;font-size:11px;align-items:center;justify-content:center;"></span>';
     main.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); closeMenu(); toggle(); });
     var caret = document.createElement("button");
     caret.type = "button";
-    caret.setAttribute("aria-label", "UnQuesti snelmenu");
+    caret.setAttribute("aria-label", "PatchGoblin snelmenu");
     caret.setAttribute("aria-haspopup", "menu");
     caret.setAttribute("aria-expanded", "false");
     caret.style.cssText = "width:30px;display:inline-flex;align-items:center;justify-content:center;border:none;border-left:1px solid rgba(255,255,255,.16);border-radius:0 8px 8px 0;background:transparent;color:#FFB343;cursor:pointer;";
@@ -207,12 +213,12 @@
     var r = wrap.getBoundingClientRect();
     var m = document.createElement("div");
     m.setAttribute("role", "menu");
-    m.setAttribute("aria-label", "UnQuesti");
+    m.setAttribute("aria-label", "PatchGoblin");
     m.style.cssText = "position:fixed;z-index:2147482500;top:" + Math.round(r.bottom + 10) + "px;left:" + Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 310))) + "px;width:300px;" +
       "display:flex;flex-direction:column;gap:2px;background:#1e2a33;color:#fff;border:1px solid #1e2a33;border-radius:12px;box-shadow:0 10px 28px rgba(30,42,51,.28),0 2px 6px rgba(30,42,51,.12);padding:8px;box-sizing:border-box;";
     var head = document.createElement("div");
     head.style.cssText = "display:flex;align-items:center;gap:8px;padding:4px 8px 8px;font:800 14px/1 " + MENU_FONT + ";color:#fff;";
-    head.innerHTML = markSvg(20) + "<span>UnQuesti</span>" + (IS_BETA ? '<span style="margin-left:auto;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#FFB343;font-size:10px;font-weight:700;letter-spacing:.06em;">BETA</span>' : "");
+    head.innerHTML = markSvg(20) + "<span>PatchGoblin</span>" + (IS_BETA ? '<span style="margin-left:auto;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#FFB343;font-size:10px;font-weight:700;letter-spacing:.06em;">BETA</span>' : "");
     m.appendChild(head);
     var n = pendingCount();
     m.appendChild(menuItem("plan", "Plannen", "deze week en volgende", SHORTCUT, toggle));

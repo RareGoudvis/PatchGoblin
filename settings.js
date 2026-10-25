@@ -1,4 +1,4 @@
-/* UnQuesti — settings.js
+/* PatchGoblin — settings.js
  * Instellingen (7 sections), the first-run setup wizard, settings export/import, and the
  * Zelftest "Opslaan als .json" report. Overlay #qws-overlay, CSS prefix qws-.
  *
@@ -591,7 +591,7 @@
     var parts = opts.parts || {}; EXPORT_PARTS.forEach(function (p) { if (parts[p.id] == null) parts[p.id] = p.on; });
     var s = st(), skipped = [];
     var out = {
-      format: EXPORT_FORMAT, version: EXPORT_VERSION, exported_at: new Date().toISOString(), tool: "UnQuesti " + manifestVersion(),
+      format: EXPORT_FORMAT, version: EXPORT_VERSION, exported_at: new Date().toISOString(), tool: "PatchGoblin " + manifestVersion(),
       from: { school: (ctx().school && ctx().school.name) || null, schoolyear: ctx().schoolyear != null ? String(ctx().schoolyear) : null }
     };
     if (parts.vakken) out.vakken = vakTops(true).map(function (t, i) { return { title: tagName(t), color: t.color || null, vak: isVakId(t.id), order: i }; });
@@ -706,7 +706,7 @@
       rd.onload = function () {
         var data = null;
         try { data = JSON.parse(String(rd.result || "")); } catch (e) { showError("Dit bestand is geen geldige JSON."); return; }
-        if (!data || data.format !== EXPORT_FORMAT) { showError("Dit is geen UnQuesti-instellingenbestand (veld ‘format’ ontbreekt of klopt niet)."); return; }
+        if (!data || data.format !== EXPORT_FORMAT) { showError("Dit is geen PatchGoblin-instellingenbestand (veld ‘format’ ontbreekt of klopt niet)."); return; }
         if (typeof data.version !== "number") { showError("Dit bestand heeft geen schemaversie."); return; }
         var b = buildImport(data);
         imp = { name: f.name, data: data, rows: b.rows, byKey: b.byKey, parts: {} };
@@ -937,7 +937,7 @@
     var diagMsg = h("span", { class: "qws-muted" });
     body.appendChild(h("div", { class: "qws-two even" }, [
       card([
-        h("span", { class: "qws-big", text: "UnQuesti" }), verLine,
+        h("span", { class: "qws-big", text: "PatchGoblin" }), verLine,
         h("p", { class: "qws-p", text: "Bijwerken: dubbelklik update.bat in de map van de planner, laad de extensie opnieuw op chrome://extensions en herlaad daarna Questi. De planner meldt zelf wanneer er een nieuwe versie is." }),
         h("div", { class: "qws-inline" }, [
           btn("Zelftest openen", function () {
@@ -1231,7 +1231,7 @@
       var settings = r.data;
       if (opts.omitTitles && settings.themas) settings.themas.forEach(function (e) { e.title = red(e.title); });
       var payload = {
-        tool: "UnQuesti", version: manifestVersion(), zelftest: opts.toolVersion || null,
+        tool: "PatchGoblin", version: manifestVersion(), zelftest: opts.toolVersion || null,
         created_at: new Date().toISOString(), userAgent: navigator.userAgent, titlesOmitted: !!opts.omitTitles,
         context: {
           school: (x.school && x.school.name) || null, schoolyear: x.schoolyear != null ? String(x.schoolyear) : null,

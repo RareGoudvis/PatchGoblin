@@ -1,4 +1,4 @@
-/* UnQuesti — settings.css
+/* PatchGoblin — settings.css
  * Instellingen + first-run setup wizard. Light theme only, namespaced under #qws-overlay so
  * nothing leaks into (or inherits from) Questi's own page. Tokens mirror planner.css.
  * z-index sits just above the planner (2147483000), below Methodevoortgang (2147483050) and the

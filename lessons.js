@@ -1363,7 +1363,7 @@
   // A new fiche gets a large centred window (two columns), not the narrow edit sheet: writing a
   // whole fiche, with the Op.Stap picker, needs the room.
   function openNewFiche(prefill) {
-    if (!isMounted()) { setStatus("Open Lesfiches in UnQuesti om een nieuwe fiche te maken."); return; }
+    if (!isMounted()) { setStatus("Open Lesfiches in PatchGoblin om een nieuwe fiche te maken."); return; }
     var m = modal("Nieuwe lesfiche", [h("div", { class: "qwl-loading", text: "Sjablonen laden…" })], [], "qwl-newfiche");
     var titleEl = m.querySelector(".qwl-modal-hd span"); titleEl.id = "qwl-new-title";
     titleEl.textContent = "Nieuwe lesfiche" + (prefill && prefill.subject ? " — " + prefill.subject : "");
@@ -1461,7 +1461,7 @@
           section((fld.title || "Methode") + " (methode)", [h("div", { class: "qwl-note", text: "Dit veld hoort bij een methode" + (fld.method && fld.method.name ? " (" + fld.method.name + ")" : "") + ". Methodedoelen kies je voorlopig in Questi; de fiche wordt zonder dit veld aangemaakt." })], true);
         }
       });
-      // --- WEET / KEN / KAN (extra fields, like every own fiche in UnQuesti)
+      // --- WEET / KEN / KAN (extra fields, like every own fiche in PatchGoblin)
       GOAL_KINDS.forEach(function (k) {
         var ta = h("textarea", { class: "qwl-textarea", rows: "2" }); ta.value = st.goals[k] || "";
         ta.addEventListener("input", function () { st.goals[k] = ta.value; });

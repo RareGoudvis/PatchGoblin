@@ -1,4 +1,4 @@
-/* UnQuesti planner — planner.css
+/* PatchGoblin planner — planner.css
  * Light theme only. Everything is namespaced under #qwp-overlay so nothing
  * leaks into (or inherits from) Questi's own page.
  *
@@ -6,7 +6,7 @@
  *          main = [ sidebar 360px (tabs · vak chips · Ik/Collega · filter · fiche list · actions)
  *                 | content( week header + this week and next week STACKED ) ]
  * The generic .qwp-tt / .qwp-cell rules below are shared with the review modal (two weeks side
- * by side there); the UnQuesti block at the end restyles them inside .qwp-wk week sections only.
+ * by side there); the PatchGoblin block at the end restyles them inside .qwp-wk week sections only.
  * ------------------------------------------------------------------ */
 
 #qwp-overlay, #qwp-overlay * { box-sizing: border-box; }
@@ -17,7 +17,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 #qwp-overlay {
   --ink:#1e2a33; --muted:#6b7a82; --faint:#8b94a0;
   --line:#e3e9ec; --line-soft:#eef1f5; --line2:#d5dbdf; --soft:#eef2f4; --band-line:#e7cf94;
-  /* UnQuesti brand palette ("Glowing horizon"). --uq-blue for borders/fills/tints; --uq-blue-ink
+  /* PatchGoblin brand palette ("Glowing horizon"). --uq-blue for borders/fills/tints; --uq-blue-ink
      (a step deeper, ~5.7:1 against white) wherever blue carries text. --uq-cyan is never a text colour. */
   --qwp-side-w:360px; /* sidebar width; the user drags it (state.sideWidth → inline style) */
   --uq-blue:#4272FF; --uq-blue-ink:#2D5BE3; --uq-blue-tint:#edf2ff; --uq-amber:#FFB343; --uq-orange:#FF7E42; --uq-orange-tint:#fff1e9; --uq-orange-ink:#8a3b12; --uq-cyan:#42EAFF; --uq-cyan-tint:#e9fcff;
@@ -351,7 +351,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-lobtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
 
 /* =====================================================================
- * UnQuesti "Plannen" layout (buildShell). Sidebar 360px | main column.
+ * PatchGoblin "Plannen" layout (buildShell). Sidebar 360px | main column.
  * Placed last so it wins over the generic grid rules above, which the
  * review modal still uses as they are.
  * ===================================================================== */

@@ -1,19 +1,19 @@
-# UnQuesti
+# PatchGoblin for Questi
 
 **Doing the job their UI designer was paid for.**
 
-UnQuesti is the lightweight addon that strips away the user-hostile layout, bypasses the clumsy
+PatchGoblin is the lightweight addon that strips away the user-hostile layout, bypasses the clumsy
 navigation, and restores sanity to your workflow. Because life is too short for a terrible UI.
 
-> UnQuesti is the successor of the *Questi Weekplanner* (v1.5).
+> PatchGoblin for Questi (formerly UnQuesti) is the successor of the *Questi Weekplanner* (v1.6).
 >
-> UnQuesti is an independent, unofficial project. It is not made, endorsed or supported by Questi.
+> PatchGoblin is an independent, unofficial project. It is not made, endorsed or supported by Questi.
 
 ---
 
 ## Wat het doet
 
-UnQuesti legt één venster over je Questi-agenda, bereikbaar met één knop in de werkbalk
+PatchGoblin legt één venster over je Questi-agenda, bereikbaar met één knop in de werkbalk
 (of **Alt + P**). Daarin:
 
 - **Plannen** — deze week en volgende week onder elkaar. Sleep lesfiches uit de lijst links op je
@@ -33,7 +33,7 @@ UnQuesti legt één venster over je Questi-agenda, bereikbaar met één knop in 
 | Onderdeel | Status |
 |---|---|
 | Plannen · Lesfiches · Afdrukken in één venster, Methodevoortgang | werkt (v1.4) |
-| Eén UnQuesti-knop met snelmenu | werkt |
+| Eén PatchGoblin-knop met snelmenu | werkt |
 | Eén Controleer voor tags, lesfiches en agenda | werkt |
 | Weken vooruit plannen, vakantieweken overslaan | werkt |
 | Eerste installatie (wizard), instellingen delen (.json) | werkt |
@@ -68,8 +68,8 @@ keer weg naar Questi. Werkt in **Chrome**, **Brave** en **Edge**.
 
 ## Installeren (Chrome, Brave of Edge)
 
-> **Snelste weg:** download en dubbelklik `install.bat`. Het zet UnQuesti in
-> `%LOCALAPPDATA%\UnQuesti`, kopieert die map naar je klembord en opent de extensiepagina. Daar nog
+> **Snelste weg:** download en dubbelklik `install.bat`. Het zet PatchGoblin in
+> `%LOCALAPPDATA%\PatchGoblin`, kopieert die map naar je klembord en opent de extensiepagina. Daar nog
 > 3 klikken: Ontwikkelaarsmodus aan → Uitgepakt laden → plak (Ctrl+V) de map. Op een pc die door de
 > school/IT beheerd wordt, kan ontwikkelaarsmodus geblokkeerd zijn — dan werkt dit niet.
 

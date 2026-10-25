@@ -11,7 +11,7 @@
  *   - ownerId: from a tag with is_owner (or the owner.id of an own fiche).
  * If detection fails, the UI shows a clear error instead of silently loading 0.
  *
- * Layout (UnQuesti "Plannen"): fullscreen page; a 360px sidebar (tabs Plannen ·
+ * Layout (PatchGoblin "Plannen"): fullscreen page; a 360px sidebar (tabs Plannen ·
  * Lesfiches · Afdrukken, vak chips, Ik/Collega, folding filter, ONE fiche list,
  * pinned Alles · Instellingen · Debug · Controleer); a main column with this week
  * and next week STACKED, cards in the Lesdoelen-print look, and a Plannen | Doelen
@@ -109,7 +109,7 @@
     if (s.splitRatio) state.splitRatio = s.splitRatio;
     if (s.sideCollapsed != null) state.sideCollapsed = s.sideCollapsed;
     if (s.workingCalendarId != null) state.workingCalendarId = s.workingCalendarId;
-    if (s.mainMode) state.mainMode = s.mainMode;          // UnQuesti main view: "plan" | "doelen"
+    if (s.mainMode) state.mainMode = s.mainMode;          // PatchGoblin main view: "plan" | "doelen"
     if (s.filterOpen != null) state.filterOpen = !!s.filterOpen;
     if (s.doelenWeek != null) state.doelenWeek = s.doelenWeek;
     if (Array.isArray(s.panels) && s.panels.length) {
@@ -117,7 +117,7 @@
     }
     mergeUqSettings(s);
   }
-  // ---- UnQuesti settings fields (UI lives in settings.js; kept here because the planner reads them) ----
+  // ---- PatchGoblin settings fields (UI lives in settings.js; kept here because the planner reads them) ----
   // vakTags:  top-tag ids that count as vakken, null = every own top tag (the pre-settings behaviour).
   // vakOrder: legend order of vak tag ids, null = alphabetical.
   // setupDone: the first-run wizard was shown (finished or dismissed) — it auto-opens only once.
@@ -130,7 +130,7 @@
     if (Array.isArray(s.vakOrder)) state.vakOrder = s.vakOrder;
     if (s.setupDone != null) state.setupDone = !!s.setupDone;
     if (s.saveThrottleMs != null) state.saveThrottleMs = s.saveThrottleMs;   // was saved but never restored
-    // Sidebar/vak picker preferences (UnQuesti). Every field written to state must be restored
+    // Sidebar/vak picker preferences (PatchGoblin). Every field written to state must be restored
     // here too — mergeState copies by name, so a field missing from this list silently resets.
     if (s.vakView === "tiles" || s.vakView === "compact" || s.vakView === "select") state.vakView = s.vakView;
     if (s.vakAbbr && typeof s.vakAbbr === "object") state.vakAbbr = s.vakAbbr;
@@ -1333,7 +1333,7 @@
   function ownerName(id) { if (String(id) === String(myId())) return "Ik"; var c = state.colleagues.filter(function (x) { return String(x.id) === String(id); })[0]; if (c && c.isMethod) return "Methode: " + c.name; return c ? c.name : ("#" + id); }
 
   // ---------- Shell ----------
-  // UnQuesti "Plannen" layout. Left: a wide sidebar — section tabs, vak chips, an Ik/Collega
+  // PatchGoblin "Plannen" layout. Left: a wide sidebar — section tabs, vak chips, an Ik/Collega
   // switch, a folding filter, ONE fiche list, and four action buttons pinned to the bottom.
   // Right: a week header and this week + next week stacked. Every action of the old narrow
   // sidebar lives on in the "Alles" menu (openAlles), so nothing was dropped with it.
@@ -1742,7 +1742,7 @@
       menuItem("▤", "Methodes", "Questi-methodebibliotheken tonen", "", function () { freshPop(openMethodesPopover); }),
       grp("Overzicht"),
       menuItem("▦", "Methodevoortgang", "welke lessen van een methode al gegeven zijn", "", function () { if (window.__QWP_METHODES) window.__QWP_METHODES.open(); else setStatus("Methodevoortgang is niet geladen."); }),
-      h("div", { class: "qwp-mfoot" }, [h("span", { text: "UnQuesti" + (ver ? " v" + ver : "") }), betaPill()])
+      h("div", { class: "qwp-mfoot" }, [h("span", { text: "PatchGoblin" + (ver ? " v" + ver : "") }), betaPill()])
     ], "qwp-alles-menu");
   }
   function openSourceMenu(pi, anchor) {

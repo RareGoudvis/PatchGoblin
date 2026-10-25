@@ -98,7 +98,7 @@ exported for settings.js too.
   *on top of* the methodes panel in pick mode.
 - Design tokens are duplicated per overlay as CSS custom properties (`--ink --muted --line
   --surface --accent #304651 --accent2 #e4e642 --change #137a3a --thema --danger`), matching
-  Questi's own Angular-Material theme. The planner's UnQuesti block adds the brand palette
+  Questi's own Angular-Material theme. The planner's PatchGoblin block adds the brand palette
   ("Glowing horizon") on `#qwp-overlay`: `--uq-blue #4272FF` (active/selected, the **changed**
   border on cards), `--uq-amber #FFB343` (Controleer fill with dark ink, badges, the 3px top strip on menus — no hard offset shadows; menus use a light border + soft shadow),
   `--uq-orange #FF7E42` (attention: zonder doelen, warnings), `--uq-cyan #42EAFF` (gepland marker,
@@ -165,7 +165,7 @@ Writes: `PATCH /cal/items/{id}` (writes **do** send `schoolyear`; `groups` are o
 
 ## Feature notes
 
-**Planner (UnQuesti "Plannen" window).** `buildShell`: a 360px sidebar — tabs Plannen · Lesfiches
+**Planner (PatchGoblin "Plannen" window).** `buildShell`: a 360px sidebar — tabs Plannen · Lesfiches
 (all three tabs switch through `goTab`: Lesfiches = `setTab`, see "Lesfiche-manager") · Afdrukken (`showTab("print")`, see **Afdrukken tab**), vak
 chips (`renderVakToggle`), `Ik | Collega ▾` (`renderSource` + `openSourceMenu`, colleagues and
 methodes), a folding filter (`applyFilterFold`; the button says "Filter •" when a folded filter
@@ -188,7 +188,7 @@ when unplanned (`unplanned` = no fiche/gym and a "Lesuur N" title — cosmetic o
 **Doelen** mode expands `state.doelenWeek` and folds the other week into a bar; cards show WEET/KEN/
 KAN read-only from `goalsRecFor` after `loadPrintFicheGoals` (expanded week only, mapLimit 4, goal
 cache), and the header counts lesuren without goals (`goalsStateOf`). The review modal still draws
-both weeks side by side with the generic `.qwp-tt` rules — the UnQuesti CSS is scoped to `.qwp-wk`.
+both weeks side by side with the generic `.qwp-tt` rules — the PatchGoblin CSS is scoped to `.qwp-wk`.
 Rows, breaks and no-school days are all derived from the data, never hardcoded. `vak` (subject) is not an API field — it is
 the teacher's per-timeslot tag mapping from `state.settings`. Commit path is
 `buildCommitPlan` → review diff → `doCommit`. Ctrl+Z undo stack, cap 30, cleared on week change.

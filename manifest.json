@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "UnQuesti",
-  "version": "1.5.2",
-  "description": "UnQuesti — plan je lesweken in Questi: lesfiches slepen, lesdoelen, afdrukken en één controle voor alles naar Questi gaat.",
+  "name": "PatchGoblin for Questi",
+  "version": "1.6.0",
+  "description": "PatchGoblin — plan je lesweken in Questi: lesfiches slepen, lesdoelen, afdrukken en één controle voor alles naar Questi gaat.",
   "permissions": [
     "storage",
     "activeTab",
@@ -17,7 +17,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "UnQuesti (Alt+P)",
+    "default_title": "PatchGoblin (Alt+P)",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -34,7 +34,7 @@
       "suggested_key": {
         "default": "Alt+P"
       },
-      "description": "UnQuesti openen of sluiten"
+      "description": "PatchGoblin openen of sluiten"
     }
   },
   "content_scripts": [

@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================================
-REM  UnQuesti - installer
-REM  Dubbelklik dit bestand. Het haalt UnQuesti van GitHub, zet het in een vaste
+REM  PatchGoblin - installer
+REM  Dubbelklik dit bestand. Het haalt PatchGoblin van GitHub, zet het in een vaste
 REM  map, kopieert die map naar je klembord en opent de extensiepagina van je
 REM  browser. Daar doe je zelf nog 1 klik: "Uitgepakt laden" + plakken.
 REM  Geen Git of installatie nodig - gebruikt alleen Windows PowerShell.
@@ -9,12 +9,12 @@ REM ============================================================================
 setlocal
 REM Welke versie: "main" = stabiel. Testers van een beta zetten hier de naam van die branch.
 set "UQ_BRANCH=main"
-echo === UnQuesti installeren (versie: %UQ_BRANCH%) ===
+echo === PatchGoblin installeren (versie: %UQ_BRANCH%) ===
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
   "try {" ^
-  "  $branch=$env:UQ_BRANCH; $dest=Join-Path $env:LOCALAPPDATA 'UnQuesti';" ^
+  "  $branch=$env:UQ_BRANCH; $dest=Join-Path $env:LOCALAPPDATA 'PatchGoblin';" ^
   "  $zip=Join-Path $env:TEMP 'unquesti-install.zip'; $tmp=Join-Path $env:TEMP 'unquesti-install';" ^
   "  Write-Host ('Downloaden van GitHub (' + $branch + ')...');" ^
   "  Invoke-WebRequest -Uri ('https://github.com/RareGoudvis/ce-questi-utility/archive/refs/heads/' + $branch + '.zip') -OutFile $zip;" ^
@@ -47,8 +47,8 @@ echo   1. Zet "Ontwikkelaarsmodus" aan (rechtsboven; in Edge links).
 echo   2. Klik "Uitgepakt laden".
 echo   3. Klik in het adresvak bovenaan, plak (Ctrl+V), druk Enter en kies "Map selecteren".
 echo.
-echo  Daarna: herlaad je Questi-agenda. Je ziet de knop "UnQuesti" in de werkbalk.
-echo  Bijwerken later: dubbelklik update.bat in %LOCALAPPDATA%\UnQuesti
+echo  Daarna: herlaad je Questi-agenda. Je ziet de knop "PatchGoblin" in de werkbalk.
+echo  Bijwerken later: dubbelklik update.bat in %LOCALAPPDATA%\PatchGoblin
 echo ============================================================================
 echo.
 pause

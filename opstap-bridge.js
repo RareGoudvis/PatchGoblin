@@ -1,10 +1,10 @@
-/* UnQuesti — Op.Stap bridge (runs in the PAGE's world, see manifest "world": "MAIN").
+/* PatchGoblin — Op.Stap bridge (runs in the PAGE's world, see manifest "world": "MAIN").
  * Questi uses Katholiek Onderwijs Vlaanderen's <op-stap-selector> web component for Op.Stap
  * leerplandoelen, but only loads its script once Questi's own fiche editor opens. This bridge:
  *  - marks <html data-uq-opstap="1"> once the component is defined, so the extension knows;
  *  - on the extension's "uq-opstap-load" event, loads that same script (the URL Questi uses)
  *    when it is not there yet — classic first, as a module if that defines nothing;
- *  - copies each "OpStapSelectionChanged" detail onto UnQuesti's own selectors (marked data-uq)
+ *  - copies each "OpStapSelectionChanged" detail onto PatchGoblin's own selectors (marked data-uq)
  *    as JSON in `data-uq-sel`, because an event's detail object does not reach the extension's
  *    isolated world.
  * It touches nothing else and sends nothing anywhere. */
