@@ -11,11 +11,11 @@
  *   - ownerId: from a tag with is_owner (or the owner.id of an own fiche).
  * If detection fails, the UI shows a clear error instead of silently loading 0.
  *
- * Layout requirements: fullscreen page; "2 weken" side by side and fitting the
- * viewport (no horizontal scroll); every cell clickable; top week nav; two
- * independent bottom filter panels; text-only buttons; WO + Godsdienst theme
- * rows spanning the whole week; pauze/speeltijd gap bands; Wednesday afternoon
- * marked no-school.
+ * Layout (UnQuesti "Plannen"): fullscreen page; a 360px sidebar (tabs Plannen ·
+ * Lesfiches · Afdrukken, vak chips, Ik/Collega, folding filter, ONE fiche list,
+ * pinned Alles · Instellingen · Debug · Controleer); a main column with this week
+ * and next week STACKED, cards in the Lesdoelen-print look, and a Plannen | Doelen
+ * switch. Thema rows span the week; pauze/speeltijd gap bands; every cell clickable.
  *
  * Safety: single-occurrence writes (apply_to_next_items=false); mandatory
  * dry-run review; "Wegschrijven" locked until the diff is approved. Light only.
@@ -82,7 +82,7 @@
   // ---------- Storage ----------
   var STORE_KEY = "qwp_state_v6";
   function mkPanel(vak, sort) { return { source: "self", sortDir: sort || "az", filterVak: vak || null, filterTagId: null, hideUsed: false, gradeFilter: null }; }
-  var state = { colleagues: [], settings: {}, weeks: 1, panelCount: 2, pickerView: "list", splitRatio: 0.58, sideCollapsed: null, workingCalendarId: null, manualSchoolId: null, manualSchoolyear: null, manualOwnTagId: null, themaVak: {}, slotVak: {}, saveThrottleMs: 250, panels: [mkPanel(null, "az"), mkPanel(null, "az"), mkPanel(null, "az")] };
+  var state = { colleagues: [], settings: {}, weeks: 1, panelCount: 2, pickerView: "list", splitRatio: 0.58, sideCollapsed: null, workingCalendarId: null, manualSchoolId: null, manualSchoolyear: null, manualOwnTagId: null, themaVak: {}, slotVak: {}, saveThrottleMs: 250, mainMode: "plan", filterOpen: false, doelenWeek: 0, panels: [mkPanel(null, "az"), mkPanel(null, "az"), mkPanel(null, "az")] };
   function loadState() {
     return new Promise(function (res) {
       try {
@@ -109,6 +109,9 @@
     if (s.splitRatio) state.splitRatio = s.splitRatio;
     if (s.sideCollapsed != null) state.sideCollapsed = s.sideCollapsed;
     if (s.workingCalendarId != null) state.workingCalendarId = s.workingCalendarId;
+    if (s.mainMode) state.mainMode = s.mainMode;          // UnQuesti main view: "plan" | "doelen"
+    if (s.filterOpen != null) state.filterOpen = !!s.filterOpen;
+    if (s.doelenWeek != null) state.doelenWeek = s.doelenWeek;
     if (Array.isArray(s.panels) && s.panels.length) {
       state.panels = [0, 1, 2].map(function (i) { return Object.assign(mkPanel(), state.panels[i], s.panels[i] || {}); });
     }
@@ -1201,7 +1204,7 @@
   // (see computeTimeRows / breakLabelAfter / isNoSchool) — no hardcoded clock.
   function mkViewPanel() { return { source: "self", sortDir: "az", filterVak: null, filterTagId: null, unionMode: true, subTagId: null, picked: {}, search: "", loading: false, hideUsed: false, gradeFilter: null }; }
   var view = {
-    weekStart: null, weeks: 1, weekOffset: 0,
+    weekStart: null, weeks: 2, weekOffset: 0,   // always this week + next (stacked)
     slots: [], timeRows: [], rowMeta: {}, presence: {}, ficheGroups: [], tags: [], ownTags: [], people: [],
     ownTopTags: [], ficheCache: {}, targetSlots: [], vakTagMap: {},
     selectedSlotId: null, undoStack: [], dragVakTag: null, allByOwner: {},
@@ -1227,88 +1230,119 @@
   function ownerName(id) { if (String(id) === String(myId())) return "Ik"; var c = state.colleagues.filter(function (x) { return String(x.id) === String(id); })[0]; if (c && c.isMethod) return "Methode: " + c.name; return c ? c.name : ("#" + id); }
 
   // ---------- Shell ----------
+  // UnQuesti "Plannen" layout. Left: a wide sidebar — section tabs, vak chips, an Ik/Collega
+  // switch, a folding filter, ONE fiche list, and four action buttons pinned to the bottom.
+  // Right: a week header and this week + next week stacked. Every action of the old narrow
+  // sidebar lives on in the "Alles" menu (openAlles), so nothing was dropped with it.
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  var ICONS = {
+    filter: '<path d="M3 5h18l-7 8v6l-4-2v-4z"></path>',
+    alles: '<circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path>',
+    inst: '<rect x="3" y="4" width="18" height="17" rx="2"></rect><path d="M3 9h18M8 2v4M16 2v4"></path>',
+    debug: '<path d="M8 2l1.5 2M16 2l-1.5 2M9 7h6a3 3 0 0 1 3 3v4a6 6 0 0 1-12 0v-4a3 3 0 0 1 3-3zM12 11v9M6 12H2M22 12h-4M6 17l-3 2M18 17l3 2"></path>',
+    check: '<path d="M20 6L9 17l-5-5"></path>'
+  };
+  // Constant markup only (never data), parsed in the SVG namespace.
+  function svgIcon(name, size, stroke) {
+    var s = document.createElementNS(SVG_NS, "svg");
+    s.setAttribute("width", size); s.setAttribute("height", size); s.setAttribute("viewBox", "0 0 24 24");
+    s.setAttribute("fill", "none"); s.setAttribute("stroke", "currentColor"); s.setAttribute("stroke-width", stroke || "1.8");
+    s.setAttribute("stroke-linecap", "round"); s.setAttribute("stroke-linejoin", "round"); s.setAttribute("aria-hidden", "true");
+    s.innerHTML = ICONS[name] || "";
+    return s;
+  }
+  function actBtn(id, icon, label, onclick, extraCls, title) {
+    return h("button", { class: "qwp-actbtn" + (extraCls ? " " + extraCls : ""), id: id, title: title || null, onclick: onclick }, [svgIcon(icon, 20, icon === "check" ? "2" : "1.8"), h("span", { text: label })]);
+  }
   function buildShell() {
-    var side = h("div", { class: "qwp-side", id: "qwp-side" }, [
-      h("div", { class: "qwp-side-grp" }, [
-        h("div", { class: "qwp-side-lbl", text: "Legende" }),
-        legendRow("var(--accent)", "border", "blauwe rand = fiche gekoppeld"),
-        legendRow("var(--change-weak)", "fill", "groen = gewijzigd"),
-        legendRow("var(--thema-weak)", "fill", "geel = thema"),
-        legendRow("var(--gym-weak)", "fill", "grijs = gym")
+    var tabs = h("nav", { class: "qwp-tabs", "aria-label": "Onderdelen" }, [
+      h("button", { class: "qwp-tab active", "aria-current": "page", text: "Plannen" }),
+      h("button", { class: "qwp-tab", title: "Lesfiche-manager openen", text: "Lesfiches", onclick: function () { resetPrintFicheGoals(); openLessonsManager(); } }),
+      h("button", { class: "qwp-tab", title: "Afdrukvenster voor de geladen week (opgeslagen planning)", text: "Afdrukken", onclick: openPrintFromPlanner })
+    ]);
+    var sortSel = h("select", { class: "qwp-fsel", id: "qwp-sort-0", onchange: function (e) {
+      var p = view.panels[0]; p.sortDir = e.target.value === "za" ? "za" : "az"; state.panels[0].sortDir = p.sortDir; saveState(); renderPickList(0);
+    } }, [h("option", { value: "az", text: "Titel A → Z" }), h("option", { value: "za", text: "Titel Z → A" })]);
+    var hideChk = h("input", { type: "checkbox", id: "qwp-hideused-0", onchange: function (e) {
+      var p = view.panels[0]; p.hideUsed = !!e.target.checked; state.panels[0].hideUsed = p.hideUsed; saveState(); renderPickList(0);
+    } });
+    var filter = h("div", { class: "qwp-filter", id: "qwp-filter" }, [
+      h("label", { class: "qwp-flbl wide" }, ["Zoeken", h("input", { class: "qwp-finp", id: "qwp-search-0", type: "text", placeholder: "titel bevat…", oninput: function (e) { view.panels[0].search = e.target.value; renderPickList(0); } })]),
+      h("label", { class: "qwp-flbl" }, ["Leerjaar", h("select", { class: "qwp-fsel", id: "qwp-grade-0", onchange: function (e) {
+        var p = view.panels[0]; p.gradeFilter = e.target.value || null; state.panels[0].gradeFilter = p.gradeFilter; saveState(); renderPickList(0);
+      } })]),
+      h("label", { class: "qwp-flbl" }, ["Sorteren", sortSel]),
+      h("label", { class: "qwp-fchk wide" }, [hideChk, h("span", { text: "Verberg al gebruikt dit schooljaar" })]),
+      h("div", { class: "qwp-flbl wide qwp-subwrap" }, ["Subtag", h("div", { class: "qwp-subcats", id: "qwp-subcats-0" })])
+    ]);
+    var filterBtn = h("button", { class: "qwp-filterbtn", id: "qwp-filterbtn", "aria-expanded": "false", onclick: toggleFilter }, [svgIcon("filter", 14, "2"), h("span", { id: "qwp-filterbtn-t", text: "Filter" })]);
+    var side = h("aside", { class: "qwp-side", id: "qwp-side" }, [
+      h("div", { class: "qwp-side-top" }, [
+        tabs,
+        h("div", { class: "qwp-vaktoggle", id: "qwp-vaktoggle-0" }),
+        h("div", { class: "qwp-ownerrow" }, [h("div", { class: "qwp-ownerseg", id: "qwp-source-0", role: "group", "aria-label": "Eigenaar" }), h("span", { class: "qwp-spacer" }), filterBtn]),
+        filter
       ]),
-      h("div", { class: "qwp-side-grp" }, [
-        h("div", { class: "qwp-side-lbl", text: "Balans deze week" }),
-        h("div", { class: "qwp-balance", id: "qwp-balance" })
-      ]),
-      h("div", { class: "qwp-side-grp" }, [
-        h("div", { class: "qwp-side-lbl", text: "Weekweergave" }),
-        h("div", { class: "qwp-seg", id: "qwp-weekseg" }, [
-          h("button", { "data-w": "1", onclick: function () { setWeeks(1); }, text: "1 week" }),
-          h("button", { "data-w": "2", onclick: function () { setWeeks(2); }, text: "2 weken" })
+      h("div", { class: "qwp-picker", id: "qwp-picker-0" }, [
+        h("div", { class: "qwp-listhd" }, [h("span", { class: "qwp-listhd-t", id: "qwp-listhd-t" }), h("span", { text: "Laatst gebruikt" })]),
+        h("div", { class: "qwp-picker-list", id: "qwp-picker-list-0" }),
+        h("div", { class: "qwp-selbar", id: "qwp-selbar", style: "display:none" }, [
+          h("span", { class: "qwp-pick-count", id: "qwp-pick-count-0", text: "0 geselecteerd" }),
+          h("span", { class: "qwp-spacer" }),
+          h("button", { class: "qwp-btn qwp-ghost qwp-sm", id: "qwp-clearsel-0", onclick: function () { view.panels[0].picked = {}; renderPickList(0); }, text: "Wis" }),
+          h("button", { class: "qwp-btn qwp-sm", id: "qwp-addsel-0", title: "Zet de aangevinkte fiches in lege lesuren (eerst de gekozen doel-lesuren)", onclick: function () { openMassAdd(0); }, text: "Toevoegen aan rooster" })
         ])
       ]),
-      h("div", { class: "qwp-side-grp" }, [
-        h("div", { class: "qwp-side-lbl", text: "Filterpanelen" }),
-        h("div", { class: "qwp-seg", id: "qwp-panelseg" }, [
-          h("button", { "data-p": "1", onclick: function () { setPanelCount(1); }, text: "1" }),
-          h("button", { "data-p": "2", onclick: function () { setPanelCount(2); }, text: "2" }),
-          h("button", { "data-p": "3", onclick: function () { setPanelCount(3); }, text: "3" })
-        ]),
-        h("div", { class: "qwp-seg", id: "qwp-viewseg" }, [
-          h("button", { "data-v": "list", onclick: function () { setPickerView("list"); }, text: "Lijst" }),
-          h("button", { "data-v": "card", onclick: function () { setPickerView("card"); }, text: "Kaart" })
-        ]),
-        h("button", { class: "qwp-side-btn", onclick: reloadAndRender, text: "Vernieuwen" })
-      ]),
-      h("div", { class: "qwp-side-grp" }, [
-        h("div", { class: "qwp-side-lbl", text: "Opties" }),
-        h("button", { class: "qwp-side-btn", onclick: openInstellingen, text: "Instellingen" }),
-        h("button", { class: "qwp-side-btn", onclick: openCopyPrevWeek, text: "Kopieer vorige week" }),
-        h("button", { class: "qwp-side-btn", onclick: cleanDecoratedTitles, title: "Zet titels als '* Les 3 (1)' terug naar de gewone fichetitel (in de geladen week)", text: "Titels opschonen" }),
-        h("button", { class: "qwp-side-btn", onclick: resetVakkenToDefault, title: "Vergeet handmatig gekozen vakken in de geladen week: lesuren met een fiche krijgen het vak van de fiche, andere het vak uit Instellingen", text: "Vakken herstellen" }),
-        h("button", { class: "qwp-side-btn", onclick: function () { if (window.__QWP_METHODES) window.__QWP_METHODES.open(); }, title: "Welke lessen van een methode zijn al gegeven?", text: "Methodevoortgang" })
-      ]),
-      h("div", { class: "qwp-side-grp" }, [
-        h("div", { class: "qwp-side-lbl", text: "Lesfiches laden" }),
-        h("button", { class: "qwp-side-btn", onclick: loadAllFiches, text: "Eigen lesfiches" }),
-        h("button", { class: "qwp-side-btn", onclick: openColleaguePopover, text: "Collega's" }),
-        h("button", { class: "qwp-side-btn", onclick: openMethodesPopover, text: "Methodes" })
-      ]),
-      // Bottom: status ABOVE the action buttons.
-      h("div", { class: "qwp-side-grp qwp-side-bottom" }, [
+      h("div", { class: "qwp-side-status" }, [
         h("div", { class: "qwp-side-note", id: "qwp-side-note", text: "" }),
-        h("span", { class: "qwp-status", id: "qwp-status", text: "Laden…" }),
-        h("div", { class: "qwp-side-sep" }),
-        h("button", { class: "qwp-side-btn qwp-undo", id: "qwp-undo", onclick: doUndo, title: "Laatste actie ongedaan maken (Ctrl+Z)", text: "Ongedaan maken" }),
-        h("button", { class: "qwp-btn qwp-review qwp-side-btn", id: "qwp-review", onclick: openReview, text: "Controleer & wegschrijven" }),
+        h("div", { class: "qwp-status", id: "qwp-status", text: "Laden…" })
+      ]),
+      h("nav", { class: "qwp-actions", "aria-label": "Acties" }, [
+        actBtn("qwp-alles", "alles", "Alles", function (e) { openAlles(e.currentTarget); }, null, "Alle hulpmiddelen"),
+        actBtn("qwp-inst", "inst", "Instellingen", openSettings, null, "Instellingen"),
+        actBtn("qwp-debug", "debug", "Debug", openDiagnose, null, "Zelftest voor ontwikkelaars"),
+        (function () {
+          var b = actBtn("qwp-review", "check", "Controleer", openReview, "primary", "Controleer de wijzigingen en schrijf ze weg");
+          b.appendChild(h("span", { class: "qwp-actbadge", id: "qwp-review-n", style: "display:none" }));
+          return b;
+        })(),
         // Hidden arming target kept for doCommit's lock/unlock bookkeeping.
-        h("button", { class: "qwp-btn qwp-commit qwp-side-btn", id: "qwp-commit", disabled: "true", onclick: doCommit, text: "Wegschrijven", style: "display:none" }),
-        h("button", { class: "qwp-side-btn qwp-muted", id: "qwp-debug", onclick: openDiagnose, title: "Zelftest voor ontwikkelaars", text: "Debug" })
+        h("button", { class: "qwp-btn qwp-commit", id: "qwp-commit", disabled: "true", onclick: doCommit, text: "Wegschrijven", style: "display:none" })
       ])
     ]);
+    side.querySelector("#qwp-alles").setAttribute("data-menu", "qwp-allesmenu");
 
-    var content = h("div", { class: "qwp-content" }, [
-      h("div", { class: "qwp-topbar" }, [
-        h("button", { class: "qwp-btn qwp-ghost qwp-sidetoggle", id: "qwp-sidetoggle", onclick: toggleSide, title: "Zijbalk tonen/verbergen", text: "☰" }),
-        h("div", { class: "qwp-navrow" }, [
-          h("button", { class: "qwp-btn qwp-ghost qwp-navarrow", onclick: prevWeek, title: "Vorige week", text: "←" }),
-          h("button", { class: "qwp-btn qwp-ghost qwp-navbtn", onclick: thisWeek, title: "Deze week", text: "Vandaag" }),
-          h("button", { class: "qwp-btn qwp-ghost qwp-navarrow", onclick: nextWeek, title: "Volgende week", text: "→" })
-        ]),
-        buildGlobalSearch(),
-        betaPill(),
-        h("button", { class: "qwp-topx", onclick: hide, title: "Sluiten", text: "✕" })
+    var header = h("header", { class: "qwp-mhdr" }, [
+      h("button", { class: "qwp-navarrow", "aria-label": "Vorige week", title: "Een week terug", onclick: prevWeek, text: "←" }),
+      h("div", { class: "qwp-range", id: "qwp-range" }),
+      h("button", { class: "qwp-navarrow", "aria-label": "Volgende week", title: "Een week verder", onclick: nextWeek, text: "→" }),
+      h("button", { class: "qwp-navbtn", onclick: thisWeek, title: "Deze week en volgende week", text: "Vandaag" }),
+      h("span", { class: "qwp-spacer" }),
+      h("span", { class: "qwp-goalcount", id: "qwp-goalcount", style: "display:none" }),
+      h("div", { class: "qwp-modeseg", id: "qwp-modeseg", role: "group", "aria-label": "Modus" }, [
+        h("button", { "data-m": "plan", onclick: function () { setMainMode("plan"); }, text: "Plannen" }),
+        h("button", { "data-m": "doelen", onclick: function () { setMainMode("doelen"); }, title: "Lesdoelen per lesuur (alleen lezen)", text: "Doelen" })
       ]),
-      h("div", { class: "qwp-ttwrap", id: "qwp-ttwrap" }),
-      h("div", { class: "qwp-splitter", id: "qwp-splitter", title: "Sleep om te herschalen" }),
-      h("div", { class: "qwp-pickers", id: "qwp-pickers" }, [buildPicker(0), buildPicker(1), buildPicker(2)])
+      h("button", { class: "qwp-staged", id: "qwp-staged", style: "display:none", title: "Nog niet weggeschreven — klik om te controleren", onclick: openReview }),
+      betaPill(),
+      h("button", { class: "qwp-topx", onclick: hide, title: "Sluiten", text: "✕" })
     ]);
+    var content = h("main", { class: "qwp-content" }, [header, h("div", { class: "qwp-ttwrap", id: "qwp-ttwrap" })]);
 
     var main = h("div", { class: "qwp-main" }, [side, content]);
 
     var page = h("div", { class: "qwp-page", id: "qwp-page" }, [main]);
     var overlay = h("div", { class: "qwp-overlay", id: "qwp-overlay" }, [page]);
     els.root = overlay; els.page = page;
+    // Menus close on any press outside them (their own opener toggles instead) and on Escape.
+    document.addEventListener("mousedown", function (e) {
+      ["qwp-allesmenu", "qwp-srcmenu"].forEach(function (id) {
+        var m = elId(id); if (!m || m.contains(e.target)) return;
+        if (e.target && e.target.closest && e.target.closest('[data-menu="' + id + '"]')) return;
+        m.remove();
+      });
+    }, true);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu"); } });
     return overlay;
   }
 
@@ -1353,59 +1387,162 @@
     el.appendChild(h("div", { class: "qwp-balance-tot", text: "Gepland " + filled + " · Leeg " + empty }));
   }
 
-  function legendRow(color, kind, text) {
-    var sw = h("span", { class: "qwp-legend-sw" + (kind === "border" ? " border" : "") });
-    if (kind === "border") sw.style.borderColor = color; else sw.style.background = color;
-    return h("div", { class: "qwp-legend-row" }, [sw, h("span", { class: "qwp-legend-t", text: text })]);
+  // ---------- Modes, filter fold, staged count ----------
+  // Plannen = both loaded weeks stacked; Doelen = one week with WEET/KEN/KAN per card, the other
+  // week folded to a bar. The choice and the filter fold live in qwp_state_v6 (mainMode, filterOpen).
+  function mainMode() { return state.mainMode === "doelen" ? "doelen" : "plan"; }
+  function doelenWeek() { return Math.max(0, Math.min(view.weeks - 1, +state.doelenWeek || 0)); }
+  function setMainMode(m) {
+    state.mainMode = m === "doelen" ? "doelen" : "plan"; saveState();
+    renderTimetable();
   }
-  // Draggable calendar/lists splitter — set flex-basis on both, persist ratio.
-  function applySplit() {
-    var tt = elId("qwp-ttwrap"), pk = elId("qwp-pickers"); if (!tt || !pk) return;
-    var r = Math.max(0.2, Math.min(0.8, state.splitRatio || 0.58));
-    tt.style.flex = "1 1 " + (r * 100) + "%"; pk.style.flex = "1 1 " + ((1 - r) * 100) + "%";
+  function syncModeSeg() {
+    var seg = elId("qwp-modeseg"); if (!seg) return;
+    Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("active", b.getAttribute("data-m") === mainMode()); });
   }
-  function wireSplitter() {
-    var sp = elId("qwp-splitter"); if (!sp) return;
-    sp.onmousedown = function (e) {
-      e.preventDefault();
-      var content = sp.parentNode; var rect = content.getBoundingClientRect();
-      function move(ev) {
-        var r = (ev.clientY - rect.top) / rect.height;
-        state.splitRatio = Math.max(0.2, Math.min(0.8, r)); applySplit();
-      }
-      function up() { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); saveState(); }
-      document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
-    };
+  function toggleFilter() { state.filterOpen = !state.filterOpen; saveState(); applyFilterFold(); }
+  // A folded filter that still hides fiches must say so on its button — never a silently short list.
+  function filterActive(p) {
+    return !!((p.search && p.search.trim()) || p.gradeFilter || p.hideUsed || (!p.unionMode && p.filterTagId != null && String(p.filterTagId) !== String(p.filterVak)));
   }
-  function setWeeks(n) { state.weeks = n; view.weeks = n; saveState(); syncWeekSeg(); reloadAndRender(); }
-  // Sidebar collapse. state.sideCollapsed: true/false explicit pref, null = follow the
-  // responsive default (auto-collapsed under the breakpoint on first open).
-  var SIDE_BP = "(max-width: 820px)";
-  function sideIsCollapsed() {
-    if (state.sideCollapsed === true || state.sideCollapsed === false) return state.sideCollapsed;
-    try { return window.matchMedia(SIDE_BP).matches; } catch (e) { return false; }
+  function applyFilterFold() {
+    var f = elId("qwp-filter"), b = elId("qwp-filterbtn"), t = elId("qwp-filterbtn-t"); if (!f || !b) return;
+    var open = !!state.filterOpen, on = filterActive(view.panels[0]);
+    f.style.display = open ? "" : "none";
+    b.classList.toggle("open", open); b.classList.toggle("on", on && !open);
+    b.setAttribute("aria-expanded", open ? "true" : "false");
+    if (t) t.textContent = open ? "Filter ▴" : (on ? "Filter •" : "Filter");
+    b.title = on ? "Er staat een filter aan — niet alle fiches worden getoond" : "Zoeken, leerjaar, sorteren";
   }
-  function applySideCollapse() {
-    var main = els.root && els.root.querySelector(".qwp-main"); if (!main) return;
-    main.classList.toggle("qwp-side-collapsed", sideIsCollapsed());
+  // Same selection buildCommitPlan writes, without building the bodies.
+  function stagedCount() {
+    return view.slots.filter(function (s) { return s.isEditable && s.idCalendar !== "cal_holidays" && computeDirty(s); }).length;
   }
-  function toggleSide() { state.sideCollapsed = !sideIsCollapsed(); saveState(); applySideCollapse(); }
-  function syncWeekSeg() { var seg = elId("qwp-weekseg"); if (!seg) return; Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("active", String(view.weeks) === b.getAttribute("data-w")); }); }
-  function setPanelCount(n) { state.panelCount = n; saveState(); syncSegs(); renderAllPanels(); }
-  function setPickerView(v) { state.pickerView = v; saveState(); syncSegs(); for (var i = 0; i < visiblePanelCount(); i++) renderPickList(i); }
-  function syncSegs() {
-    var ps = elId("qwp-panelseg"); if (ps) Array.prototype.forEach.call(ps.querySelectorAll("button"), function (b) { b.classList.toggle("active", String(state.panelCount) === b.getAttribute("data-p")); });
-    var vs = elId("qwp-viewseg"); if (vs) Array.prototype.forEach.call(vs.querySelectorAll("button"), function (b) { b.classList.toggle("active", String(state.pickerView) === b.getAttribute("data-v")); });
+  function refreshStaged() {
+    var n = stagedCount();
+    var badge = elId("qwp-review-n"); if (badge) { badge.textContent = String(n); badge.style.display = n ? "" : "none"; }
+    var st = elId("qwp-staged"); if (!st) return;
+    st.style.display = n ? "" : "none"; st.innerHTML = "";
+    st.appendChild(h("span", { class: "qwp-staged-dot" }));
+    st.appendChild(document.createTextNode(n + (n === 1 ? " wijziging" : " wijzigingen")));
   }
 
   // ---------- Week navigation ----------
-  function prevWeek() { view.weekOffset -= view.weeks; reloadAndRender(); }
-  function nextWeek() { view.weekOffset += view.weeks; reloadAndRender(); }
-  function thisWeek() { view.weekOffset = 0; reloadAndRender(); }
+  // Steps ONE week, so "this week + next" can roll forward. A reload replaces every slot, so staged
+  // edits would be lost — ask first instead of dropping them quietly.
+  function confirmDiscard() {
+    var n = stagedCount(); if (!n) return true;
+    try { return window.confirm(n + (n === 1 ? " wijziging is" : " wijzigingen zijn") + " nog niet weggeschreven en gaan verloren. Toch doorgaan?"); } catch (e) { return true; }
+  }
+  function prevWeek() { if (!confirmDiscard()) return; view.weekOffset -= 1; reloadAndRender(); }
+  function nextWeek() { if (!confirmDiscard()) return; view.weekOffset += 1; reloadAndRender(); }
+  function thisWeek() { if (!confirmDiscard()) return; view.weekOffset = 0; reloadAndRender(); }
+  function refreshWeeks() { if (!confirmDiscard()) return; reloadAndRender(); }
+  var MONTH_NL_SHORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+  // "26 – 30 okt" / "26 okt – 6 nov" for Monday of week a … Friday of week b (week indexes).
+  function shortRange(wa, wb) {
+    var a = addDays(view.weekStart, wa * 7), b = addDays(view.weekStart, wb * 7 + 4); if (!a || !b) return "";
+    if (a.getMonth() === b.getMonth()) return a.getDate() + " – " + b.getDate() + " " + MONTH_NL_SHORT[b.getMonth()];
+    return a.getDate() + " " + MONTH_NL_SHORT[a.getMonth()] + " – " + b.getDate() + " " + MONTH_NL_SHORT[b.getMonth()];
+  }
+  function weekNoOf(w) { var d = addDays(view.weekStart, w * 7); return d ? isoWeekNo(isoDate(d)) : ""; }
   function renderRange() {
     var el = elId("qwp-range"); if (!el || !view.weekStart) return;
-    var lastFri = (view.weeks - 1) * 7 + 4;
-    el.textContent = "Ma " + ddmm(view.weekStart, 0) + " – Vr " + ddmm(view.weekStart, lastFri) + (view.weekOffset ? (" (" + (view.weekOffset > 0 ? "+" : "") + view.weekOffset + " wk)") : "");
+    var doel = mainMode() === "doelen", wa = doel ? doelenWeek() : 0, wb = doel ? wa : view.weeks - 1;
+    el.innerHTML = "";
+    el.appendChild(document.createTextNode("Week " + weekNoOf(wa) + (wb !== wa ? " – " + weekNoOf(wb) : "")));
+    el.appendChild(h("span", { class: "qwp-range-sub", text: " · " + shortRange(wa, wb) }));
+  }
+
+  // ---------- Menus (Alles, Collega) ----------
+  function closeMenu(id) { var m = elId(id); if (m) { m.remove(); return true; } return false; }
+  // A fixed-position menu next to its opener (above it when the opener sits low on the screen).
+  function showMenu(id, anchor, kids, cls) {
+    closeMenu(id);
+    var m = h("div", { class: "qwp-menu" + (cls ? " " + cls : ""), id: id, role: "menu" }, kids);
+    var r = anchor.getBoundingClientRect();
+    if (r.top > window.innerHeight / 2) { m.style.bottom = Math.round(window.innerHeight - r.top + 8) + "px"; m.style.left = "12px"; }
+    else { m.style.top = Math.round(r.bottom + 6) + "px"; m.style.left = Math.round(r.left) + "px"; }
+    els.page.appendChild(m);
+    return m;
+  }
+  function menuItem(ico, name, desc, tag, fn, disabled) {
+    var write = tag === "via Controleer";
+    return h("button", { class: "qwp-mi" + (disabled ? " off" : ""), role: "menuitem", disabled: disabled ? "true" : null, onclick: function () { closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu"); fn(); } }, [
+      ico != null ? h("span", { class: "qwp-mi-ico", text: ico }) : null,
+      h("span", { class: "qwp-mi-txt" }, [h("span", { class: "qwp-mi-n", text: name }), desc ? h("span", { class: "qwp-mi-d", text: desc }) : null]),
+      tag ? h("span", { class: "qwp-mi-tag" + (write ? " write" : ""), title: write ? "Wordt pas weggeschreven na Controleer" : null, text: tag }) : null
+    ]);
+  }
+  // Open one of the planner's popovers fresh (the old ones toggle, which would just close another).
+  function freshPop(fn) { var ex = elId("qwp-pop"); if (ex) ex.remove(); fn(); }
+  function openAlles(anchor) {
+    if (closeMenu("qwp-allesmenu")) return;
+    var nUndo = view.undoStack.length, ver = "";
+    try { ver = chrome.runtime.getManifest().version || ""; } catch (e) {}
+    function grp(t) { return h("div", { class: "qwp-mgrp", text: t }); }
+    showMenu("qwp-allesmenu", anchor, [
+      grp("Deze weken"),
+      menuItem("⧉", "Kopieer vorige week", "fiches van vorige week in deze week zetten", "via Controleer", openCopyPrevWeek),
+      menuItem("T", "Titels opschonen", "verwijdert Questi’s “* … (1)” uit titels", "via Controleer", cleanDecoratedTitles),
+      menuItem("↺", "Vakken herstellen", "elk lesuur terug naar fiche-vak of lesrooster", "via Controleer", resetVakkenToDefault),
+      menuItem("↶", "Ongedaan maken" + (nUndo ? " (" + nUndo + ")" : ""), "laatste planningsactie terugdraaien (Ctrl+Z)", "", doUndo, !nUndo),
+      menuItem("⟳", "Vernieuwen", "deze weken opnieuw uit Questi laden", "", refreshWeeks),
+      menuItem("▥", "Balans", "aantal lesuren per vak in deze weken", "", function () { freshPop(openBalancePop); }),
+      grp("Lesfiches"),
+      menuItem("⌕", "Zoek in alle lesfiches", "ik, collega’s en methodes tegelijk", "", function () { freshPop(openGlobalSearchPop); }),
+      menuItem("↧", "Eigen lesfiches herladen", "je volledige lijst opnieuw ophalen", "", loadAllFiches),
+      menuItem("C", "Lesfiches van collega’s", "kiezen wiens fiches je in de lijst ziet", "", function () { freshPop(openColleaguePopover); }),
+      menuItem("▤", "Methodes", "Questi-methodebibliotheken tonen", "", function () { freshPop(openMethodesPopover); }),
+      grp("Overzicht"),
+      menuItem("▦", "Methodevoortgang", "welke lessen van een methode al gegeven zijn", "", function () { if (window.__QWP_METHODES) window.__QWP_METHODES.open(); else setStatus("Methodevoortgang is niet geladen."); }),
+      h("div", { class: "qwp-mfoot" }, [h("span", { text: "UnQuesti" + (ver ? " v" + ver : "") }), betaPill()])
+    ], "qwp-alles-menu");
+  }
+  function openSourceMenu(pi, anchor) {
+    if (closeMenu("qwp-srcmenu")) return;
+    var kids = state.colleagues.map(function (c) {
+      return menuItem(null, ownerName(c.id), c.isMethod ? "methode (alleen lezen)" : "collega", "", function () { setPanelSource(pi, c.id); });
+    });
+    if (!kids.length) kids.push(h("div", { class: "qwp-menu-empty", text: "Nog geen collega’s of methodes gekozen." }));
+    kids.push(h("div", { class: "qwp-msep" }));
+    kids.push(menuItem(null, "Collega’s kiezen…", "", "", function () { freshPop(openColleaguePopover); }));
+    kids.push(menuItem(null, "Methodes kiezen…", "", "", function () { freshPop(openMethodesPopover); }));
+    showMenu("qwp-srcmenu", anchor, kids, "qwp-src-menu");
+  }
+  // Small titled popover in the same slot as the colleague/methode pickers.
+  function simplePop(title, body) {
+    var pop = h("div", { class: "qwp-pop qwp-pop-wide", id: "qwp-pop" }, [
+      h("div", { class: "qwp-pop-hd" }, [h("span", { text: title }), h("button", { class: "qwp-pop-x", title: "Sluiten", text: "×", onclick: function () { pop.remove(); } })]),
+      body
+    ]);
+    els.page.appendChild(pop);
+    return pop;
+  }
+  function openBalancePop() {
+    simplePop("Balans deze weken", h("div", { class: "qwp-pop-body" }, [h("div", { class: "qwp-balance", id: "qwp-balance" })]));
+    renderBalance();
+  }
+  function openGlobalSearchPop() {
+    simplePop("Zoek in alle lesfiches", h("div", { class: "qwp-pop-body" }, [buildGlobalSearch()]));
+    renderGlobalOwners();
+    var inp = elId("qwp-gsearch-inp"); if (inp) setTimeout(function () { inp.focus(); }, 0);
+  }
+  // Instellingen belong to the shared settings module when it is loaded; the planner's own
+  // modal stays as the fallback so nothing is lost while that module is absent.
+  function openSettings() {
+    if (window.__UQ_SETTINGS && typeof window.__UQ_SETTINGS.open === "function") { window.__UQ_SETTINGS.open(); return; }
+    openInstellingen();
+  }
+  // Print the weeks on screen (the stored planning — staged edits are not on Questi yet).
+  function openPrintFromPlanner() {
+    if (!view.weekStart || !ctx.ready) { printCurrentWeek(); return; }
+    closePrintOverlay();
+    printToast("Weekplanning laden…");
+    fetchPrintView(view.weekStart, state.weeks || 1).then(function (pv) { hideToast(); openPrintOverlay(pv); })
+      .catch(function (e) { printToast("Afdrukken lukt niet — probeer opnieuw.", true); console.error("[QWP] print:", e); });
+    var n = stagedCount();
+    if (n) setStatus("Let op: het afdrukvoorbeeld toont de opgeslagen planning — " + n + " wijziging(en) zijn nog niet weggeschreven.");
   }
 
   // ---------- Custom print: a branded, time-aligned week (own window) ----------
@@ -2767,43 +2904,50 @@
     return DAY_FULL_NL[(d.getDay() + 6) % 7] + " " + d.getDate() + " " + MONTH_NL[d.getMonth()] + " " + d.getFullYear();
   }
 
+  // Both loaded weeks, STACKED: one section per week, each its own 5-day grid. In Doelen mode only
+  // one week is expanded (taller cards with goal lines); the other folds into a bar that swaps.
+  var DAY_SHORT = ["Ma", "Di", "Wo", "Do", "Vr"];
   function renderTimetable() {
-    var wrap = elId("qwp-ttwrap"); if (!wrap) return; wrap.innerHTML = "";
+    var wrap = elId("qwp-ttwrap"); if (!wrap) return;
+    var keepScroll = wrap.scrollTop;
+    wrap.innerHTML = "";
     // Re-run each paint: boot fetches tags and the week in parallel (same reason as ensureThemaKeys).
     applyStoredVakken(view.slots);
     applyThemaLesuurTitles(view.slots);   // follows a themafiche placed/changed on a bar this session
     computeTimeRows();
-    renderRange();
-
-    var grid = h("div", { class: "qwp-tt" });
-    // Time column fixed 64px; the 10 day columns (both weeks) share the rest via
-    // minmax(0,1fr) so two weeks always fit inside the viewport (no h-scroll).
-    grid.style.gridTemplateColumns = "64px repeat(" + (5 * view.weeks) + ", minmax(0, 1fr))";
-
-    // No week caption band — the wk-sep divider line separates the two weeks,
-    // and each day already shows its own full date.
-
-    // Day-header row — centered full Dutch date "maandag 29 juni 2026".
-    grid.appendChild(h("div", { class: "qwp-tt-corner" }, [h("span", { class: "qwp-tt-corner-lbl", text: "uur" })]));
-    for (var wh = 0; wh < view.weeks; wh++) {
-      for (var d = 0; d < 5; d++) {
-        grid.appendChild(h("div", { class: "qwp-tt-dayhd" + (d === 0 && wh > 0 ? " wk-sep" : "") }, [
-          h("span", { class: "qwp-tt-daydate", text: fullDateLabel(wh * 7 + d) })
-        ]));
-      }
+    renderRange(); syncModeSeg();
+    var doel = mainMode() === "doelen";
+    wrap.classList.toggle("qwp-doelen", doel);
+    var keys = themaRowKeys();
+    for (var w = 0; w < view.weeks; w++) {
+      if (doel && w !== doelenWeek()) wrap.appendChild(weekBar(w));
+      else wrap.appendChild(weekSection(w, keys, doel));
     }
-
-    // Theme rows: one per whole-week item actually present, labelled by its live tag.
-    themaRowKeys().forEach(function (key) { appendThemaRow(grid, themaLabel(key, view.slots), key); });
-
+    wrap.scrollTop = keepScroll;
+    renderBalance();
+    refreshUndoBtn();
+    refreshStaged();
+    renderGoalCount();
+    refreshPlannedInList();
+    if (doel) setTimeout(loadDoelenGoals, 0);
+  }
+  function weekSection(w, keys, doel) {
+    var grid = h("div", { class: "qwp-tt qwp-wkgrid" });
+    grid.style.gridTemplateColumns = "52px repeat(5, minmax(0, 1fr))";
+    grid.appendChild(h("div", { class: "qwp-tt-wklbl", text: "Wk " + weekNoOf(w) }));
+    var today = isoDate(new Date());
+    for (var d = 0; d < 5; d++) {
+      var dt = addDays(view.weekStart, w * 7 + d);
+      grid.appendChild(h("div", { class: "qwp-tt-dayhd" + (dt && isoDate(dt) === today ? " today" : ""), title: fullDateLabel(w * 7 + d), text: DAY_SHORT[d] + (dt ? " " + dt.getDate() + "/" + (dt.getMonth() + 1) : "") }));
+    }
+    // Theme rows: one per whole-week item present in the loaded weeks, labelled by its live tag.
+    keys.forEach(function (key) { appendThemaRow(grid, themaLabel(key, view.slots), key, w); });
     // Lesuur rows with pauze/speeltijd gap bands (both derived from live times).
     view.timeRows.forEach(function (t, idx) {
       grid.appendChild(h("div", { class: "qwp-tt-timelbl", text: t }));
-      for (var wr = 0; wr < view.weeks; wr++) {
-        for (var dd = 0; dd < 5; dd++) {
-          if (isNoSchool(dd, t)) grid.appendChild(noSchoolCell(dd, wr));
-          else grid.appendChild(cellFor(slotAt(wr, dd, t), wr, dd, t));
-        }
+      for (var dd = 0; dd < 5; dd++) {
+        if (isNoSchool(dd, t)) grid.appendChild(noSchoolCell(dd, w));
+        else grid.appendChild(cellFor(slotAt(w, dd, t), w, dd, t, doel));
       }
       var brk = breakLabelAfter(idx);
       if (brk) {
@@ -2812,37 +2956,100 @@
         grid.appendChild(band);
       }
     });
-
-    wrap.appendChild(grid);
-    syncWeekSeg();
-    renderBalance();
-    refreshUndoBtn();
+    if (!view.timeRows.length) {
+      var none = h("div", { class: "qwp-wk-empty", text: "Geen lesuren in deze week." });
+      none.style.gridColumn = "1 / -1"; grid.appendChild(none);
+    }
+    return h("section", { class: "qwp-wk" + (doel ? " doelen" : "") }, [grid]);
+  }
+  // Doelen mode: the week that is not expanded, as one bar. Clicking swaps the two.
+  function weekBar(w) {
+    var st = doelenStats(w);
+    var sub = shortRange(w, w) + " · " + st.planned + (st.planned === 1 ? " lesuur" : " lesuren") + " gepland" +
+      (st.known ? " · " + st.missing + " zonder doelen" : "");
+    return h("button", { class: "qwp-wkbar", onclick: function () { state.doelenWeek = w; saveState(); renderTimetable(); } }, [
+      h("span", { class: "qwp-wkbar-t", text: "Week " + weekNoOf(w) }),
+      h("span", { class: "qwp-wkbar-s", text: sub }),
+      h("span", { class: "qwp-spacer" }),
+      h("span", { class: "qwp-wkbar-go", text: "Toon deze week ▾" })
+    ]);
   }
 
-  function appendThemaRow(grid, label, key) {
-    // Deliberately EMPTY: this sits in the 64px time column, and a wrapped lesson title here
-    // stretched the whole row (grid rows are auto-height). The name lives in the bar instead.
+  function appendThemaRow(grid, label, key, w) {
+    // Deliberately EMPTY: the 52px time column. The name lives in the band itself.
     grid.appendChild(h("div", { class: "qwp-tt-themalbl", title: label }));
-    for (var w = 0; w < view.weeks; w++) {
-      var all = weekThemaSlots(w, key), s = all[0];
-      var cell;
-      if (s) { cell = cellFor(s, w, 0, "thema"); }
-      else { cell = h("div", { class: "qwp-cell empty thema-span", title: label }, [h("div", { class: "qwp-cell-empty-hint", text: "—" })]); }
-      // Two whole-week items under the same tag in one week is ambiguous — show the first, but
-      // say so rather than silently dropping the rest (which is what the old [0] did).
-      if (all.length > 1) cell.appendChild(h("span", { class: "qwp-thema-more", title: all.slice(1).map(function (x) { return x.origTitle; }).join(" · "), text: "+" + (all.length - 1) + " meer" }));
-      cell.classList.add("thema-span");
-      cell.style.gridColumn = "span 5";
-      if (w > 0) cell.classList.add("wk-sep");
-      grid.appendChild(cell);
-    }
+    var all = weekThemaSlots(w, key), s = all[0];
+    var cell;
+    if (s) { cell = cellFor(s, w, 0, "thema", false); }
+    else { cell = h("div", { class: "qwp-cell empty thema-span", title: label + " — geen item deze week" }, [h("span", { class: "qwp-band-vak", text: label }), h("span", { class: "qwp-cell-empty-hint", text: "—" })]); }
+    // Two whole-week items under the same tag in one week is ambiguous — show the first, but
+    // say so rather than silently dropping the rest (which is what the old [0] did).
+    if (all.length > 1) cell.appendChild(h("span", { class: "qwp-thema-more", title: all.slice(1).map(function (x) { return x.origTitle; }).join(" · "), text: "+" + (all.length - 1) + " meer" }));
+    cell.classList.add("thema-span");
+    cell.style.gridColumn = "span 5";
+    grid.appendChild(cell);
   }
 
   // No lesson-start here this day → a quiet blank cell (the shared time-axis means
   // a longer block on another day leaves a hole; don't shout "geen school").
   function noSchoolCell(dayIdx, weekIdx) {
-    var sepCls = (dayIdx === 0 && weekIdx > 0) ? " wk-sep" : "";
-    return h("div", { class: "qwp-cell blank" + sepCls });
+    return h("div", { class: "qwp-cell blank" });
+  }
+
+  // ---------- Doelen mode (read-only goals per card) ----------
+  // One lesuur's goal state: "none" (no own fiche, gym, or every kind hidden → nothing to ask),
+  // "loading", "has", "missing". Same sources as the Lesdoelen print (goalsRecFor).
+  function goalsStateOf(s) {
+    if (!s || s.isFullday || s.isGym || !s.ficheContentId || s.idCalendar === "cal_holidays") return "none";
+    var rec = goalsRecFor(goalsKeyFor(s)), hide = rec.hide || {};
+    if (GOALS_KINDS.every(function (k) { return hide[k.key]; })) return "none";
+    if (GOALS_KINDS.some(function (k) { return rec[k.key]; })) return "has";
+    if (isMethodSlot(s)) return "missing";
+    var fg = _printFicheGoals[s.ficheContentId];
+    return (!fg || fg.src === "loading") ? "loading" : "missing";
+  }
+  function doelenStats(w) {
+    var planned = 0, missing = 0, loading = 0;
+    view.slots.forEach(function (s) {
+      if (s.weekIdx !== w || s.isFullday || s.idCalendar === "cal_holidays" || isNoSchool(s.dayIdx, s.time)) return;
+      if (s.ficheContentId || s.isGym) planned++;
+      var g = goalsStateOf(s);
+      if (g === "missing") missing++; else if (g === "loading") loading++;
+    });
+    return { planned: planned, missing: missing, known: loading === 0 };
+  }
+  function renderGoalCount() {
+    var el = elId("qwp-goalcount"); if (!el) return;
+    if (mainMode() !== "doelen" || !view.slots.length) { el.style.display = "none"; return; }
+    var st = doelenStats(doelenWeek());
+    el.style.display = "";
+    el.classList.toggle("ok", st.known && !st.missing);
+    el.textContent = !st.known ? "Doelen laden…" : (st.missing ? st.missing + (st.missing === 1 ? " lesuur" : " lesuren") + " zonder doelen" : "Alle lesuren hebben doelen");
+  }
+  // Reads only the expanded week's fiches, through the print's own loader: at most 4 in flight,
+  // goal cache first, each fiche version once per session (resetPrintFicheGoals clears it).
+  function loadDoelenGoals() {
+    if (mainMode() !== "doelen" || !view.slots.length) return;
+    var w = doelenWeek();
+    loadPrintFicheGoals({ slots: view.slots.filter(function (s) { return s.weekIdx === w; }) })
+      .then(function (got) { if (got && mainMode() === "doelen") renderTimetable(); })
+      .catch(function (e) { console.warn("[QWP] doelen laden:", e); });
+  }
+  function goalsBlockFor(s) {
+    var gk = goalsKeyFor(s), rec = goalsRecFor(gk), hide = rec.hide || {}, st = goalsStateOf(s);
+    var fg = s.ficheContentId ? _printFicheGoals[s.ficheContentId] : null;
+    var first = true;
+    var kids = GOALS_KINDS.filter(function (k) { return !hide[k.key]; }).map(function (k) {
+      var t = rec[k.key] || "", ph = "";
+      if (!t && first) ph = st === "loading" ? "doelen laden…" : (st === "missing" ? "nog geen doelen" : "");
+      first = false;
+      return h("div", { class: "qwp-gl-row" + (t ? "" : " empty") }, [
+        h("span", { class: "qwp-gl-k", text: k.label.toUpperCase() }),
+        h("span", { class: "qwp-gl-t" + (ph ? " ph" : ""), text: t || ph })
+      ]);
+    });
+    if (fg && fg.src === "newer") kids.push(h("div", { class: "qwp-gl-src", title: "Doelen uit een nieuwere versie van deze fiche — dit lesuur verwijst nog naar de oude versie.", text: "nieuwere versie" }));
+    return h("div", { class: "qwp-gl", title: goalsEditableFor(s) ? "Doelen voor een lesuur zonder eigen fiche typ je in Afdrukken → Lesdoelen." : "Doelen bewerk je in Lesfiches → Lesdoelen invullen." }, kids);
   }
 
   // A targetable slot = an editable, empty (no fiche/gym/thema) lesuur — the only
@@ -2860,7 +3067,7 @@
   function updateTargetHint() {
     var el = elId("qwp-side-note"); if (!el) return;
     var n = view.targetSlots.length;
-    if (n) el.textContent = n + " doel" + (n === 1 ? "" : "en") + " gekozen — kies fiches en klik 'Add selectie'.";
+    el.textContent = n ? (n + " doel-lesu" + (n === 1 ? "ur" : "ren") + " gekozen — vink fiches aan in de lijst en klik 'Toevoegen aan rooster'.") : "";
   }
   // Drag affordance: highlight every valid empty slot while a card is dragged, and
   // give slots whose Instellingen vak matches the dragged tag a stronger highlight.
@@ -2881,11 +3088,14 @@
     Array.prototype.forEach.call(els.root.querySelectorAll(".qwp-cell.vak-match"), function (c) { c.classList.remove("vak-match"); });
   }
 
-  function cellFor(s, weekIdx, dayIdx, timeLabel) {
-    var sepCls = (dayIdx === 0 && weekIdx > 0) ? " wk-sep" : "";
+  // A lesuur card in the Lesdoelen-print look: a top bar in the vak's own tag colour (auto ink),
+  // the title below. Changed = green border + "gewijzigd"; a not-yet-planned lesuur is dashed.
+  // `doel` (Doelen mode) adds the WEET/KEN/KAN lines under the title. All interactions — click
+  // popup, target toggle, drop, move/swap — are the same in both modes.
+  function cellFor(s, weekIdx, dayIdx, timeLabel, doel) {
     if (!s) {
       return h("div", {
-        class: "qwp-cell empty" + sepCls,
+        class: "qwp-cell empty",
         title: "Geen lesitem op dit tijdslot",
         onclick: function () { setStatus("Geen lesitem op " + DAY_NAMES[dayIdx] + " " + (timeLabel === "thema" ? "(thema)" : timeLabel) + " in week " + (weekIdx + 1) + " — niets te bewerken."); }
       }, [h("div", { class: "qwp-cell-empty-hint", text: "leeg" })]);
@@ -2893,7 +3103,10 @@
     var dirty = computeDirty(s);
     var thema = s.themaFiche || isThemaSlot(s);
     var targetable = isTargetable(s);
-    var cls = "qwp-cell" + sepCls;
+    var themaBand = isThemaSlot(s);
+    // "Planned" decides the solid vs dashed look only: a fiche, gym, or a real (typed/thema) title.
+    var planned = !!(s.ficheContentId || s.isGym || themaBand || (s.title && !isLesuurPlaceholder(s.title)));
+    var cls = "qwp-cell";
     if (view.selectedSlotId === s.itemId) cls += " sel";
     if (dirty) cls += " dirty";
     if (s.origFicheContentId) cls += " hasexisting";
@@ -2901,34 +3114,64 @@
     if (thema) cls += " isthema";
     if (targetable) cls += " slot-empty";
     if (targetable && isTarget(s.itemId)) cls += " target";
+    if (!planned) cls += " unplanned";
+    var gstate = (doel && !themaBand) ? goalsStateOf(s) : "none";
+    if (gstate === "missing") cls += " nogoals";
 
-    // Same rule as print: a thema slot shows the fiche it carries; only a fiche-less one falls
-    // back to the description literal.
-    var fiche = s.isGym ? "Enkel titel (gym)"
-      : (isThemaSlot(s) && s.ficheTitle) ? stripThemaPrefix(s.ficheTitle)
-      : themaShowsLiteral(s) ? "Zie themafiche."
-      : (s.ficheTitle || (s.origFicheTitle ? ("was: " + s.origFicheTitle) : "Klik of sleep om te kiezen"));
-    // No status pills — color conveys state (see sidebar legend). s.vak = live tag id.
-    var vakLbl = s.vak ? ((tagTitle("self", s.vak) || "").trim()) : "";
-    // A thema band shows its thema name in the SAME place a normal cell shows its vak, so the two
-    // are structurally identical and end up the same height. No tag resolved → no chip, plus a
-    // quiet hint, because such a row can be fixed by picking a Vak in this cell's popup.
-    var themaBand = isThemaSlot(s);
-    var themaChip = themaBand && s.themaTagId != null ? (anyTagTitle(s.themaTagId) || "").trim() : "";
-    var themaUntagged = themaBand && !themaChip;
-    if (themaBand) vakLbl = themaChip;
-    // The sub-label is the lesuur's OWN vak (Instellingen), not the fiche's. When the attached
-    // fiche belongs to a different vak, say so instead of quietly showing the wrong subject.
+    // Vak = the slot's live top-level tag (what the description will say); a band shows its thema tag.
+    var top = topTagIdOf(themaBand ? s.themaTagId : s.vak);
+    var vakLbl = top != null ? ((anyTagTitle(top) || "").trim()) : (s.vak ? ((tagTitle("self", s.vak) || "").trim()) : "");
+    var color = top != null ? anyTagColor(top) : null;
+    var themaUntagged = themaBand && !vakLbl;
+    // The fiche belongs to another vak than this lesuur — say so instead of showing the wrong subject.
     var mism = vakMismatch(s);
     if (mism) cls += " vakmismatch";
+    var mark = dirty ? h("span", { class: "qwp-cell-mark", title: "Nog niet weggeschreven — zie Controleer", text: "gewijzigd" }) : null;
+    var warn = mism ? h("span", {
+      class: "qwp-vakwarn",
+      title: "Fiche hoort bij " + (mism.ficheVak || "?") + " · dit lesuur staat ingesteld als " + (mism.slotVak || "?"),
+      text: "≠ " + (mism.ficheVak || "?")
+    }) : null;
 
     // Targetable empty slot: single click toggles it as a mass-add target;
     // double click opens the popup. Filled/gym/thema: single click opens popup.
     var onclick = targetable ? function () { toggleTarget(s.itemId); } : function () { openSlotPopup(s); };
     var ondbl = targetable ? function () { openSlotPopup(s); } : null;
 
+    var kids;
+    if (themaBand) {
+      var dot = h("span", { class: "qwp-band-dot" }); if (color) dot.style.background = color;
+      kids = [
+        dot,
+        h("span", { class: "qwp-band-vak", text: vakLbl }),
+        themaUntagged ? h("span", { class: "qwp-thema-untagged", title: "Klik deze balk en kies een Vak om de rij te benoemen.", text: "geen vaktag" }) : null,
+        h("span", { class: "qwp-band-t", text: stripQuestiDecoration(stripThemaPrefix(s.title) || s.title) || "(leeg)" }),
+        mark
+      ];
+    } else {
+      var bar = h("div", { class: "qwp-cell-bar" }, [
+        h("span", { class: "qwp-cell-vak", text: vakLbl || (s.isGym ? "Gym" : "") }),
+        warn, mark
+      ]);
+      if (planned && color) { bar.style.background = color; bar.style.color = goalsInkOn(color); }
+      // Second line: what the old (hidden) fiche line said, only when it adds something.
+      var sub = (!planned && targetable) ? "sleep een fiche"
+        : themaShowsLiteral(s) ? "Zie themafiche."
+        : (!s.ficheContentId && !s.isGym && s.origFicheTitle) ? ("was: " + s.origFicheTitle)
+        : (s.ficheContentId && s.ficheTitle && normTitle(stripThemaPrefix(s.ficheTitle)) !== normTitle(s.title)) ? ("fiche: " + stripThemaPrefix(s.ficheTitle))
+        : "";
+      kids = [
+        bar,
+        h("div", { class: "qwp-cell-body" }, [
+          h("div", { class: "qwp-cell-title", text: s.title || "(leeg)" }),
+          sub ? h("div", { class: "qwp-cell-sub", text: sub }) : null
+        ]),
+        (doel && planned) ? goalsBlockFor(s) : null
+      ];
+    }
+
     var cell = h("div", {
-      class: cls, title: targetable ? "Klik = doel voor 'Add selectie' · dubbelklik = handmatig kiezen" : (s.title || ""),
+      class: cls, title: targetable ? "Klik = doel voor 'Toevoegen aan rooster' · dubbelklik = handmatig kiezen" : (s.title || ""),
       "data-vak": (state.settings[slotKeyStd(s.dayIdx, s.time)] || ""),
       onclick: onclick, ondblclick: ondbl,
       ondragover: function (e) { e.preventDefault(); cell.classList.add("drop"); },
@@ -2947,21 +3190,8 @@
           renderTimetable();
         } catch (err) {}
       }
-    }, [
-      // A thema band ALWAYS gets the top line (chip, or the "geen vaktag" nudge in its place),
-      // so tagged and untagged bands are the same height as each other and as a filled lesuur.
-      (vakLbl || mism || themaBand) ? h("div", { class: "qwp-cell-top" }, [
-        h("span", { class: "qwp-cell-vak", text: vakLbl }),
-        themaUntagged ? h("span", { class: "qwp-thema-untagged", title: "Klik deze balk en kies een Vak om de rij te benoemen.", text: "geen vaktag" }) : null,
-        mism ? h("span", {
-          class: "qwp-vakwarn",
-          title: "Fiche hoort bij " + (mism.ficheVak || "?") + " · dit lesuur staat ingesteld als " + (mism.slotVak || "?"),
-          text: "≠ " + (mism.ficheVak || "?")
-        }) : null
-      ]) : null,
-      h("div", { class: "qwp-cell-title", text: (themaBand ? stripQuestiDecoration(stripThemaPrefix(s.title) || s.title) : s.title) || "(leeg)" }),
-      h("div", { class: "qwp-cell-fiche", text: fiche })
-    ]);
+    }, kids);
+    if (themaBand) cell.classList.add("thema-span");
     // Filled (non-thema) slots are draggable → move/swap onto another slot.
     var movable = !!(s.ficheContentId || s.isGym) && !thema;
     if (movable) {
@@ -3259,55 +3489,11 @@
     syncFicheVakken([s]);
   }
 
-  function buildPicker(pi) {
-    return h("div", { class: "qwp-picker", id: "qwp-picker-" + pi }, [
-      h("div", { class: "qwp-picker-hd" }, [
-        h("div", { class: "qwp-vaktoggle", id: "qwp-vaktoggle-" + pi }),
-        h("div", { class: "qwp-picker-tools" }, [
-          h("input", { class: "qwp-psearch", id: "qwp-search-" + pi, placeholder: "zoek…", oninput: function (e) { view.panels[pi].search = e.target.value; renderPickList(pi); } }),
-          h("select", {
-            class: "qwp-select", id: "qwp-source-" + pi, onchange: function (e) {
-              var v = isNaN(+e.target.value) ? e.target.value : +e.target.value;
-              var p = view.panels[pi]; p.source = v; state.panels[pi].source = v;
-              p.filterVak = defaultTopTagId(v); p.filterTagId = p.filterVak; p.unionMode = true; state.panels[pi].filterVak = p.filterVak; saveState();
-              renderVakToggle(pi); renderSubcats(pi); loadAndRenderList(pi);
-            }
-          }),
-          h("button", {
-            class: "qwp-btn qwp-ghost qwp-sm", id: "qwp-sortbtn-" + pi, onclick: function () {
-              var p = view.panels[pi]; p.sortDir = (p.sortDir === "az" ? "za" : "az"); state.panels[pi].sortDir = p.sortDir; saveState(); renderPickList(pi);
-            }, text: "A-Z"
-          }),
-          h("select", {
-            class: "qwp-select qwp-grade", id: "qwp-grade-" + pi, onchange: function (e) {
-              var p = view.panels[pi]; p.gradeFilter = e.target.value || null; state.panels[pi].gradeFilter = p.gradeFilter; saveState(); renderPickList(pi);
-            }
-          }),
-          h("button", {
-            class: "qwp-btn qwp-ghost qwp-sm", id: "qwp-hideused-" + pi, title: "Verberg gebruikte lesfiches", onclick: function () {
-              var p = view.panels[pi]; p.hideUsed = !p.hideUsed; state.panels[pi].hideUsed = p.hideUsed; saveState(); renderPickList(pi);
-            }, text: "Verberg gebruikt"
-          })
-        ])
-      ]),
-      h("div", { class: "qwp-subcats", id: "qwp-subcats-" + pi }),
-      h("div", { class: "qwp-picker-list", id: "qwp-picker-list-" + pi }),
-      h("div", { class: "qwp-picker-ft" }, [
-        h("span", { class: "qwp-pick-count", id: "qwp-pick-count-" + pi, text: "0 geselecteerd" }),
-        h("span", { class: "qwp-spacer" }),
-        h("button", { class: "qwp-btn qwp-ghost qwp-sm", id: "qwp-clearsel-" + pi, onclick: function () { view.panels[pi].picked = {}; renderPickList(pi); updatePickCount(pi); }, text: "Wis selectie" }),
-        h("button", { class: "qwp-btn", id: "qwp-addsel-" + pi, onclick: function () { openMassAdd(pi); }, text: "Add selectie" })
-      ])
-    ]);
-  }
-  function visiblePanelCount() { return Math.max(1, Math.min(3, state.panelCount || 2)); }
-  function cardCols() { var n = visiblePanelCount(); return n === 1 ? 8 : (n === 2 ? 3 : 2); }
-  function applyPanelVisibility() {
-    var n = visiblePanelCount();
-    for (var i = 0; i < 3; i++) { var el = elId("qwp-picker-" + i); if (el) el.style.display = (i < n) ? "" : "none"; }
-  }
+  // ---------- Sidebar fiche list (was: 1-3 bottom filter panels) ----------
+  // One list now, driven by panel 0's state (view.panels[0] / state.panels[0]) so every existing
+  // panel helper — vak toggle, subtags, union fetch, grade filter, mass-add — keeps working as is.
   function renderPanel(pi) { renderVakToggle(pi); renderSource(pi); renderSubcats(pi); applyPanelAccent(pi); loadAndRenderList(pi); }
-  function renderAllPanels() { applyPanelVisibility(); for (var i = 0; i < visiblePanelCount(); i++) renderPanel(i); }
+  function renderAllPanels() { renderPanel(0); }
 
   // Tint the drawer with the active vak's tag color.
   function applyPanelAccent(pi) {
@@ -3330,10 +3516,21 @@
       }, [dot, h("span", { text: (t.title || "").trim() })]));
     });
   }
+  // "Ik | Collega ▾": Ik = own fiches; the second half names the chosen colleague/methode and
+  // opens a menu of the owners picked under Alles (state.colleagues, methodes included).
   function renderSource(pi) {
-    var sel = elId("qwp-source-" + pi); if (!sel) return; sel.innerHTML = "";
-    var owners = [{ id: myId(), name: "Ik" }].concat(state.colleagues);
-    owners.forEach(function (o) { sel.appendChild(h("option", { value: o.id, text: ownerName(o.id), selected: (String(view.panels[pi].source) === String(o.id) ? "selected" : null) })); });
+    var wrap = elId("qwp-source-" + pi); if (!wrap) return; wrap.innerHTML = "";
+    var p = view.panels[pi], mine = isOwnSource(p.source);
+    wrap.appendChild(h("button", { class: mine ? "active" : "", text: "Ik", onclick: function () { if (!mine) setPanelSource(pi, myId()); } }));
+    var other = h("button", { class: "qwp-owner-other" + (mine ? "" : " active"), "data-menu": "qwp-srcmenu", title: "Lesfiches van een collega of methode", onclick: function (e) { openSourceMenu(pi, e.currentTarget); } }, [
+      h("span", { class: "qwp-owner-name", text: mine ? "Collega" : ownerName(p.source) }), h("span", { text: " ▾" })
+    ]);
+    wrap.appendChild(other);
+  }
+  function setPanelSource(pi, v) {
+    var p = view.panels[pi]; p.source = v; state.panels[pi].source = v;
+    p.filterVak = defaultTopTagId(v); p.filterTagId = p.filterVak; p.unionMode = true; state.panels[pi].filterVak = p.filterVak; saveState();
+    renderPanel(pi);
   }
   function renderSubcats(pi) {
     var wrap = elId("qwp-subcats-" + pi); if (!wrap) return; wrap.innerHTML = "";
@@ -3380,41 +3577,106 @@
     items.sort(function (a, b) { var r = (a.subject || "").localeCompare(b.subject || "", undefined, { numeric: true }); return p.sortDir === "az" ? r : -r; });
     return items;
   }
+  // Fiche id → first date it is planned in the loaded weeks (current, staged state included).
+  // Matched on the fiche id only: a lesuur planned with an older version of an edited fiche does
+  // not show as "gepland" here — never a title guess.
+  function plannedFicheDates() {
+    var m = {};
+    view.slots.forEach(function (s) {
+      if (!s.ficheContentId || s.isGym || s.idCalendar === "cal_holidays") return;
+      var k = String(s.ficheContentId), d = String(s.startdate || "").slice(0, 10);
+      if (!m[k] || d < m[k]) m[k] = d;
+    });
+    return m;
+  }
+  var _plannedSig = "";
+  function plannedSig(m) { return Object.keys(m).sort().join(","); }
+  // Repaint the list only when the set of planned fiches changed (every grid paint asks).
+  function refreshPlannedInList() { if (plannedSig(plannedFicheDates()) !== _plannedSig) renderPickList(0); }
+  function dm(iso) { var d = addDays(iso, 0); return d ? d.getDate() + "/" + (d.getMonth() + 1) : ""; }
+  // Right-hand date of a list row: planned in these weeks → green; used this school year → muted ✓;
+  // used before → plain date; never → "nooit". A bare year (Questi sometimes sends one) shows as is.
+  function ficheDateInfo(f, planned) {
+    var pd = planned[String(f.id)];
+    if (pd) return { text: dm(pd) + " gepland", cls: "plan", title: "Gepland in de geladen weken" };
+    var raw = f.last_used_date, s = String(raw == null ? "" : raw);
+    if (!raw || s.indexOf("0000") === 0) return { text: "nooit", cls: "never", title: "Nog nooit gebruikt" };
+    if (/^\d{4}$/.test(s)) return { text: s, cls: "old", title: "Laatst gebruikt in " + s };
+    var dt = new Date(s.replace(" ", "T")); if (isNaN(dt.getTime())) return { text: "?", cls: "never", title: "Onbekende datum: " + s };
+    var iso = s.slice(0, 10), full = iso.split("-").reverse().join("/");
+    if (usedThisYear(f)) return { text: dm(iso) + " ✓", cls: "used", title: "Gebruikt dit schooljaar op " + full };
+    return { text: full.slice(0, 6) + full.slice(8), cls: "old", title: "Laatst gebruikt op " + full };
+  }
+  // In "Alle" (union) mode, which subtag each fiche came from — the "blok 3" line under its title.
+  function subtagIndex(p) {
+    var m = {};
+    if (!p.unionMode) return m;
+    childTags(p.filterVak, p.source).forEach(function (t) {
+      (view.ficheCache[cacheKey(p.source, t.id)] || []).forEach(function (f) { if (!m[f.id]) m[f.id] = (t.title || "").trim(); });
+    });
+    return m;
+  }
+  function renderListHead(pi, n) {
+    var el = elId("qwp-listhd-t"); if (!el) return;
+    var p = view.panels[pi], bits = [];
+    if (!isOwnSource(p.source)) bits.push(ownerName(p.source));
+    if (p.filterVak != null) bits.push((tagTitle(p.source, p.filterVak) || "").trim());
+    if (!p.unionMode && p.filterTagId != null && String(p.filterTagId) !== String(p.filterVak)) bits.push((tagTitle(p.source, p.filterTagId) || "").trim());
+    el.textContent = bits.filter(Boolean).join(" · ") + (n != null ? " (" + n + ")" : "");
+  }
+  function syncFilterControls(pi) {
+    var p = view.panels[pi];
+    var so = elId("qwp-sort-" + pi); if (so) so.value = p.sortDir === "za" ? "za" : "az";
+    var hu = elId("qwp-hideused-" + pi); if (hu) hu.checked = !!p.hideUsed;
+    renderGradeSelect(pi);
+    applyFilterFold();
+  }
   function renderPickList(pi) {
     var p = view.panels[pi];
-    var sb = elId("qwp-sortbtn-" + pi); if (sb) sb.textContent = p.sortDir === "az" ? "A-Z" : "Z-A";
-    var hb = elId("qwp-hideused-" + pi); if (hb) hb.classList.toggle("active", !!p.hideUsed);
-    renderGradeSelect(pi);
-    var list = elId("qwp-picker-list-" + pi); if (!list) return; list.innerHTML = "";
-    list.className = "qwp-picker-list " + (state.pickerView === "card" ? "card" : "list");
-    // Card columns scale with the visible-panel count (1→8, 2→3, 3→2) so cards stay wide.
-    list.style.gridTemplateColumns = (state.pickerView === "card") ? ("repeat(" + cardCols() + ", minmax(0, 1fr))") : "";
-    if (p.loading) { list.appendChild(h("div", { class: "qwp-empty", text: "Laden…" })); updatePickCount(pi); return; }
+    syncFilterControls(pi);
+    var list = elId("qwp-picker-list-" + pi); if (!list) return;
+    var keep = list.scrollTop;
+    list.innerHTML = "";
+    var planned = plannedFicheDates(); _plannedSig = plannedSig(planned);
+    if (p.loading) { renderListHead(pi, null); list.appendChild(h("div", { class: "qwp-empty", text: "Laden…" })); updatePickCount(pi); return; }
     var items = pickListItems(pi);
-    if (!items.length) { list.appendChild(h("div", { class: "qwp-empty", text: "Geen lesfiches voor dit filter." })); updatePickCount(pi); return; }
+    renderListHead(pi, items.length);
+    if (!items.length) {
+      list.appendChild(h("div", { class: "qwp-empty", text: filterActive(p) ? "Geen lesfiches voor dit filter." : "Geen lesfiches in dit vak." }));
+      updatePickCount(pi); return;
+    }
     var col = tagColor(p.source, p.filterVak);
+    var subOf = subtagIndex(p);
     items.forEach(function (f) {
-      var chk = h("input", { type: "checkbox" }); if (p.picked[f.id]) chk.checked = true;
+      var chk = h("input", { type: "checkbox", title: "Aanvinken om meerdere fiches tegelijk in te plannen" }); if (p.picked[f.id]) chk.checked = true;
       var pickData = { id: f.id, subject: f.subject, tagId: p.filterVak, color: col, isMethod: !!f.__method };
+      var di = ficheDateInfo(f, planned);
+      var isMeth = !!(f.__method || view.methodFicheIds[String(f.id)]);
+      var sq = h("span", { class: "qwp-pfiche-sq" }); if (col) sq.style.background = col;
+      var subTxt = subOf[f.id] || "";
       var row = h("label", {
-        class: "qwp-pfiche" + (p.picked[f.id] ? " picked" : ""), draggable: "true", title: f.subject || "",
+        class: "qwp-pfiche d-" + di.cls + (p.picked[f.id] ? " picked" : ""), draggable: "true", title: (f.subject || "") + " — sleep op een lesuur",
         ondragstart: function (e) { e.dataTransfer.setData("text/plain", JSON.stringify(pickData)); startDragTargets(pickData.tagId); },
         ondragend: function () { endDragTargets(); }
       }, [
-        chk,
-        h("span", { class: "qwp-pfiche-t", text: f.subject || "(zonder titel)" }),
-        (f.__method || view.methodFicheIds[String(f.id)]) ? h("span", { class: "qwp-mbadge", text: "methode" }) : null,
-        usedChip(f)
+        h("span", { class: "qwp-pfiche-pick" }, [sq, chk]),
+        h("span", { class: "qwp-pfiche-main" }, [
+          h("span", { class: "qwp-pfiche-t", text: f.subject || "(zonder titel)" }),
+          (subTxt || isMeth) ? h("span", { class: "qwp-pfiche-sub" }, [subTxt || null, isMeth ? h("span", { class: "qwp-mbadge", text: "methode" }) : null]) : null
+        ]),
+        h("span", { class: "qwp-pfiche-date", title: di.title || null, text: di.text })
       ]);
       chk.onchange = function () { if (chk.checked) { p.picked[f.id] = pickData; } else { delete p.picked[f.id]; } row.classList.toggle("picked", chk.checked); updatePickCount(pi); };
       list.appendChild(row);
     });
+    list.scrollTop = keep;
     updatePickCount(pi);
   }
   function updatePickCount(pi) {
     var n = Object.keys(view.panels[pi].picked).length;
     var el = elId("qwp-pick-count-" + pi); if (el) el.textContent = n + " geselecteerd";
-    var b = elId("qwp-addsel-" + pi); if (b) b.textContent = "Add selectie" + (n ? (" (" + n + ")") : "");
+    var bar = elId("qwp-selbar"); if (bar) bar.style.display = n ? "" : "none";
+    var list = elId("qwp-picker-list-" + pi); if (list) list.classList.toggle("picking", n > 0);
   }
 
   // ---------- Mass-add (per panel) ----------
@@ -3447,7 +3709,7 @@
 
   function openMassAdd(pi) {
     var picks = Object.keys(view.panels[pi].picked).map(function (k) { return view.panels[pi].picked[k]; });
-    if (!picks.length) { setStatus("Niets geselecteerd in paneel " + (pi + 1) + "."); return; }
+    if (!picks.length) { setStatus("Niets aangevinkt in de lijst."); return; }
     var old = elId("qwp-modal"); if (old) old.remove();
     var usingTargets = view.targetSlots.length > 0;
 
@@ -3554,7 +3816,7 @@
 
     var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
       h("div", { class: "qwp-modal-box wide qwp-ma-modal" }, [
-        h("div", { class: "qwp-modal-hd", text: "Selectie toevoegen (paneel " + (pi + 1) + ") — " + picks.length + " les(sen)" + (usingTargets ? " → " + view.targetSlots.length + " doel(en)" : "") }),
+        h("div", { class: "qwp-modal-hd", text: "Selectie toevoegen — " + picks.length + " les(sen)" + (usingTargets ? " → " + view.targetSlots.length + " doel(en)" : "") }),
         body,
         h("div", { class: "qwp-modal-ft" }, [
           h("button", { class: "qwp-btn qwp-ghost", text: "Annuleren", onclick: function () { modal.remove(); } }),
@@ -3977,7 +4239,7 @@
     var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
       h("div", { class: "qwp-modal-box qwp-inst-modal" }, [
         h("div", { class: "qwp-modal-hd", text: "Instellingen — vast vak per lesuur" }),
-        h("div", { class: "qwp-modal-body" }, [h("p", { class: "qwp-note", text: "Dit is de standaard die elke week geldt. Ze bepaalt welk vak 'Add selectie' automatisch in een leeg lesuur plaatst." }), grid, calField, throttleField]),
+        h("div", { class: "qwp-modal-body" }, [h("p", { class: "qwp-note", text: "Dit is de standaard die elke week geldt. Ze bepaalt welk vak 'Toevoegen aan rooster' automatisch in een leeg lesuur plaatst." }), grid, calField, throttleField]),
         h("div", { class: "qwp-modal-ft" }, [
           h("button", { class: "qwp-btn qwp-ghost", text: "Sluiten", onclick: function () { modal.remove(); } }),
           h("button", { class: "qwp-btn qwp-approve", text: "Bewaren", onclick: function () {
@@ -4037,7 +4299,7 @@
   function openCopyPrevWeek() {
     if (!view.weekStart) { setStatus("Geen week geladen."); return; }
     var old = elId("qwp-modal"); if (old) old.remove();
-    var span = 7 * view.weeks;
+    var span = 7;   // the week before the first loaded week, copied into that week
     var prevStart = isoDate(addDays(view.weekStart, -span)), prevEnd = isoDate(addDays(view.weekStart, -1));
     setStatus("Vorige week laden…");
     hydrateRange(prevStart, prevEnd).then(function (prev) {
@@ -4554,9 +4816,9 @@
       if (!bar.contains(e.target)) closeGlobalResults();
     });
     loadState().then(function () {
-      view.weeks = state.weeks || 1;
+      view.weeks = 2;   // Plannen always shows this week + next; state.weeks stays the print default
       [0, 1, 2].forEach(function (i) { if (state.panels[i]) view.panels[i] = Object.assign(view.panels[i], state.panels[i]); });
-      syncWeekSeg(); syncSegs(); applySplit(); wireSplitter(); applySideCollapse();
+      applyFilterFold(); syncModeSeg();
       setStatus("Questi-context detecteren…");
       return authProbe().then(function (st) {
         if (st === "loggedout") { showLoginRequired(); return "__STOP__"; }

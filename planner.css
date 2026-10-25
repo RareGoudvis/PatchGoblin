@@ -1,13 +1,12 @@
-/* Questi Week Planner — planner.css
+/* UnQuesti planner — planner.css
  * Light theme only. Everything is namespaced under #qwp-overlay so nothing
  * leaks into (or inherits from) Questi's own page.
  *
  * Layout:  FULLSCREEN overlay
- *          page = header
- *                 main = [ sidebar | content( nav + timetable + dual pickers ) ]
- *                 footer
- * The timetable is a SINGLE grid; in "2 weken" the two weeks sit SIDE BY SIDE
- * (time column, then week-1's 5 day columns, then week-2's 5 day columns).
+ *          main = [ sidebar 360px (tabs · vak chips · Ik/Collega · filter · fiche list · actions)
+ *                 | content( week header + this week and next week STACKED ) ]
+ * The generic .qwp-tt / .qwp-cell rules below are shared with the review modal (two weeks side
+ * by side there); the UnQuesti block at the end restyles them inside .qwp-wk week sections only.
  * ------------------------------------------------------------------ */
 
 #qwp-overlay, #qwp-overlay * { box-sizing: border-box; }
@@ -16,8 +15,11 @@
 html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 
 #qwp-overlay {
-  --ink:#1f2733; --muted:#5b6470; --faint:#8b94a0;
-  --line:#e4e8ee; --line-soft:#eef1f5;
+  --ink:#1e2a33; --muted:#6b7a82; --faint:#8b94a0;
+  --line:#e3e9ec; --line-soft:#eef1f5; --line2:#d5dbdf; --soft:#eef2f4; --band-line:#e7cf94;
+  /* UnQuesti brand palette ("Glowing horizon"). White text on --uq-blue only at >=14px bold
+     (~4.1:1); smaller text gets blue as border/underline/tint. --uq-cyan is never a text colour. */
+  --uq-blue:#4272FF; --uq-blue-tint:#edf2ff; --uq-amber:#FFB343; --uq-orange:#FF7E42; --uq-orange-tint:#fff1e9; --uq-orange-ink:#8a3b12; --uq-cyan:#42EAFF; --uq-cyan-tint:#e9fcff;
   --surface:#ffffff; --canvas:#ffffff; --raised:#fbfcfe;
   /* Questi brand tokens (from their Angular-Material theme): primary slate #304651,
      accent lime #e4e642, warn #f44336. Blends the panel into the host app. */
@@ -37,8 +39,8 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 }
 #qwp-overlay.qwp-show { display: block; }
 
-/* Fullscreen page: fills the entire viewport. Accent line spans the whole top. */
-.qwp-page { position: absolute; inset: 0; width: 100vw; height: 100vh; background: var(--canvas); display: flex; flex-direction: column; border-top: 3px solid var(--accent); }
+/* Fullscreen page: fills the entire viewport. */
+.qwp-page { position: absolute; inset: 0; width: 100vw; height: 100vh; background: #f4f6f7; display: flex; flex-direction: column; }
 
 /* Header */
 .qwp-hdr { display: flex; align-items: baseline; gap: 12px; padding: 12px 18px; background: var(--surface); border-bottom: 1px solid var(--line); border-top: 3px solid var(--accent); }
@@ -60,39 +62,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-btn.qwp-approve { background:var(--change); border-color:var(--change); }
 .qwp-btn.qwp-sm { padding:5px 10px; font-size:11.5px; }
 
-/* Main split */
-.qwp-main { flex:1; display:flex; min-height:0; }
-
-/* Sidebar */
-.qwp-side { width:186px; flex:0 0 186px; background:var(--surface); border-right:1px solid var(--line); padding:14px 13px; display:flex; flex-direction:column; gap:15px; overflow:auto; }
-.qwp-side-title { display:flex; flex-direction:column; gap:2px; padding-bottom:2px; }
-.qwp-side-title .qwp-title { font-size:16px; font-weight:700; letter-spacing:-0.01em; }
-.qwp-side-title .qwp-sub { font-size:11.5px; color:var(--faint); font-weight:500; }
-.qwp-navrow { display:flex; gap:6px; }
-.qwp-navbtn { flex:1; padding:7px 6px; text-align:center; font-weight:700; }
-.qwp-side-grp { display:flex; flex-direction:column; gap:7px; }
-/* Commit controls pinned to the sidebar bottom (footer folded in). */
-.qwp-side-bottom { margin-top:auto; padding-top:12px; border-top:1px solid var(--line); gap:8px; }
-.qwp-side-bottom .qwp-status { font-size:11px; color:var(--muted); line-height:1.35; }
-.qwp-side-btn.qwp-commit { background:#d4d8de; color:#7a828c; border-color:#d4d8de; cursor:not-allowed; text-align:center; }
-.qwp-side-btn.qwp-commit.armed { background:var(--change); border-color:var(--change); color:#fff; cursor:pointer; }
-.qwp-side-btn.qwp-review { background:#47526a; border-color:#47526a; color:#fff; text-align:center; }
-.qwp-side-btn.qwp-review:hover { background:#3b4459; }
-.qwp-side-lbl { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
-.qwp-side-btn { text-align:center; background:var(--raised); border:1px solid var(--line); border-radius:var(--radius-sm); padding:9px 11px; font-size:12.5px; font-weight:600; color:var(--ink); cursor:pointer; }
-.qwp-side-btn:hover { border-color:var(--accent-line); background:var(--accent-weak); }
-.qwp-side-btn.qwp-muted { color:var(--faint); background:transparent; border-color:var(--line-soft); font-weight:500; }
-.qwp-side-btn.qwp-muted:hover { color:var(--muted); background:var(--line-soft); border-color:var(--line); }
-/* On-open health check failed → Debug glows red (still clickable, no message). */
-.qwp-side-btn.qwp-alert { color:var(--danger); border-color:var(--danger); font-weight:700; animation:qwp-glow 1.4s ease-in-out infinite; }
-@keyframes qwp-glow { 0%,100% { box-shadow:0 0 0 0 rgba(179,38,30,.45); } 50% { box-shadow:0 0 7px 3px rgba(179,38,30,.35); } }
-.qwp-side-note { font-size:11.5px; color:var(--muted); line-height:1.4; }
-/* Sidebar bottom: divider + status + credit */
 .qwp-side-sep { height:1px; background:var(--line); margin:4px 0 2px; }
-.qwp-credit { font-size:10px; color:var(--faint); text-align:center; margin-top:2px; }
-/* Undo button (sidebar) */
-.qwp-side-btn.qwp-undo { text-align:center; }
-.qwp-side-btn.qwp-disabled { opacity:.45; cursor:default; pointer-events:none; }
 /* Balans (per-vak tally) */
 .qwp-balance { display:flex; flex-direction:column; gap:3px; }
 .qwp-balance-row { display:flex; align-items:center; justify-content:space-between; font-size:11.5px; color:var(--muted); }
@@ -122,21 +92,6 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-copy-t { font-size:12.5px; font-weight:600; line-height:1.25; color:var(--ink); overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .qwp-copy-vak { font-size:10.5px; color:var(--muted); margin-top:2px; text-transform:uppercase; letter-spacing:.02em; }
 .qwp-copy-x { font-size:10.5px; color:var(--faint); font-style:italic; margin-top:2px; }
-/* Legend */
-.qwp-legend-row { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); }
-.qwp-legend-sw { width:13px; height:13px; border-radius:3px; flex:0 0 auto; border:1px solid var(--line); }
-.qwp-legend-sw.border { background:var(--surface); border-width:2px; border-left-width:3px; }
-.qwp-seg { display:flex; border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; }
-.qwp-seg button { flex:1; background:var(--surface); border:none; padding:8px 6px; font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; }
-.qwp-seg button + button { border-left:1px solid var(--line); }
-.qwp-seg button.active { background:var(--accent); color:#fff; }
-
-/* Content column */
-.qwp-content { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
-/* Draggable splitter between grid and filter lists */
-.qwp-splitter { flex:0 0 6px; cursor:row-resize; background:var(--line-soft); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
-.qwp-splitter:hover { background:var(--accent-line); }
-
 /* Global cross-owner search bar (top of the content column) */
 .qwp-gsearch { position:relative; display:flex; align-items:center; gap:8px; padding:8px 16px; background:var(--surface); border-bottom:1px solid var(--line); z-index:26; }
 .qwp-gsearch-inp { flex:1; max-width:440px; border:1px solid var(--line); border-radius:var(--radius-sm); padding:7px 11px; font-size:13px; background:var(--raised); color:var(--ink); }
@@ -151,26 +106,6 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-gsearch-t { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qwp-gsearch-badge { font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); background:var(--line-soft); border-radius:999px; padding:2px 7px; white-space:nowrap; }
 .qwp-gsearch-msg { padding:9px 11px; font-size:12px; color:var(--faint); }
-
-/* Top bar: sidebar toggle + week nav (left) + global search (middle, grows) + close ✕ (right) */
-.qwp-topbar { display:flex; align-items:center; gap:14px; padding:7px 14px; background:var(--surface); border-bottom:1px solid var(--line); }
-.qwp-topbar .qwp-navrow { flex:0 0 auto; margin:0; gap:8px; align-items:center; }
-.qwp-topbar .qwp-gsearch { flex:1; padding:0; border-bottom:none; background:transparent; }
-.qwp-topbar .qwp-gsearch-results { left:0; }
-.qwp-topx { flex:0 0 auto; width:32px; height:32px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface); color:var(--muted); cursor:pointer; font-size:15px; }
-.qwp-topx:hover { background:var(--accent-weak); color:var(--ink); }
-/* slim date-nav: compact square arrows, "Vandaag" as a normal ghost pill */
-.qwp-topbar .qwp-navbtn { padding:6px 12px; }
-.qwp-sidetoggle { flex:0 0 auto; padding:5px 10px; font-size:15px; line-height:1; }
-.qwp-navarrow { padding:5px 10px; font-size:15px; line-height:1; font-weight:700; }
-
-/* Sidebar collapse (toggle in the top bar; grid reflows via minmax(0,1fr)) */
-.qwp-main.qwp-side-collapsed .qwp-side { display:none; }
-
-/* Top navigation bar */
-.qwp-nav { display:flex; align-items:center; gap:8px; padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--line); }
-.qwp-range { font-size:13px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; margin-left:6px; }
-
 /* Timetable (top) */
 .qwp-ttwrap { flex:1 1 58%; overflow:auto; padding:14px 16px; }
 /* Fit-to-viewport: columns are minmax(0,1fr) inline, so the grid must NOT force
@@ -249,22 +184,6 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-badge { font-size:9px; font-weight:700; letter-spacing:.03em; padding:2px 6px; border-radius:999px; text-transform:uppercase; white-space:nowrap; }
 .qwp-badge-change { background:var(--change); color:#fff; }
 .qwp-badge-exist { background:var(--accent-weak); color:var(--accent); }
-
-/* Bottom filter panels (1-3 independent panels, side by side) */
-.qwp-pickers { flex:0 0 44%; min-height:220px; display:flex; gap:0; border-top:1px solid var(--line); background:var(--surface); }
-.qwp-picker { --vak-accent:var(--line); flex:1 1 0; min-width:0; display:flex; flex-direction:column; min-height:0; border-left:2px solid var(--wksep); border-top:3px solid var(--vak-accent); }
-.qwp-picker:first-child { border-left:none; }
-.qwp-picker-hd { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line-soft); background:#f7f9fc; }
-.qwp-vaktoggle { display:flex; gap:4px; flex-wrap:wrap; }
-.qwp-vakbtn { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); background:var(--raised); border-radius:999px; padding:3px 9px; font-size:11px; font-weight:600; color:var(--muted); cursor:pointer; }
-.qwp-vakbtn:hover { border-color:var(--accent-line); }
-.qwp-vakbtn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-.qwp-vakdot { width:9px; height:9px; border-radius:50%; background:var(--line); flex:0 0 auto; }
-.qwp-vakbtn.active .qwp-vakdot { box-shadow:0 0 0 1.5px #fff; }
-.qwp-btn.qwp-sm.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-.qwp-picker-tools { display:flex; align-items:center; gap:6px; margin-left:auto; }
-.qwp-psearch { border:1px solid var(--line); border-radius:var(--radius-sm); padding:5px 8px; font-size:12px; background:var(--surface); color:var(--ink); width:96px; }
-.qwp-psearch:focus { outline:none; border-color:var(--accent); }
 .qwp-select { border:1px solid var(--line); border-radius:var(--radius-sm); padding:5px 8px; font-size:12px; background:var(--surface); color:var(--ink); max-width:130px; }
 .qwp-select.qwp-grade { max-width:120px; }
 .qwp-subcats { display:flex; flex-wrap:wrap; gap:5px; padding:7px 12px 0; max-height:64px; overflow:auto; }
@@ -272,31 +191,11 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-subchip { border:1px solid var(--line); background:var(--raised); border-radius:999px; padding:3px 9px; font-size:11px; color:var(--muted); cursor:pointer; }
 .qwp-subchip:hover { border-color:var(--accent-line); }
 .qwp-subchip.active { background:var(--accent-weak); border-color:var(--accent-line); color:var(--accent); font-weight:600; }
-/* List view = one clean row per fiche; Card view = wrapping grid. */
-.qwp-picker-list { flex:1; overflow:auto; padding:8px 12px; align-content:start; }
-.qwp-picker-list.list { display:flex; flex-direction:column; gap:2px; }
-/* Card columns come from an inline grid-template (cardCols(): 1 panel→8, 2→3, 3→2). */
-.qwp-picker-list.card { display:grid; gap:6px; }
-.qwp-pfiche { display:flex; align-items:center; gap:8px; cursor:grab; }
-.qwp-picker-list.list .qwp-pfiche { padding:4px 8px; border-bottom:1px solid var(--line-soft); border-radius:0; }
-.qwp-picker-list.list .qwp-pfiche:hover { background:var(--accent-weak); }
-.qwp-picker-list.list .qwp-pfiche.picked { background:var(--accent-weak); }
-.qwp-picker-list.list .qwp-pfiche-t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.qwp-picker-list.card .qwp-pfiche { padding:7px 10px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--raised); align-items:flex-start; }
-.qwp-picker-list.card .qwp-pfiche:hover { border-color:var(--accent-line); background:var(--accent-weak); }
-.qwp-picker-list.card .qwp-pfiche.picked { border-color:var(--accent); background:var(--accent-weak); }
-.qwp-picker-list.card .qwp-pfiche-t { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.qwp-pfiche input { width:15px; height:15px; accent-color:var(--accent); flex:0 0 auto; }
-.qwp-pfiche-t { flex:1; font-size:12px; line-height:1.3; }
 .qwp-used { font-size:9px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--change); background:var(--change-weak); border-radius:999px; padding:2px 6px; white-space:nowrap; }
-/* methode-fiche marker (vendor/read-only) — visible in panel lists + global search */
 .qwp-mbadge { font-size:9px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:#5b3b00; background:#ffe0a3; border-radius:999px; padding:2px 6px; white-space:nowrap; }
 .qwp-gsearch-badge.method { color:#5b3b00; background:#ffe0a3; }
 .qwp-pop-sub { color:var(--muted); font-size:11px; }
-.qwp-picker-ft { display:flex; align-items:center; gap:10px; padding:8px 12px; border-top:1px solid var(--line-soft); }
-.qwp-pick-count { font-size:12px; color:var(--muted); }
 .qwp-empty { color:var(--faint); padding:18px 12px; text-align:center; font-size:12.5px; grid-column:1 / -1; }
-
 /* Context-detection error + manual override */
 .qwp-ctxerr { max-width:560px; margin:24px auto; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; }
 .qwp-ctxerr-t { font-size:15px; font-weight:700; color:var(--danger); margin-bottom:8px; }
@@ -469,17 +368,6 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-rv-cell.rv-alert .qwp-cell-title { color:var(--danger); }
 .qwp-rv-cell.noschool { background:repeating-linear-gradient(135deg, var(--line-soft) 0 6px, transparent 6px 12px); }
 
-/* ---- Responsive: narrow screens ---- */
-@media (max-width: 820px) {
-  /* Two-row header: nav + toggle + ✕ on row 1, search full-width on row 2. */
-  .qwp-topbar { flex-wrap:wrap; gap:10px; }
-  .qwp-topbar .qwp-gsearch { order:10; flex-basis:100%; }
-  .qwp-topbar .qwp-gsearch-inp { max-width:none; }
-  /* Sidebar overlays instead of squeezing the grid when shown on small screens. */
-  .qwp-main .qwp-side { position:absolute; z-index:20; top:0; bottom:0; left:0; box-shadow:2px 0 12px rgba(0,0,0,.18); }
-  .qwp-main { position:relative; }
-}
-
 /* Slot popup: note under the editable title (only shown when a fiche would override it). */
 .qwp-pop-note { margin-top:6px; font-size:11.5px; line-height:1.45; color:var(--thema); background:var(--thema-weak); border:1px solid var(--thema-line); border-radius:var(--radius-sm); padding:6px 9px; }
 /* Attached fiche belongs to a different vak than the lesuur's Instellingen vak. */
@@ -491,3 +379,202 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-lobtn { border:1px solid var(--accent-line); background:var(--surface); color:var(--muted); border-radius:999px; padding:4px 11px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; line-height:1.35; }
 .qwp-lobtn:hover { background:var(--accent-weak); }
 .qwp-lobtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+/* =====================================================================
+ * UnQuesti "Plannen" layout (buildShell). Sidebar 360px | main column.
+ * Placed last so it wins over the generic grid rules above, which the
+ * review modal still uses as they are.
+ * ===================================================================== */
+#qwp-overlay button, #qwp-overlay input, #qwp-overlay select, #qwp-overlay textarea { font-family:inherit; }
+#qwp-overlay :focus-visible { outline:2px solid var(--uq-cyan); outline-offset:2px; }
+.qwp-main { flex:1; display:flex; min-height:0; }
+
+/* ---- Sidebar ---- */
+.qwp-side { flex:0 0 360px; width:360px; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--line); }
+.qwp-side-top { flex:0 0 auto; padding:14px 16px 10px; display:flex; flex-direction:column; gap:10px; border-bottom:1px solid var(--line); }
+.qwp-tabs { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:3px; background:var(--soft); border-radius:10px; padding:3px; }
+.qwp-tab { border:none; background:transparent; border-radius:8px; padding:6px 0; font-size:14px; font-weight:700; color:var(--accent); cursor:pointer; }
+.qwp-tab:hover { background:#e2e8eb; }
+.qwp-tab.active, .qwp-tab.active:hover { background:var(--uq-blue); color:#fff; cursor:default; }
+.qwp-vaktoggle { display:flex; flex-wrap:wrap; gap:6px; }
+.qwp-vakbtn { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line2); background:var(--surface); border-radius:999px; padding:4px 10px; font-size:12px; font-weight:600; color:var(--ink); cursor:pointer; }
+.qwp-vakbtn:hover { border-color:var(--accent-line); }
+.qwp-vakbtn.active { background:var(--uq-blue-tint); border-color:var(--uq-blue); box-shadow:inset 0 0 0 1px var(--uq-blue); }
+.qwp-vakdot { width:9px; height:9px; border-radius:50%; background:var(--line2); flex:0 0 auto; }
+.qwp-ownerrow { display:flex; align-items:center; gap:8px; }
+.qwp-ownerseg { display:flex; min-width:0; border:1px solid var(--line2); border-radius:8px; overflow:hidden; }
+.qwp-ownerseg button { display:flex; align-items:center; min-width:0; border:none; background:var(--surface); color:var(--accent); padding:6px 12px; font-size:12.5px; font-weight:600; cursor:pointer; }
+.qwp-ownerseg button + button { border-left:1px solid var(--line2); }
+.qwp-ownerseg button.active { background:var(--uq-blue-tint); color:var(--ink); box-shadow:inset 0 -2px 0 var(--uq-blue); }
+.qwp-owner-name { max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qwp-filterbtn { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line2); background:var(--surface); border-radius:8px; padding:6px 12px; font-size:12.5px; font-weight:600; color:var(--accent); cursor:pointer; }
+.qwp-filterbtn:hover { border-color:var(--accent-line); }
+.qwp-filterbtn.open { border-color:var(--uq-blue); background:var(--uq-blue-tint); }
+.qwp-filterbtn.on { border-color:var(--uq-orange); background:var(--uq-orange-tint); color:var(--uq-orange-ink); }
+.qwp-filter { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; padding:10px; background:#fafbfb; border:1px solid var(--line); border-radius:8px; }
+.qwp-flbl { display:flex; flex-direction:column; gap:3px; min-width:0; font-size:11.5px; font-weight:600; color:var(--muted); }
+.qwp-flbl.wide, .qwp-fchk.wide { grid-column:1 / -1; }
+.qwp-finp, .qwp-fsel { width:100%; min-width:0; border:1px solid var(--line2); border-radius:6px; padding:6px 8px; font-size:13px; font-weight:500; color:var(--ink); background:#fff; }
+.qwp-finp:focus, .qwp-fsel:focus { outline:none; border-color:var(--uq-blue); box-shadow:0 0 0 2px var(--uq-cyan-tint); }
+.qwp-fchk { display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--accent); cursor:pointer; }
+.qwp-fchk input { width:15px; height:15px; margin:0; accent-color:var(--uq-blue); }
+.qwp-subwrap .qwp-subcats { padding:0; max-height:76px; }
+.qwp-subwrap:has(.qwp-subcats:empty) { display:none; }
+
+/* One fiche list; fills whatever height is left so the actions stay pinned to the bottom. */
+.qwp-picker { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+.qwp-listhd { flex:0 0 auto; display:flex; justify-content:space-between; gap:10px; padding:8px 16px 4px; font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+.qwp-listhd-t { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qwp-picker-list { flex:1 1 auto; min-height:0; overflow:auto; }
+.qwp-pfiche { display:flex; align-items:center; gap:10px; padding:8px 16px; border-bottom:1px solid var(--soft); background:#fff; cursor:grab; }
+.qwp-pfiche:hover { background:#f6f8f9; }
+.qwp-pfiche.d-plan { background:var(--uq-cyan-tint); box-shadow:inset 3px 0 0 var(--uq-cyan); }
+.qwp-pfiche.picked { background:var(--uq-blue-tint); box-shadow:inset 3px 0 0 var(--uq-blue); }
+.qwp-pfiche-pick { flex:0 0 auto; width:15px; height:15px; display:flex; align-items:center; justify-content:center; }
+.qwp-pfiche-sq { width:10px; height:10px; border-radius:3px; background:var(--line2); }
+.qwp-pfiche-pick input { display:none; width:15px; height:15px; margin:0; accent-color:var(--uq-blue); }
+.qwp-pfiche:hover .qwp-pfiche-pick input, .qwp-picker-list.picking .qwp-pfiche-pick input { display:block; }
+.qwp-pfiche:hover .qwp-pfiche-sq, .qwp-picker-list.picking .qwp-pfiche-sq { display:none; }
+.qwp-pfiche-main { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+.qwp-pfiche-t { font-size:13px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qwp-pfiche-sub { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted); }
+.qwp-pfiche-date { flex:0 0 auto; font-size:12px; font-weight:600; color:var(--accent); white-space:nowrap; }
+.qwp-pfiche.d-used .qwp-pfiche-t, .qwp-pfiche.d-used .qwp-pfiche-date { color:var(--muted); }
+.qwp-pfiche.d-plan .qwp-pfiche-date { color:var(--ink); text-decoration:underline; text-decoration-color:var(--uq-cyan); text-decoration-thickness:3px; text-underline-offset:2px; }
+.qwp-selbar { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid var(--line); background:var(--uq-blue-tint); }
+.qwp-pick-count { font-size:12px; font-weight:600; color:var(--ink); }
+
+.qwp-side-status { flex:0 0 auto; display:flex; flex-direction:column; gap:2px; padding:6px 14px; border-top:1px solid var(--line); }
+.qwp-side-note { font-size:11.5px; color:var(--accent); font-weight:600; line-height:1.35; }
+.qwp-side-note:empty { display:none; }
+.qwp-status { font-size:11.5px; color:var(--muted); line-height:1.35; }
+
+.qwp-actions { flex:0 0 auto; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px; padding:10px; border-top:1px solid var(--line); background:#fafbfb; }
+.qwp-actbtn { position:relative; display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 4px; border:none; border-radius:8px; background:transparent; color:var(--accent); font-size:11.5px; font-weight:600; cursor:pointer; }
+.qwp-actbtn:hover { background:var(--soft); }
+.qwp-actbtn.primary { background:var(--uq-amber); color:var(--ink); box-shadow:2px 2px 0 var(--ink); }
+.qwp-actbtn.primary:hover { background:#ffa61f; }
+.qwp-actbtn.primary:active { box-shadow:none; transform:translate(2px, 2px); }
+.qwp-actbadge { position:absolute; top:4px; right:10px; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--ink); color:var(--uq-amber); font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+/* On-open health check failed → Debug glows red (still clickable). */
+.qwp-actbtn.qwp-alert { color:var(--danger); box-shadow:inset 0 0 0 1px var(--danger); animation:qwp-glow 1.4s ease-in-out infinite; }
+@keyframes qwp-glow { 0%,100% { box-shadow:inset 0 0 0 1px var(--danger), 0 0 0 0 rgba(179,38,30,.45); } 50% { box-shadow:inset 0 0 0 1px var(--danger), 0 0 7px 3px rgba(179,38,30,.35); } }
+
+/* ---- Main column ---- */
+.qwp-content { flex:1 1 auto; min-width:0; min-height:0; display:flex; flex-direction:column; }
+.qwp-mhdr { flex:0 0 auto; display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:10px 20px; background:#fff; border-bottom:1px solid var(--line); }
+.qwp-navarrow { width:34px; height:34px; border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--accent); font-size:15px; font-weight:600; cursor:pointer; }
+.qwp-navbtn { border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--accent); padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; }
+.qwp-navarrow:hover, .qwp-navbtn:hover { background:var(--soft); }
+.qwp-range { font-size:17px; font-weight:700; color:var(--ink); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.qwp-range-sub { font-size:14px; font-weight:500; color:var(--muted); }
+.qwp-modeseg { display:flex; background:var(--soft); border-radius:999px; padding:3px; }
+.qwp-modeseg button { border:none; background:transparent; border-radius:999px; padding:5px 16px; font-size:14px; font-weight:700; color:var(--accent); cursor:pointer; }
+.qwp-modeseg button.active { background:var(--uq-blue); color:#fff; }
+.qwp-staged { display:inline-flex; align-items:center; gap:6px; border:none; background:transparent; padding:4px 2px; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; text-decoration:underline; text-decoration-color:var(--uq-blue); text-decoration-thickness:2px; text-underline-offset:3px; }
+.qwp-staged-dot { width:8px; height:8px; border-radius:50%; background:var(--uq-blue); }
+.qwp-goalcount { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; border:1px solid var(--uq-orange); background:var(--uq-orange-tint); color:var(--uq-orange-ink); font-size:12.5px; font-weight:700; }
+.qwp-goalcount.ok { border-color:var(--line2); background:var(--soft); color:var(--ink); }
+.qwp-topx { flex:0 0 auto; width:34px; height:34px; border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--muted); cursor:pointer; font-size:15px; }
+.qwp-topx:hover { background:var(--soft); color:var(--ink); }
+
+/* Weeks, stacked. */
+.qwp-ttwrap { flex:1 1 auto; min-height:0; overflow:auto; padding:12px 20px 16px; display:flex; flex-direction:column; gap:14px; }
+.qwp-wk { flex:0 0 auto; background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px 12px; }
+.qwp-wk .qwp-tt { gap:5px 6px; }
+.qwp-tt-wklbl { align-self:end; font-size:13px; font-weight:700; color:var(--accent); }
+.qwp-wk .qwp-tt-dayhd { justify-content:flex-start; background:none; border:none; padding:0 0 2px; font-size:11.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+.qwp-wk .qwp-tt-dayhd.today { color:var(--ink); box-shadow:inset 0 -2px 0 var(--uq-blue); }
+.qwp-wk .qwp-tt-timelbl { justify-content:flex-start; padding:4px 0 0; font-size:12px; font-weight:600; color:var(--muted); }
+.qwp-wk .qwp-tt-break { min-height:12px; }
+.qwp-wk .qwp-tt-break span { font-size:8.5px; padding:1px 12px; }
+.qwp-wk-empty { padding:16px; text-align:center; font-size:12.5px; color:var(--faint); }
+
+/* Lesuur card = the Lesdoelen print card: vak-coloured top bar, title below. */
+.qwp-wk .qwp-cell { display:flex; flex-direction:column; min-height:46px; padding:0; overflow:hidden; background:#fff; border:1px solid var(--line2); border-radius:6px; }
+.qwp-wk .qwp-cell:hover { border-color:var(--accent-line); }
+.qwp-wk .qwp-cell.slot-empty::after { content:none; }
+.qwp-wk .qwp-cell.isgym, .qwp-wk .qwp-cell.isthema { background:#fff; border-left-width:1px; }
+.qwp-wk .qwp-cell.hasexisting { border-left-width:1px; }
+.qwp-cell-bar { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:17px; padding:2px 7px; background:var(--soft); color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+.qwp-cell-bar .qwp-cell-vak { min-width:0; font-size:inherit; color:inherit; letter-spacing:inherit; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qwp-cell-mark { flex:0 0 auto; }
+.qwp-cell-bar .qwp-vakwarn { margin-left:auto; text-transform:none; letter-spacing:0; }
+.qwp-cell-body { padding:4px 7px 5px; }
+.qwp-wk .qwp-cell-title { margin:0; font-size:12px; font-weight:500; line-height:1.25; color:var(--ink); }
+.qwp-cell-sub { margin-top:2px; font-size:10.5px; line-height:1.25; color:var(--muted); }
+.qwp-wk .qwp-cell.unplanned { background:#fafbfb; border:1px dashed #c9d2d7; }
+.qwp-wk .qwp-cell.unplanned .qwp-cell-title { color:var(--muted); }
+.qwp-wk .qwp-cell.dirty { background:#fff; border:2px solid var(--uq-blue); }
+.qwp-wk .qwp-cell.target { background:var(--uq-cyan-tint); border:2px solid var(--uq-blue); box-shadow:none; }
+.qwp-wk .qwp-cell.sel { box-shadow:0 0 0 2px var(--uq-cyan); }
+.qwp-wk .qwp-cell.drop { background:var(--uq-cyan-tint); border-color:var(--uq-blue); }
+.qwp-wk .qwp-cell.vakmismatch { box-shadow:inset 3px 0 0 var(--uq-orange); }
+.qwp-wk .qwp-vakwarn { color:var(--uq-orange-ink); background:var(--uq-orange-tint); border-color:var(--uq-orange); }
+.qwp-wk .qwp-cell.blank, .qwp-wk .qwp-cell.blank:hover { background:transparent; border:1px dashed transparent; min-height:0; }
+.qwp-wk .qwp-cell.empty { flex-direction:row; align-items:center; justify-content:center; background:transparent; border:1px dashed var(--line); }
+
+/* Thema band: striped strip spanning the week. */
+.qwp-wk .qwp-cell.thema-span { position:relative; flex-direction:row; align-items:center; gap:8px; min-height:0; padding:4px 10px; border:1px solid var(--band-line); border-radius:6px; background:repeating-linear-gradient(135deg, #fffaf0, #fffaf0 8px, #fff6e6 8px, #fff6e6 16px); font-size:12px; }
+.qwp-wk .qwp-cell.thema-span.empty { justify-content:flex-start; opacity:.65; }
+.qwp-wk .qwp-cell.thema-span.dirty { border:2px solid var(--uq-blue); }
+.qwp-band-dot { flex:0 0 auto; width:9px; height:9px; border-radius:50%; background:var(--band-line); }
+.qwp-band-vak { flex:0 0 auto; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--thema); }
+.qwp-band-t { flex:1 1 auto; min-width:0; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qwp-cell.thema-span .qwp-cell-mark { font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink); box-shadow:inset 0 -2px 0 var(--uq-blue); }
+.qwp-wk .qwp-thema-untagged { margin-left:0; }
+.qwp-wk .qwp-thema-more { position:static; flex:0 0 auto; }
+
+/* Doelen mode: one week expanded, taller cards with WEET / KEN / KAN lines (read-only). */
+.qwp-wk.doelen .qwp-cell:not(.thema-span):not(.blank):not(.empty) { min-height:128px; }
+.qwp-wk.doelen .qwp-cell.nogoals { border:2px solid var(--uq-orange); }
+.qwp-wk.doelen .qwp-cell.dirty { border:2px solid var(--uq-blue); }
+.qwp-gl { flex:1 1 auto; display:flex; flex-direction:column; gap:1px; padding:3px 6px 5px; }
+.qwp-gl-row { display:grid; grid-template-columns:34px minmax(0, 1fr); gap:5px; align-items:end; min-height:22px; border-bottom:1px solid #bdbdbd; }
+.qwp-gl-row.empty { border-bottom-color:#dfe4e7; }
+.qwp-gl-k { padding-bottom:2px; font-size:9px; font-weight:700; letter-spacing:.06em; color:#93a0a7; }
+.qwp-gl-t { padding-bottom:2px; font-size:11.5px; line-height:1.25; color:var(--ink); white-space:pre-wrap; word-break:break-word; }
+.qwp-gl-t.ph { color:var(--uq-orange-ink); font-style:italic; }
+.qwp-gl-src { margin-top:3px; font-size:9.5px; font-weight:700; color:var(--uq-orange-ink); }
+.qwp-wkbar { flex:0 0 auto; display:flex; align-items:center; gap:10px; text-align:left; border:1px solid var(--line); background:#fff; border-radius:10px; padding:12px 16px; font-size:14px; font-weight:600; color:var(--accent); cursor:pointer; }
+.qwp-wkbar:hover { border-color:var(--uq-blue); }
+.qwp-wkbar-t { font-weight:700; }
+.qwp-wkbar-s { font-weight:500; color:var(--muted); }
+
+/* ---- Menus (Alles, Collega) ---- */
+.qwp-menu { position:fixed; z-index:45; display:flex; flex-direction:column; gap:2px; max-height:calc(100vh - 40px); overflow:auto; padding:10px; background:#fff; border:1px solid var(--ink); border-radius:14px; box-shadow:5px 5px 0 var(--uq-amber); }
+.qwp-alles-menu { width:420px; max-width:calc(100vw - 24px); }
+.qwp-src-menu { width:280px; padding:6px; border-radius:10px; }
+.qwp-mgrp { padding:8px 10px 2px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+.qwp-mi { display:flex; align-items:center; gap:12px; width:100%; text-align:left; border:none; background:transparent; border-radius:9px; padding:8px 10px; color:var(--ink); cursor:pointer; }
+.qwp-mi:hover { background:#f1f4f6; }
+.qwp-mi.off { opacity:.45; cursor:default; }
+.qwp-mi.off:hover { background:transparent; }
+.qwp-mi-ico { flex:0 0 auto; width:30px; height:30px; border-radius:8px; background:var(--soft); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:var(--accent); }
+.qwp-mi-txt { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+.qwp-mi-n { font-size:14px; font-weight:700; }
+.qwp-mi-d { font-size:12px; color:var(--muted); }
+.qwp-mi-tag { flex:0 0 auto; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:700; color:#4a5a63; background:var(--soft); }
+.qwp-mi-tag.write { color:var(--ink); background:#ffe7c2; box-shadow:inset 0 0 0 1px var(--uq-amber); }
+.qwp-src-menu .qwp-mi { padding:6px 10px; }
+.qwp-src-menu .qwp-mi-n { font-size:13px; }
+.qwp-msep { height:1px; margin:4px 0; background:var(--line); }
+.qwp-menu-empty { padding:8px 10px; font-size:12.5px; color:var(--muted); }
+.qwp-mfoot { display:flex; align-items:center; gap:8px; margin-top:6px; padding:10px 10px 2px; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
+
+/* Popovers (collega's, methodes, balans, zoeken) sit just right of the sidebar. */
+.qwp-pop { top:80px; left:372px; }
+.qwp-pop.qwp-pop-wide { width:440px; }
+.qwp-pop-hd { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.qwp-pop-x { border:none; background:transparent; color:var(--muted); font-size:18px; line-height:1; cursor:pointer; padding:0 2px; }
+.qwp-pop-body { padding:10px 12px 12px; overflow:auto; }
+.qwp-pop .qwp-gsearch { flex-wrap:wrap; padding:0; border:none; background:transparent; }
+.qwp-pop .qwp-gsearch-inp { flex:1 1 200px; max-width:none; }
+.qwp-pop .qwp-gsearch-results { position:static; flex-basis:100%; width:auto; max-height:52vh; margin-top:4px; border-radius:var(--radius-sm); box-shadow:none; }
+
+/* Narrower screens: a slimmer sidebar, header wraps. */
+@media (max-width: 1100px) {
+  .qwp-side { flex-basis:300px; width:300px; }
+  .qwp-pop { left:312px; }
+  .qwp-ttwrap { padding:10px 12px 14px; }
+}
