@@ -1173,25 +1173,41 @@
       // mapLimit) instead of strictly one after another; each slot only touches its own fields.
       need.forEach(function (s) { s._pending = true; });
       var done = mapLimit(need, 4, function (s) {
-          return fetchItemDetail(s.itemId).then(function (d) {
-            if (!d) { s._detailFailed = true; return; }
-            s.origDescription = d.description || ""; s.description = s.origDescription;
-            // Since ~2026-10 the LIST endpoint reports a computed `title_lessons` ("* <fiche> (1)") in
-            // `title` for any item with a fiche; the detail keeps the real stored title. Use that, or
-            // the next commit would write the decoration into the stored title.
-            if (typeof d.title === "string" && d.title) { s.origTitle = d.title; s.title = d.title; }
-            var att = ficheAttachment(d.attachments);
-            if (att && att.content) { s.origFicheContentId = att.content.id; s.ficheContentId = att.content.id; s.origFicheTitle = att.content.subject || ""; s.ficheTitle = s.origFicheTitle; }
-            // The authoritative group id lives here (list groups are always empty); keep it.
-            if (d.groups && d.groups.length) { s.groups = d.groups; if (ctx.groupId == null) ctx.groupId = firstGroupId(d.groups); }
-            if (stripHtml(s.origDescription) === "Zie themafiche.") s.themaFiche = true;
-            if (d.starttime) { s.starttime = d.starttime; if (!s.time) s.time = String(d.starttime).slice(0, 5); }
-            s.endtime = d.endtime || ""; s._hydrated = true;
-          }).catch(function () { s._detailFailed = true; })
-            .then(function () { s._pending = false; if (onDetail) onDetail(s); });
+          return readSlotDetail(s).then(function () { s._pending = false; if (onDetail) onDetail(s); });
       }).then(function () { return slots; });
       return { slots: slots, done: done, total: need.length };
     });
+  }
+  // One lesuur's detail read. A failed read is retried quietly after ~1 s and again after ~3 s; it
+  // keeps its mapLimit place while it waits, so retries never put more requests in flight. Only
+  // when all three tries fail does the slot become `_detailFailed` — "niet geladen" on the card,
+  // with a manual retry there and in the sidebar (retryFailedDetails). Never rejects.
+  var DETAIL_RETRY_MS = [1000, 3000];
+  function readSlotDetail(s, attempt) {
+    attempt = attempt || 0;
+    return fetchItemDetail(s.itemId).then(function (d) {
+      if (!d) throw new Error("leeg antwoord");
+      applySlotDetail(s, d);
+    }).catch(function () {
+      if (attempt >= DETAIL_RETRY_MS.length) { s._detailFailed = true; return; }
+      return new Promise(function (res) { setTimeout(res, DETAIL_RETRY_MS[attempt]); })
+        .then(function () { return readSlotDetail(s, attempt + 1); });
+    });
+  }
+  function applySlotDetail(s, d) {
+    s._detailFailed = false;
+    s.origDescription = d.description || ""; s.description = s.origDescription;
+    // Since ~2026-10 the LIST endpoint reports a computed `title_lessons` ("* <fiche> (1)") in
+    // `title` for any item with a fiche; the detail keeps the real stored title. Use that, or
+    // the next commit would write the decoration into the stored title.
+    if (typeof d.title === "string" && d.title) { s.origTitle = d.title; s.title = d.title; }
+    var att = ficheAttachment(d.attachments);
+    if (att && att.content) { s.origFicheContentId = att.content.id; s.ficheContentId = att.content.id; s.origFicheTitle = att.content.subject || ""; s.ficheTitle = s.origFicheTitle; }
+    // The authoritative group id lives here (list groups are always empty); keep it.
+    if (d.groups && d.groups.length) { s.groups = d.groups; if (ctx.groupId == null) ctx.groupId = firstGroupId(d.groups); }
+    if (stripHtml(s.origDescription) === "Zie themafiche.") s.themaFiche = true;
+    if (d.starttime) { s.starttime = d.starttime; if (!s.time) s.time = String(d.starttime).slice(0, 5); }
+    s.endtime = d.endtime || ""; s._hydrated = true;
   }
 
   function buildCommitPlan(slots) {
@@ -3356,7 +3372,8 @@
     var mark = dirty ? h("span", { class: "qwp-cell-mark", title: "Nog niet weggeschreven — zie Controleer", text: "gewijzigd" }) : null;
     if (unread) mark = s._pending
       ? h("span", { class: "qwp-cell-load", title: "Titel, omschrijving en fiche van dit lesuur worden nog gelezen", text: "laden…" })
-      : h("span", { class: "qwp-cell-load fail", title: "Dit lesuur kon niet gelezen worden — het blijft ongewijzigd. Vernieuwen (Alles) probeert opnieuw.", text: "niet geladen" });
+      : h("button", { class: "qwp-cell-load fail", type: "button", title: "Dit lesuur kon niet gelezen worden en blijft ongewijzigd — klik om opnieuw te proberen", text: "niet geladen · opnieuw",
+          onclick: function (e) { e.stopPropagation(); e.preventDefault(); retryFailedDetails([s]); } });
     var warn = mism ? h("span", {
       class: "qwp-vakwarn",
       title: "Fiche hoort bij " + (mism.ficheVak || "?") + " · dit lesuur staat ingesteld als " + (mism.slotVak || "?"),
@@ -5157,7 +5174,36 @@
   // Said once the details are in: lesuren whose detail could not be read stay as they are.
   function hydrateFailNote() {
     var f = hydrateFailed();
-    return f ? (" · " + f + (f === 1 ? " lesuur kon" : " lesuren konden") + " niet gelezen worden en blijven ongewijzigd — Vernieuwen probeert opnieuw.") : "";
+    return f ? (" · " + f + (f === 1 ? " lesuur kon" : " lesuren konden") + " niet gelezen worden en blijven ongewijzigd — “opnieuw proberen” onderaan links.") : "";
+  }
+  // Manual retry for lesuren that stayed "niet geladen" after the quiet retries: all of them (sidebar
+  // button) or one (the card's "opnieuw"). Same 4-at-a-time limit and quiet retries; Controleer waits
+  // meanwhile (they are `_pending` again). Afterwards the vak/fiche checks run once more.
+  var _retrying = false;
+  function retryFailedDetails(only) {
+    if (_retrying) return;
+    var failed = (only || view.slots || []).filter(function (s) { return s._detailFailed; });
+    if (!failed.length) return;
+    _retrying = true;
+    failed.forEach(function (s) { s._detailFailed = false; s._pending = true; });
+    renderTimetable(); syncRetryBtn();
+    setStatus("Opnieuw laden: " + failed.length + (failed.length === 1 ? " lesuur" : " lesuren") + "…");
+    mapLimit(failed, 4, function (s) {
+      return readSlotDetail(s).then(function () { s._pending = false; scheduleHydratePaint(); });
+    }).then(function () {
+      _retrying = false;
+      applyStoredVakken(view.slots); renderTimetable(); syncRetryBtn();
+      var still = hydrateFailed();
+      setStatus(still ? (still + (still === 1 ? " lesuur laadt" : " lesuren laden") + " nog steeds niet — probeer later opnieuw of herlaad de pagina.") : "Alle lesuren geladen.");
+      resolveFicheVakken(view.slots, function (changed) { var n = applyStoredVakken(view.slots); if (changed || n) renderTimetable(); });
+    });
+  }
+  function syncRetryBtn() {
+    var box = els.root && els.root.querySelector(".qwp-side-status"); if (!box) return;
+    var n = hydrateFailed(), b = elId("qwp-retry");
+    if (!n || _retrying) { if (b) b.remove(); return; }
+    if (!b) { b = h("button", { class: "qwp-retry", id: "qwp-retry", type: "button", onclick: function () { retryFailedDetails(); } }); box.appendChild(b); }
+    b.textContent = n + (n === 1 ? " lesuur" : " lesuren") + " niet geladen · opnieuw proberen";
   }
   function scheduleHydratePaint() {
     if (_hydPaintT) return;
@@ -5166,7 +5212,7 @@
       if (!els.root) return;
       // A repaint mid-drag would pull the dragged card out from under the pointer — wait.
       if (els.root.classList.contains("qwp-dragging")) { scheduleHydratePaint(); return; }
-      renderTimetable(); syncHydrateStatus();
+      renderTimetable(); syncHydrateStatus(); syncRetryBtn();
     }, 250);
   }
   function reloadWeek() {
@@ -5180,7 +5226,7 @@
       view.hydrateP = r.done.then(function () {
         if (gen !== _loadGen) return false;
         clearTimeout(_hydPaintT); _hydPaintT = null;
-        if (els.root) renderTimetable();
+        if (els.root) { renderTimetable(); syncRetryBtn(); }
         return true;
       });
     });

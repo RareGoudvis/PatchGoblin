@@ -416,6 +416,8 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-side-status { flex:0 0 auto; display:flex; flex-direction:column; gap:2px; padding:6px 14px; border-top:1px solid var(--line); }
 .qwp-side-note { font-size:11.5px; color:var(--accent); font-weight:600; line-height:1.35; }
 .qwp-side-note:empty { display:none; }
+.qwp-retry { align-self:flex-start; margin-top:2px; border:1px solid var(--uq-orange); background:var(--uq-orange-tint); color:var(--uq-orange-ink); border-radius:999px; padding:3px 10px; font:700 11.5px/1.3 inherit; cursor:pointer; }
+.qwp-retry:hover { background:#ffe2d1; }
 .qwp-status { font-size:11.5px; color:var(--muted); line-height:1.35; }
 
 .qwp-actions { flex:0 0 auto; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px; padding:10px; border-top:1px solid var(--line); background:#fafbfb; }
@@ -603,6 +605,8 @@ fieldset.qpp-sec > legend.qpp-lbl { margin-bottom:6px; }
 .qwp-wk .qwp-cell.loading .qwp-cell-title, .qwp-wk .qwp-cell.loading .qwp-band-t { color:var(--muted); }
 .qwp-cell-load { flex:0 0 auto; padding:0 6px; border-radius:999px; background:rgba(255,255,255,.85); color:var(--muted); font-size:9.5px; font-weight:700; letter-spacing:.03em; text-transform:none; }
 .qwp-cell-load.fail { background:var(--uq-orange-tint); color:var(--uq-orange-ink); }
+button.qwp-cell-load { border:none; font-family:inherit; cursor:pointer; }
+button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-actbtn.qwp-wait, .qwp-actbtn.primary.qwp-wait:hover { opacity:.6; cursor:progress; }
 
 /* Narrower screens: a slimmer sidebar, header wraps. */
