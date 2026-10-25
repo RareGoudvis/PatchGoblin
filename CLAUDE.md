@@ -456,3 +456,8 @@ AND tags), parallel reads go through `mapLimit(…, 4)`, `ficheEditTags` is memo
 - Verification is manual: load unpacked on a `…/calendar` page and drive the UI. In summer there
   are no lesson items, so `groupId` stays null and several Zelftest rows WARN — that is expected.
 - Bump `manifest.json` **and** `version.json` together on release.
+- **Beta channel.** A beta is a branch whose manifest `name` contains `BETA`: it runs next to the
+  stable copy (Alt+Shift+P, dormant while stable is active), keeps its CSS **out** of the manifest
+  (the worker injects it, see `content.js`), and checks/updates from its own branch. To make one:
+  rename, drop the manifest `css`, point `install.bat`, `update.bat` and the version check at the
+  branch. Releasing reverses all of that — v1.3.0 was released from the `unquesti` beta this way.

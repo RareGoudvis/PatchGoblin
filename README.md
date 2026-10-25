@@ -5,9 +5,7 @@
 UnQuesti is the lightweight addon that strips away the user-hostile layout, bypasses the clumsy
 navigation, and restores sanity to your workflow. Because life is too short for a terrible UI.
 
-> **Beta.** UnQuesti is the successor of the *Questi Weekplanner* and is being rebuilt right now.
-> Everything below "Handleiding" still describes the current version; it gets rewritten as each
-> part of the new design lands.
+> UnQuesti is the successor of the *Questi Weekplanner* (v1.3).
 >
 > UnQuesti is an independent, unofficial project. It is not made, endorsed or supported by Questi.
 
@@ -27,15 +25,16 @@ UnQuesti legt één venster over je Questi-agenda, bereikbaar met één knop in 
 - **Afdrukken** — je week op papier, met schrijflijnen voor de lesdoelen, in de kleuren van je vakken.
 - **Eén keer controleren** — niets gaat naar Questi voor je alle wijzigingen samen nakijkt en
   goedkeurt. Een lesuur dat deel is van een reeks wordt nooit als hele reeks aangepast.
+- **Weken vooruit plannen** — blader verder en je wijzigingen blijven klaarstaan; plan een hele
+  maand en schrijf alles in één keer weg. Vakantieweken worden overgeslagen.
 
 | Onderdeel | Status |
 |---|---|
-| Weekplanner, Lesfiche-manager, Lesdoelen-afdruk, Methodevoortgang | werkt (v1.2) |
-| Eén UnQuesti-knop met snelmenu | in aanbouw |
-| Snellere start: de week staat er meteen, lesuren vullen zich daarna aan | gebouwd, wordt getest |
-| Nieuw venster: Plannen · Lesfiches · Afdrukken | Plannen en Afdrukken gebouwd (wordt getest), Lesfiches in aanbouw |
-| Eerste installatie, instellingen delen (.json) | gepland |
-| Lesfiches als tabblad in het venster + één Controleer voor tags, lesfiches en agenda | in aanbouw |
+| Plannen · Lesfiches · Afdrukken in één venster, Methodevoortgang | werkt (v1.3) |
+| Eén UnQuesti-knop met snelmenu | werkt |
+| Eén Controleer voor tags, lesfiches en agenda | werkt |
+| Weken vooruit plannen, vakantieweken overslaan | werkt |
+| Eerste installatie (wizard), instellingen delen (.json) | werkt |
 
 ## Voor wie
 
