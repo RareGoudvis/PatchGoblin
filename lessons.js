@@ -1276,18 +1276,18 @@
   function templateGoalsField(t) { return ((t && t.structure) || []).filter(function (f) { return f.type === "goals"; })[0] || null; }
   function goalsVersionOf(fld) { var v = fld && fld.source && fld.source.version; return v ? { id: v.id, format: v.format_type || "" } : null; }
   function templateLabel(t) { var g = goalsVersionOf(templateGoalsField(t)); return (t.name || ("sjabloon #" + t.id)) + (g ? " · " + (g.format === "opstap" ? "Op.Stap" : g.format.toUpperCase() || "leerplan") : ""); }
+  // A new fiche gets a large centred window (two columns), not the narrow edit sheet: writing a
+  // whole fiche, with the Op.Stap picker, needs the room.
   function openNewFiche(prefill) {
-    if (!isMounted() || !mgr.els.sheet) { setStatus("Open Lesfiches in UnQuesti om een nieuwe fiche te maken."); return; }
-    var sh = mgr.els.sheet, token = ++mgr.sheetToken; mgr.sheetFid = null; markOpenRow();
-    sh.innerHTML = ""; sh.style.display = "";
-    var hd = h("div", { class: "qwl-sheet-hd", style: "border-top-color:#FFB343" }, [h("div", { class: "qwl-sheet-kicker", text: "Nieuwe lesfiche" }), h("div", { class: "qwl-sheet-title", id: "qwl-new-title", text: (prefill && prefill.subject) || "Zonder titel" })]);
-    var bd = h("div", { class: "qwl-sheet-bd" }, [h("div", { class: "qwl-loading", text: "Sjablonen laden…" })]);
-    var ft = h("div", { class: "qwl-sheet-ft" });
-    sh.appendChild(hd); sh.appendChild(bd); sh.appendChild(ft);
-    function alive() { return token === mgr.sheetToken; }
+    if (!isMounted()) { setStatus("Open Lesfiches in UnQuesti om een nieuwe fiche te maken."); return; }
+    var m = modal("Nieuwe lesfiche", [h("div", { class: "qwl-loading", text: "Sjablonen laden…" })], [], "qwl-newfiche");
+    var titleEl = m.querySelector(".qwl-modal-hd span"); titleEl.id = "qwl-new-title";
+    titleEl.textContent = "Nieuwe lesfiche" + (prefill && prefill.subject ? " — " + prefill.subject : "");
+    var bd = m.querySelector(".qwl-modal-bd"), ft = m.querySelector(".qwl-modal-ft");
+    function alive() { return !!m.parentNode; }
     fetchTemplates().then(function (list) {
       if (!alive()) return;
-      fillNewFiche(list || [], prefill || null, bd, ft, closeSheet, alive);
+      fillNewFiche(list || [], prefill || null, bd, ft, m.close, alive);
     }).catch(function (e) {
       if (!alive()) return;
       bd.innerHTML = ""; bd.appendChild(h("div", { class: "qwl-note", text: "Sjablonen laden mislukt: " + ((e && e.message) || e) }));
@@ -1301,7 +1301,9 @@
     if (!prev && mgr.tagFilter != null && String(mgr.tagFilter) !== String(allOwnTagId())) st.tags = [Number(mgr.tagFilter)];
     function draw() {
       bd.innerHTML = "";
-      function section(label, els) { bd.appendChild(h("label", { class: "qwl-flabel", text: label })); (els || []).forEach(function (e) { bd.appendChild(e); }); }
+      var colL = h("div", { class: "qwl-nf-col" }), colR = h("div", { class: "qwl-nf-col" });
+      bd.appendChild(h("div", { class: "qwl-nf-grid" }, [colL, colR]));
+      function section(label, els, right) { var c = right ? colR : colL; c.appendChild(h("label", { class: "qwl-flabel", text: label })); (els || []).forEach(function (e) { if (e) c.appendChild(e); }); }
       // --- Sjabloon
       var tplSel = h("select", { class: "qwl-input", "aria-label": "Sjabloon" }, [h("option", { value: "", text: "— kies een sjabloon —" })].concat(sorted.map(function (t) {
         return h("option", { value: String(t.id), text: templateLabel(t), selected: String(t.id) === String(st.templateId) ? "selected" : null });
@@ -1311,7 +1313,7 @@
       var tpl = tplById(st.templateId);
       // --- Titel
       var subj = h("input", { class: "qwl-input", type: "text", value: st.subject || "", placeholder: "bv. Blok 4 - Les 45 - …" });
-      subj.addEventListener("input", function () { st.subject = subj.value; var t = document.getElementById("qwl-new-title"); if (t) t.textContent = subj.value || "Zonder titel"; });
+      subj.addEventListener("input", function () { st.subject = subj.value; var t = document.getElementById("qwl-new-title"); if (t) t.textContent = "Nieuwe lesfiche" + (subj.value ? " — " + subj.value : ""); });
       section("Titel", [subj]);
       // --- Leerjaren + zichtbaarheid (create keys, captured)
       var gset = {}; (st.grades || []).forEach(function (g) { gset[g] = true; });
@@ -1338,14 +1340,14 @@
       function drawTags() { renderTagGroups(tagPick, pill); tagSum.innerHTML = ""; var ids = Object.keys(tset); tagSum.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "qwl-note", text: "geen tags" })); }
       drawTags();
       section("Tags", [h("details", { class: "qwl-tagdetails" }, [h("summary", {}, [tagSum, h("span", { class: "qwl-tagedit", text: "wijzigen" })]), tagPick])]);
-      if (!tpl) { bd.appendChild(h("div", { class: "qwl-note", text: "Kies eerst een sjabloon: dat bepaalt welke velden de fiche krijgt." })); drawFoot(null); return; }
+      if (!tpl) { colR.appendChild(h("div", { class: "qwl-note", text: "Kies eerst een sjabloon: dat bepaalt welke velden de fiche krijgt." })); drawFoot(null); return; }
       // --- The template's own fields, in template order
       (tpl.structure || []).forEach(function (fld) {
         if (fld.type === "text") {
           var ta = h("textarea", { class: "qwl-textarea", rows: "4", placeholder: stripTags(fld.description || "") });
           ta.value = st.text[fld.id] || "";
           ta.addEventListener("input", function () { st.text[fld.id] = ta.value; });
-          section(fld.title || "Tekst", [ta]);
+          section(fld.title || "Tekst", [ta], true);
         } else if (fld.type === "goals") {
           var ver = goalsVersionOf(fld);
           var fmt = ver ? (ver.format === "opstap" ? "Op.Stap" : String(ver.format).toUpperCase()) : "";
@@ -1360,17 +1362,17 @@
               var box = h("div", { class: "qwl-opstap" }, [opstapSelector(st.selected[fid] || [], function (ids) { st.selected[fid] = ids; syncCnt(); })]);
               var wait = opstapAvailable() ? null : h("div", { class: "qwl-note", text: "Op.Stap-kiezer laden…" });
               syncCnt();
-              section(head, [wait, box, cnt]);
+              section(head, [wait, box, cnt], true);
               if (wait) ensureOpstap(function (ok) {
                 wait.textContent = ok ? "" : "De Op.Stap-kiezer kon niet geladen worden. Open één keer een fiche in Questi's eigen editor (dat laadt hem) en probeer opnieuw, of kies de doelen later in Questi.";
                 if (ok) wait.remove();
               });
             })(fld.id);
           } else {
-            section(head, [h("div", { class: "qwl-note", text: "Leerplandoelen van dit (oudere) sjabloon kies je voorlopig in Questi zelf; de fiche wordt zonder doelen aangemaakt." })]);
+            section(head, [h("div", { class: "qwl-note", text: "Leerplandoelen van dit (oudere) sjabloon kies je voorlopig in Questi zelf; de fiche wordt zonder doelen aangemaakt." })], true);
           }
         } else if (fld.type === "methods") {
-          section((fld.title || "Methode") + " (methode)", [h("div", { class: "qwl-note", text: "Dit veld hoort bij een methode" + (fld.method && fld.method.name ? " (" + fld.method.name + ")" : "") + ". Methodedoelen kies je voorlopig in Questi; de fiche wordt zonder dit veld aangemaakt." })]);
+          section((fld.title || "Methode") + " (methode)", [h("div", { class: "qwl-note", text: "Dit veld hoort bij een methode" + (fld.method && fld.method.name ? " (" + fld.method.name + ")" : "") + ". Methodedoelen kies je voorlopig in Questi; de fiche wordt zonder dit veld aangemaakt." })], true);
         }
       });
       // --- WEET / KEN / KAN (extra fields, like every own fiche in UnQuesti)

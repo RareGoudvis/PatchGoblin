@@ -259,3 +259,10 @@ html.qwl-locked { overflow: hidden; }
 .qwl-mbtn.qwl-mbtn-new { background: #FFB343; border-color: #FFB343; color: #1e2a33; }
 /* The Op.Stap web component brings its own styles (shadow DOM); this only gives it room. */
 .qwl-opstap { display: block; margin: 4px 0; }
+.qwl-modal-box.qwl-newfiche { width: min(1180px, 94vw); height: 90vh; }
+.qwl-modal-box.qwl-newfiche .qwl-modal-hd { border-top: 4px solid #FFB343; }
+.qwl-modal-box.qwl-newfiche .qwl-modal-bd { flex: 1 1 auto; min-height: 0; padding: 18px 22px; }
+.qwl-nf-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; align-items: start; }
+.qwl-nf-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.qwl-nf-col .qwl-textarea { min-height: 110px; }
+@media (max-width: 860px) { .qwl-nf-grid { grid-template-columns: minmax(0, 1fr); } }
