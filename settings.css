@@ -124,7 +124,6 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-cell.guess { border: 2px dashed var(--thema-line); background: var(--surface); }
 #qws-overlay .qws-cell.guess .qws-select { font-style: italic; color: var(--muted); }
 #qws-overlay .qws-cell.guess .qws-stripe { opacity: .45; }
-#qws-overlay .qws-guess-lbl { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--thema); }
 #qws-overlay .qws-cell.free { justify-content: center; border: 1px dashed var(--line); background: var(--canvas); color: var(--faint); font-size: 12.5px; padding: 8px 6px; }
 #qws-overlay .qws-cell .qws-select { flex: 1 1 auto; border: none; background: transparent; padding: 5px 0; }
 #qws-overlay .qws-stripe { flex: 0 0 auto; width: 10px; height: 24px; border-radius: 3px; }

@@ -286,7 +286,7 @@
     var stripe = h("span", { class: "qws-stripe", style: "background:" + (shown != null ? tagHex(tagById(shown)) : "transparent") });
     var kids = [stripe, sel];
     // A voorstel must never look like a saved choice: dashed, italic, labelled, until ✓.
-    if (g) kids.push(h("span", { class: "qws-guess-lbl", text: "voorstel" }), h("button", { class: "qws-accept", type: "button", title: "Voorstel bewaren", "aria-label": "Voorstel bewaren", text: "✓", onclick: function () { o.onAccept(key); } }));
+    if (g) kids.push(h("button", { class: "qws-accept", type: "button", title: "Voorstel bewaren", "aria-label": "Voorstel bewaren", text: "✓", onclick: function () { o.onAccept(key); } }));
     return h("div", { class: "qws-cell" + (g ? " guess" : "") + (shown == null ? " empty" : ""), title: g ? ("Voorstel " + g.why + " — kies of bevestig") : null }, kids);
   }
   // Whole-week items (thema bars) in the loaded week, grouped by their stable identity.
@@ -338,20 +338,12 @@
     body.appendChild(status);
     var rows = timeRows();
     var c = card([]);
-    // Same voorstellen as the wizard (yellow, confirm per lesuur or all at once), from the lesuren
-    // already planned in the loaded weeks — so an empty rooster fills in two clicks.
-    var g = rows.length ? computeGuesses(s.settings, s.vakTags) : {};
-    var nGuess = Object.keys(g).length;
-    if (nGuess) c.appendChild(h("div", { class: "qws-bar" }, [
-      h("span", { class: "qws-grow qws-p", text: nGuess + " voorstel(len) uit je geplande lesuren (gestippeld) — nog NIET bewaard. Bevestig per lesuur (✓) of allemaal." }),
-      btn("Alle voorstellen bevestigen", function () { Object.keys(g).forEach(function (k) { if (s.settings[k] == null) s.settings[k] = +g[k].id; }); save(); ui.plannerDirty = true; renderSection(); }, "ghost")
-    ]));
+    // Empty hours fill themselves from the vak that was planned there (planner: fillRosterFromSeen);
+    // what you choose here is remembered as yours and never overwritten.
     if (!rows.length) c.appendChild(note(plannerLoaded() ? "Geen lesuren in de geladen week (vakantie?). Ga in Plannen naar een week met lesuren en klik ‘Opnieuw uit agenda lezen’." : "Open eerst Plannen: het lesrooster wordt uit je Questi-agenda gelezen.", "warn"));
     else c.appendChild(slotGrid({
       value: function (k) { var v = s.settings[k]; return v != null && v !== "" ? v : null; },
-      guess: function (k) { return g[k] || null; },
-      onChange: function (k, v) { if (v == null) delete s.settings[k]; else s.settings[k] = v; save(); ui.plannerDirty = true; renderSection(); },
-      onAccept: function (k) { if (g[k]) { s.settings[k] = +g[k].id; save(); ui.plannerDirty = true; renderSection(); } }
+      onChange: function (k, v) { if (v == null) delete s.settings[k]; else s.settings[k] = v; (s.rosterTouched || (s.rosterTouched = {}))[k] = true; save(); ui.plannerDirty = true; renderSection(); }
     }));
     var setCount = Object.keys(s.settings || {}).length;
     c.appendChild(h("div", { class: "qws-muted", text: setCount + " lesuur/lesuren hebben een vast vak. Een lesuur dat je in Plannen zelf aanpast, houdt die keuze." }));

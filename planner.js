@@ -137,6 +137,7 @@
     if (typeof s.sideWidth === "number" && s.sideWidth > 0) state.sideWidth = s.sideWidth;
     if (s.weekFit === "fit" || s.weekFit === "scroll") state.weekFit = s.weekFit;
     if (s.vakSeen && typeof s.vakSeen === "object") state.vakSeen = s.vakSeen;
+    if (s.rosterTouched && typeof s.rosterTouched === "object") state.rosterTouched = s.rosterTouched;
     state.writeVakDescription = s.writeVakDescription != null ? !!s.writeVakDescription : true;
   }
   function writesDescriptions() { return state.writeVakDescription !== false; }
@@ -1096,6 +1097,9 @@
     // A whole-week bar only gets "Zie themafiche." when it gets a (different) fiche — an untouched
     // bar, e.g. a new week's "Godsdienst" without a themafiche yet, keeps what is stored.
     if (s.isFullday && (s.ficheContentId || null) === (s.origFicheContentId || null)) return s.origDescription || "";
+    // A fiche-less lesuur nobody touched (no new fiche, same title, no vak picked by hand) keeps its
+    // stored description: a Lesrooster vak alone never stages a write for a blank week.
+    if (!s.isFullday && !s.isGym && !s.ficheContentId && !s.origFicheContentId && !s.vakReset && (s.title || "") === (s.origTitle || "") && slotVakOverride(s) == null) return s.origDescription || "";
     if (s.descKeep && s.descKeep.vak === s.vak && (s.title || "") === (s.origTitle || "") && (s.ficheContentId || null) === (s.origFicheContentId || null)) return s.origDescription || "";
     var d = descFor(s);
     if (d === "" && !s.isFullday) return s.origDescription || "";
@@ -3452,24 +3456,11 @@
   // the title below. Changed = green border + "gewijzigd"; a not-yet-planned lesuur is dashed.
   // `doel` (Doelen mode) adds the WEET/KEN/KAN lines under the title. All interactions — click
   // popup, target toggle, drop, move/swap — are the same in both modes.
-  // An unplanned lesuur with no vak in the Lesrooster: what the same day+hour holds in another loaded
-  // week (fiche vak or stored description). DISPLAY ONLY — never put in s.vak, so it is never written;
-  // the cell says it is a guess and Instellingen → Lesrooster offers it as a voorstel to confirm.
-  function vakHintFor(s) {
-    if (!s || s.vak || s.isFullday) return null;
-    var hit = null;
-    view.slots.forEach(function (x) {
-      if (hit || x === s || x.isFullday || x.idCalendar === "cal_holidays" || x.dayIdx !== s.dayIdx || x.time !== s.time) return;
-      if (!x.vak || !(x.ficheContentId || stripHtml(x.origDescription || ""))) return;
-      var top = topTagIdOf(x.vak); if (top != null) hit = { id: top, week: weekNoOf(x.weekIdx || 0) };
-    });
-    if (hit) return hit;
-    // Nothing planned at this hour in the loaded weeks (a blank week): the last one seen in any week.
-    var seen = (state.vakSeen || {})[slotKeyStd(s.dayIdx, s.time)];
-    return seen && anyTagById(seen.id) ? { id: seen.id, week: isoWeekNo(seen.d) } : null;
-  }
   // Remembers, per day+hour, the STORED vak of every planned lesuur in a loaded week (fiche or
-  // description; staged edits don't count), newest date wins. Feeds only vakHintFor — never s.vak.
+  // description; staged edits don't count), newest date wins — and fills an EMPTY Lesrooster hour
+  // with it (fillRosterFromSeen). An hour the teacher set or cleared by hand (state.rosterTouched)
+  // is never filled. Writing stays safe: an untouched fiche-less lesuur never stages its
+  // description (descHtml), so a filled hour only changes what the grid shows.
   function learnVakSeen() {
     var seen = state.vakSeen || (state.vakSeen = {}), changed = false;
     view.slots.forEach(function (x) {
@@ -3482,7 +3473,22 @@
       if (cur && cur.d === d && String(cur.id) === String(top)) return;
       seen[k] = { id: top, d: d }; changed = true;
     });
+    if (fillRosterFromSeen()) changed = true;
     if (changed) saveState();
+  }
+  function fillRosterFromSeen() {
+    var seen = state.vakSeen || {}, touched = state.rosterTouched || {}, n = 0;
+    Object.keys(seen).forEach(function (k) {
+      if (state.settings[k] != null || touched[k] || !anyTagById(seen[k].id)) return;
+      state.settings[k] = +seen[k].id; n++;
+    });
+    if (n) { view.rosterFilled = (view.rosterFilled || 0) + n; reloadSlotVakLabels(); }
+    return n > 0;
+  }
+  // The Lesrooster was filled from planned weeks this load — say so once (rule: no silent magic).
+  function rosterNote() {
+    var n = view.rosterFilled || 0; view.rosterFilled = 0;
+    return n ? " Lesrooster aangevuld: " + n + " lesuur/lesuren kregen het vak dat er gepland stond (aanpassen in Instellingen → Lesrooster)." : "";
   }
   function cellFor(s, weekIdx, dayIdx, timeLabel, doel) {
     if (!s) {
@@ -3555,13 +3561,12 @@
         mark
       ];
     } else {
-      var hint = (!vakLbl && !planned && !s.isGym) ? vakHintFor(s) : null;
       var bar = h("div", { class: "qwp-cell-bar" }, [
-        hint ? h("span", { class: "qwp-cell-vak qwp-vakhint", title: "Afgeleid uit week " + hint.week + " (zelfde dag en uur) — enkel een hint, wordt niet weggeschreven. Vast maken: Instellingen → Lesrooster.", text: (anyTagTitle(hint.id) || "").trim() + "?" })
-          : h("span", { class: "qwp-cell-vak", text: vakLbl || (s.isGym ? "Gym" : "") }),
+        h("span", { class: "qwp-cell-vak", text: vakLbl || (s.isGym ? "Gym" : "") }),
         warn, mark
       ]);
-      if (hint) { var hc = anyTagColor(hint.id); if (hc) bar.style.boxShadow = "inset 4px 0 0 " + hc; }
+      // Not planned yet: the vak shows as a stripe in its colour; the full bar comes with a fiche.
+      if (!planned && color) bar.style.boxShadow = "inset 4px 0 0 " + color;
       if (planned && color) { bar.style.background = color; bar.style.color = goalsInkOn(color); }
       // Second line: what the old (hidden) fiche line said, only when it adds something.
       var sub = (!planned && targetable) ? "sleep een fiche"
@@ -4743,7 +4748,7 @@
           if (isNoSchool(day, time)) { grid.appendChild(h("div", { class: "qwp-inst-cell qwp-inst-noschool", text: "—" })); return; }
           var key = slotKeyStd(day, time);
           var sel = h("select", {}, [h("option", { value: "", text: "—", selected: (state.settings[key] ? null : "selected") })].concat(tops.map(function (v) { return h("option", { value: v.id, text: (v.title || "").trim(), selected: (String(state.settings[key]) === String(v.id) ? "selected" : null) }); })));
-          sel.onchange = function () { if (sel.value) state.settings[key] = +sel.value; else delete state.settings[key]; };
+          sel.onchange = function () { if (sel.value) state.settings[key] = +sel.value; else delete state.settings[key]; (state.rosterTouched || (state.rosterTouched = {}))[key] = true; };
           grid.appendChild(h("div", { class: "qwp-inst-cell" }, [sel]));
         })(d2, t);
       }
@@ -5537,12 +5542,6 @@
       h("span", { class: "qwp-wkbar-t", text: "Week " + weekNoOf(w) }),
       h("span", { class: "qwp-wkbar-s", text: shortRange(w, w) + " · " + (names.length ? names.join(", ") + " — " : "") + "geen lesuren, overgeslagen" })
     ]);
-  }
-  // Hints ("Wiskunde?") only exist because the Lesrooster has no vak for those hours — say so.
-  function roosterNote() {
-    var n = view.slots.filter(function (s) { return !s.isFullday && s.idCalendar !== "cal_holidays" && !s.vak && !s.ficheContentId && !s.isGym && vakHintFor(s); }).length;
-    if (!n) return "";
-    return " " + n + " lesuur/lesuren tonen een gok (vak met ?) omdat je Lesrooster daar nog leeg is — bewaar het in Instellingen → Lesrooster.";
   }
   function holidayNote() {
     var skipped = [];

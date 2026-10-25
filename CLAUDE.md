@@ -212,7 +212,14 @@ were skipped (`holidayNote`).
 no known vak keeps its stored description (gym still clears on purpose). Controleer's trash
 (`discardSlot`, `L.discardPending`) puts a lesuur back to its stored state and pins the stored
 description (`s.descKeep`) until the lesuur is changed again; `s.keepTitle` stops
-`applyThemaLesuurTitles` from re-staging a thrown-away title.
+`applyThemaLesuurTitles` from re-staging a thrown-away title. An untouched lesuur never stages its
+description: a whole-week bar only when its fiche changes, a fiche-less lesuur only when its title,
+hand-picked vak or "Vakken herstellen" changed it.
+
+**The Lesrooster fills itself.** `learnVakSeen` records the stored vak per day+hour of every
+planned lesuur (`state.vakSeen`, newest wins) and `fillRosterFromSeen` puts it into an EMPTY
+`state.settings` hour, said in the status line. Hours set or cleared by hand are in
+`state.rosterTouched` and are never filled. Both fields are restored in `mergeUqSettings`.
 
 **Thema rows** (whole-week full-day items: WO, Godsdienst, …). One row per distinct `themaKey`,
 so a third thema needs no code change. **Identity must survive a commit**, because the commit
