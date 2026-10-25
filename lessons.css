@@ -96,6 +96,16 @@ html.qwl-locked { overflow: hidden; }
 .qwl-badge { flex: 0 0 auto; font-size: 10.5px; font-weight: 600; color: #5b3b00; background: #ffe0a3; padding: 1px 6px; border-radius: 10px; text-transform: uppercase; letter-spacing: .03em; }
 .qwl-c-grades, .qwl-c-used { color: var(--muted); font-size: 12.5px; }
 .qwl-c-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+/* Goals mode: Titel | WEET | KEN | KAN sheet */
+.qwl-gtable { max-width: 1500px; }
+.qwl-row.qwl-grow { grid-template-columns: 34px minmax(200px, 1.2fr) repeat(3, minmax(150px, 1fr)); align-items: start; gap: 8px; padding: 6px; }
+.qwl-row.qwl-grow .qwl-cbcell { padding-top: 7px; }
+.qwl-gtitlecell { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.qwl-ginp { width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font: 400 13px/1.35 inherit; resize: vertical; }
+.qwl-ginp:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-weak); }
+.qwl-ginp:disabled { background: #f4f6f8; color: var(--muted); }
+.qwl-gtitle { font-weight: 500; }
+.qwl-ghint { flex: 0 0 auto; padding-top: 5px; color: var(--muted); cursor: help; font-size: 14px; }
 .qwl-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 20px; font-size: 11.5px; background: #fff; }
 
 /* ---- Buttons (modals) ---- */

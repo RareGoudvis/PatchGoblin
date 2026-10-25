@@ -71,7 +71,12 @@
     // Pick mode: the Methodes panel borrows this overlay to let the teacher pick the fiches that
     // make up a methode. Read-only — every write affordance is hidden while it is set.
     pick: null,                 // { title, onDone, onCancel }
-    pickStore: {}               // ficheId -> fiche, so a selection survives switching tags
+    pickStore: {},              // ficheId -> fiche, so a selection survives switching tags
+    // Goals mode: the list as a WEET/KEN/KAN sheet (see makeGoalsTable).
+    goalsMode: false,
+    goalEdits: {},              // ficheId -> edit view (return_format=edit), read once per version
+    goalLoading: {},            // ficheId -> true while its read is in flight
+    goalRowFill: {}             // ficheId -> fills that row's cells once its edit view arrives
   };
   var GRADES = ["K0", "K1", "K2", "K3", "L1", "L2", "L3", "L4", "L5", "L6", "NLG"];
 
@@ -89,17 +94,33 @@
   function readFicheEdit(id) {
     return jget(api() + "/lessons/" + id + "?" + qs({ schoolId: sid(), return_format: "edit" })).then(function (j) { return (j && j.result) || j; });
   }
+  // Key for a text field in opts.text / the edit dialog. Template fields use their template_field_id;
+  // per-fiche extra fields have none (null), so they key on their own id — keying them all on
+  // "null" would write one field's text into every extra field.
+  function fieldKey(f) { return f.template_field_id != null ? String(f.template_field_id) : "x" + f.id; }
+  var GOAL_KINDS = ["weet", "ken", "kan"];
   // Build a PATCH body that changes ONLY what opts specifies and preserves the rest.
+  // opts.goals = { weet?, ken?, kan? }: plain text for the WEET/KEN/KAN extra fields — updates an
+  // existing field, or appends a new one when the text is non-empty.
   function buildPatch(ficheId, edit, opts) {
     opts = opts || {};
     var tags = opts.tags != null ? opts.tags : (edit.tags || []).map(function (t) { return t.id; });
+    var goals = opts.goals || {}, goalFields = S().ficheGoalFields(edit), maxOrder = 0;
     var fields = (edit.fields || []).map(function (f) {
+      if (typeof f.order === "number" && f.order > maxOrder) maxOrder = f.order;
+      var key = fieldKey(f);
+      var has = opts.text && Object.prototype.hasOwnProperty.call(opts.text, key);
+      var content = has ? opts.text[key] : (f.content != null ? f.content : "");
+      GOAL_KINDS.forEach(function (k) { if (goalFields[k] === f && Object.prototype.hasOwnProperty.call(goals, k)) content = goals[k]; });
+      // Extra field: exactly what Questi's own editor sends — { id, content }, no template_field_id.
+      if (f.template_field_id == null) return f.type === "text" ? { id: f.id, content: content } : { id: f.id };
       var item = { template_field_id: f.template_field_id, id: f.id };
-      if (f.type === "text") {
-        var has = opts.text && Object.prototype.hasOwnProperty.call(opts.text, f.template_field_id);
-        item.content = has ? opts.text[f.template_field_id] : (f.content != null ? f.content : "");
-      }
+      if (f.type === "text") item.content = content;
       return item; // goals/methods: id + template_field_id only ⇒ unchanged
+    });
+    GOAL_KINDS.forEach(function (k) {
+      if (goalFields[k] || !goals[k]) return;
+      fields.push({ field_type: "text", title: k.toUpperCase(), description: "", order: ++maxOrder, content: goals[k] });
     });
     return {
       lessonId: ficheId, subject: opts.subject != null ? opts.subject : edit.subject,
@@ -188,6 +209,8 @@
       h("div", { class: "qwl-side-sep", id: "qwl-sep1" }),
       h("div", { class: "qwl-side-lbl", text: "Weergave" }),
       h("button", { class: "qwl-sbtn", id: "qwl-cols", onclick: toggleCols, text: "" }),
+      h("button", { class: "qwl-sbtn", id: "qwl-goalsmode", onclick: toggleGoalsMode, title: "WEET / KEN / KAN per fiche invullen — wordt in de lesfiche zelf bewaard", text: "Lesdoelen invullen" }),
+      h("button", { class: "qwl-sbtn", id: "qwl-goalsimport", onclick: importLocalGoals, title: "Doelen die je eerder in het afdrukvoorbeeld typte (alleen in deze browser) in de fiches zetten", text: "Lokale doelen overnemen" }),
       h("button", { class: "qwl-sbtn", onclick: reload, text: "Vernieuwen" }),
       h("button", { class: "qwl-sbtn qwl-import", id: "qwl-import", onclick: function () { if (mgr.importEnabled) openImportView(); }, title: "Binnenkort — OPSTAP volgt", disabled: mgr.importEnabled ? null : "true", text: "Importeren" }),
       h("div", { class: "qwl-side-sep", id: "qwl-sep2" }),
@@ -261,7 +284,8 @@
     var t = document.getElementById("qwl-title");
     if (t) t.textContent = on ? (mgr.pick.title || "Fiches kiezen") : "Lesfiches beheren";
     // Hide everything that writes, plus the now-meaningless separators/labels.
-    ["qwl-tags", "qwl-del", "qwl-import", "qwl-review", "qwl-tagadd", "qwl-tagdel", "qwl-taglbl", "qwl-sep2"]
+    if (on) mgr.goalsMode = false;
+    ["qwl-tags", "qwl-del", "qwl-import", "qwl-review", "qwl-tagadd", "qwl-tagdel", "qwl-taglbl", "qwl-sep2", "qwl-goalsmode", "qwl-goalsimport"]
       .forEach(function (id) { var e = document.getElementById(id); if (e) e.style.display = on ? "none" : ""; });
     ["qwl-pickok", "qwl-pickcancel"].forEach(function (id) { var e = document.getElementById(id); if (e) e.style.display = on ? "" : "none"; });
   }
@@ -403,7 +427,8 @@
     nextTag();
   }
   var _renderTimer = null;
-  function scheduleRender() { if (_renderTimer) return; _renderTimer = setTimeout(function () { _renderTimer = null; renderList(); }, 400); }
+  // Background refreshes (tag chips arriving) never rebuild the goals sheet under the cursor.
+  function scheduleRender() { if (_renderTimer) return; _renderTimer = setTimeout(function () { _renderTimer = null; if (goalsListHasFocus()) scheduleRender(); else renderList(); }, 400); }
 
   var SORTERS = {
     subject: function (a, b) { return ficheName(a).localeCompare(ficheName(b), undefined, { numeric: true }); },
@@ -486,6 +511,7 @@
     inp.addEventListener("blur", commit);
   }
   function makeTable(items) {
+    if (mgr.goalsMode) return makeGoalsTable(items);
     var table = h("div", { class: "qwl-table" });
     table.appendChild(h("div", { class: "qwl-row qwl-thead" }, [
       h("div", { class: "qwl-cbcell" }),
@@ -497,11 +523,147 @@
     items.forEach(function (f) { table.appendChild(ficheRow(f)); });
     return table;
   }
+
+  // ========================================================================
+  //  Goals mode — the list becomes a sheet: Titel | WEET | KEN | KAN.
+  //  Values live in the fiche (extra fields, see buildPatch); every edit STAGES into
+  //  mgr.pending and is written through the normal review gate. Tab walks the cells,
+  //  Enter jumps to the same column on the next row (Shift+Enter = new line).
+  // ========================================================================
+  function toggleGoalsMode() {
+    mgr.goalsMode = !mgr.goalsMode;
+    setStatus(mgr.goalsMode ? "Lesdoelen: typ per fiche, Tab = volgende cel, Enter = volgende fiche. Niets wordt geschreven zonder 'Wijzigingen controleren'." : "");
+    renderList();
+  }
+  function goalsListHasFocus() { var a = document.activeElement; return !!(mgr.goalsMode && a && mgr.els.list && mgr.els.list.contains(a)); }
+  // Read the edit view of every listed fiche once (3 at a time); rows fill in as they arrive.
+  var GOAL_READ_CONCURRENCY = 3;
+  function loadGoalEdits(items) {
+    var todo = items.filter(function (f) { return !mgr.goalEdits[f.id] && !mgr.goalLoading[f.id]; });
+    if (!todo.length) return;
+    todo.forEach(function (f) { mgr.goalLoading[f.id] = true; });
+    var total = todo.length, done = 0, next = 0, failed = 0;
+    function worker() {
+      if (next < todo.length && !mgr.goalsMode) {
+        // Left goals mode mid-load: release the rest so the next visit reads them.
+        todo.slice(next).forEach(function (f) { delete mgr.goalLoading[f.id]; }); next = todo.length;
+      }
+      if (next >= todo.length) return Promise.resolve();
+      var f = todo[next++];
+      return readFicheEdit(f.id).then(function (edit) {
+        mgr.goalEdits[f.id] = edit;
+        if (mgr.goalRowFill[f.id]) mgr.goalRowFill[f.id](edit);
+      }).catch(function () { failed++; if (mgr.goalRowFill[f.id]) mgr.goalRowFill[f.id](null); })
+        .then(function () {
+          delete mgr.goalLoading[f.id]; done++;
+          if (mgr.goalsMode && !goalsListHasFocus()) setStatus(done < total ? "Doelen laden… " + done + " / " + total : (failed ? failed + " fiche(s) konden niet gelezen worden." : ""));
+          return worker();
+        });
+    }
+    for (var i = 0; i < GOAL_READ_CONCURRENCY; i++) worker();
+  }
+  // The vendor's own lesdoelen, when the fiche sits on a methode template (read-only hint).
+  function methodGoalsHint(edit) {
+    var out = [];
+    function walk(n) { if (!n) return; if (n.is_goal && n.description) out.push(S().goalText(n.description)); (n.children || []).forEach(walk); }
+    ((edit && edit.fields) || []).forEach(function (f) { if (f.type === "methods") walk(f.content); });
+    return out.join("\n");
+  }
+  function moveGoalFocus(cell, dir) {
+    var col = cell.getAttribute("data-col"), table = cell.closest(".qwl-table"); if (!table) return;
+    var cells = Array.prototype.slice.call(table.querySelectorAll('[data-col="' + col + '"]'));
+    var nx = cells[cells.indexOf(cell) + dir]; if (nx) { nx.focus(); if (nx.select) nx.select(); }
+  }
+  function goalCellKeys(e) {
+    e.stopPropagation();
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); moveGoalFocus(e.target, 1); }
+  }
+  function makeGoalsTable(items) {
+    var table = h("div", { class: "qwl-table qwl-gtable" });
+    table.appendChild(h("div", { class: "qwl-row qwl-grow qwl-thead" }, [
+      h("div", { class: "qwl-cbcell" }),
+      headCell("qwl-c-subject", "subject", "Titel"),
+      h("div", { text: "Weet" }), h("div", { text: "Ken" }), h("div", { text: "Kan" })
+    ]));
+    items.forEach(function (f) { table.appendChild(goalRow(f)); });
+    return table;
+  }
+  function goalRow(f) {
+    var pend = mgr.pending[f.id];
+    var cb = h("input", { class: "qwl-cb", type: "checkbox", tabindex: "-1" }); cb.checked = !!mgr.selected[f.id];
+    cb.addEventListener("change", function () { if (cb.checked) mgr.selected[f.id] = true; else delete mgr.selected[f.id]; row.classList.toggle("sel", cb.checked); updateSidebar(); });
+    var title = h("input", { class: "qwl-ginp qwl-gtitle", type: "text", "data-col": "0", value: (pend && pend.subject != null) ? pend.subject : ficheName(f) });
+    var hint = h("span", { class: "qwl-ghint", text: "ⓘ" }); hint.style.display = "none";
+    var cells = {};
+    GOAL_KINDS.forEach(function (k, i) {
+      var ta = h("textarea", { class: "qwl-ginp", rows: "2", "data-col": String(i + 1), placeholder: "laden…", disabled: "true" });
+      ta.addEventListener("keydown", goalCellKeys);
+      ta.addEventListener("change", function () {
+        var edit = mgr.goalEdits[f.id]; if (!edit) return;
+        var gf = S().ficheGoalFields(edit), old = gf[k] ? S().goalText(gf[k].content) : "", nv = ta.value.trim();
+        var g = {}; g[k] = nv;
+        stagePending(f, edit, { goals: g }, nv === old ? [] : [{ label: k.toUpperCase(), old: old, nw: nv }]);
+        markRow();
+      });
+      cells[k] = ta;
+    });
+    title.addEventListener("keydown", goalCellKeys);
+    title.addEventListener("change", function () {
+      var nv = title.value, orig = ficheName(f);
+      stagePending(f, mgr.goalEdits[f.id] || null, { subject: nv }, nv === orig ? [] : [{ label: "Titel", old: orig, nw: nv }]);
+      markRow();
+    });
+    var row = h("div", { class: "qwl-row qwl-grow" + (cb.checked ? " sel" : "") + (pend ? " pend" : ""), "data-fid": String(f.id) }, [
+      h("label", { class: "qwl-cbcell" }, [cb]),
+      h("div", { class: "qwl-gtitlecell" }, [title, hint]),
+      cells.weet, cells.ken, cells.kan
+    ]);
+    function markRow() { row.classList.toggle("pend", !!mgr.pending[f.id]); updateSidebar(); }
+    function fill(edit) {
+      if (!edit) { GOAL_KINDS.forEach(function (k) { cells[k].placeholder = "niet gelezen"; }); return; }
+      var gf = S().ficheGoalFields(edit), p = mgr.pending[f.id];
+      GOAL_KINDS.forEach(function (k) {
+        var ta = cells[k];
+        ta.value = (p && p.goals && Object.prototype.hasOwnProperty.call(p.goals, k)) ? p.goals[k] : (gf[k] ? S().goalText(gf[k].content) : "");
+        ta.placeholder = ""; ta.disabled = false;
+      });
+      var mh = methodGoalsHint(edit);
+      if (mh) { hint.style.display = ""; hint.title = "Doelen van de methode:\n" + mh; }
+    }
+    mgr.goalRowFill[f.id] = fill;
+    if (mgr.goalEdits[f.id]) fill(mgr.goalEdits[f.id]);
+    return row;
+  }
+  // One-time move of the goals typed in the print preview (this browser, qwp_goals_v1) into the
+  // fiches. Only fiches with no WEET/KEN/KAN yet; records of an older fiche version cannot match.
+  function importLocalGoals() {
+    var listed = mgr.filtered, missing = listed.filter(function (f) { return !mgr.goalEdits[f.id]; }).length;
+    if (missing) { setStatus("Wacht tot alle doelen geladen zijn (" + missing + " nog bezig)."); return; }
+    S().storeGet("qwp_goals_v1").then(function (store) {
+      store = store || {};
+      var staged = 0, skipped = 0, matched = 0;
+      listed.forEach(function (f) {
+        var rec = store["f:" + f.id]; if (!rec) return;
+        var vals = {}; GOAL_KINDS.forEach(function (k) { var v = String(rec[k] || "").trim(); if (v) vals[k] = v; });
+        if (!Object.keys(vals).length) return;
+        matched++;
+        var edit = mgr.goalEdits[f.id], gf = S().ficheGoalFields(edit);
+        if (GOAL_KINDS.some(function (k) { return gf[k] && S().goalText(gf[k].content); })) { skipped++; return; }
+        stagePending(f, edit, { goals: vals }, Object.keys(vals).map(function (k) { return { label: k.toUpperCase(), old: "", nw: vals[k] }; }));
+        staged++;
+      });
+      var total = Object.keys(store).filter(function (key) { var r = store[key]; return key.indexOf("f:") === 0 && r && GOAL_KINDS.some(function (k) { return String(r[k] || "").trim(); }); }).length;
+      renderList();
+      setStatus(staged + " fiche(s) klaargezet uit lokale doelen" + (skipped ? ", " + skipped + " overgeslagen (heeft al doelen)" : "")
+        + ". " + (total - matched) + " lokale record(s) horen bij een andere tag of een oudere fiche-versie.");
+    });
+  }
   function renderList() {
     var wrap = mgr.els.list; if (!wrap) return; wrap.innerHTML = "";
     updateSidebar();
     if (mgr.loading) { wrap.appendChild(h("div", { class: "qwl-empty", text: "Laden…" })); return; }
     if (!mgr.filtered.length) { wrap.appendChild(h("div", { class: "qwl-empty", text: "Geen lesfiches." })); return; }
+    if (mgr.goalsMode) { mgr.goalRowFill = {}; wrap.appendChild(makeTable(mgr.filtered)); loadGoalEdits(mgr.filtered); return; }
     if (mgr.cols === 2) {
       var mid = Math.ceil(mgr.filtered.length / 2);
       wrap.appendChild(h("div", { class: "qwl-cols" }, [makeTable(mgr.filtered.slice(0, mid)), makeTable(mgr.filtered.slice(mid))]));
@@ -518,7 +680,9 @@
     if (dl) { dl.textContent = "Verwijderen" + (n ? " (" + n + ")" : ""); dl.disabled = n ? null : "true"; }
     if (sa) sa.textContent = (n && n >= mgr.filtered.length && mgr.filtered.length) ? "Wis selectie" : "Alles selecteren";
     if (rv) { rv.textContent = "Wijzigingen controleren" + (p ? " (" + p + ")" : ""); rv.style.display = (mgr.pick || !p) ? "none" : ""; }
-    if (cols) cols.textContent = mgr.cols === 2 ? "1 kolom" : "2 kolommen";
+    if (cols) { cols.textContent = mgr.cols === 2 ? "1 kolom" : "2 kolommen"; cols.style.display = (mgr.goalsMode || mgr.pick) ? "none" : ""; }
+    var gm = document.getElementById("qwl-goalsmode"); if (gm && !mgr.pick) gm.textContent = mgr.goalsMode ? "Terug naar lijst" : "Lesdoelen invullen";
+    var gi = document.getElementById("qwl-goalsimport"); if (gi) gi.style.display = (mgr.goalsMode && !mgr.pick) ? "" : "none";
     var ok = document.getElementById("qwl-pickok");
     if (ok && mgr.pick) { ok.textContent = "Selectie gebruiken" + (n ? " (" + n + ")" : ""); ok.disabled = n ? null : "true"; }
   }
@@ -558,8 +722,8 @@
       textFields.forEach(function (fld) {
         body.push(h("label", { class: "qwl-flabel", text: (fld.title || "Tekst") }));
         var ta = h("textarea", { class: "qwl-textarea", rows: "4" });
-        ta.value = (pend && pend.text && Object.prototype.hasOwnProperty.call(pend.text, fld.template_field_id)) ? pend.text[fld.template_field_id] : (fld.content != null ? fld.content : "");
-        areas[fld.template_field_id] = ta; body.push(ta);
+        ta.value = (pend && pend.text && Object.prototype.hasOwnProperty.call(pend.text, fieldKey(fld))) ? pend.text[fieldKey(fld)] : (fld.content != null ? fld.content : "");
+        areas[fieldKey(fld)] = ta; body.push(ta);
       });
       if ((edit.fields || []).some(function (x) { return x.type === "goals"; })) body.push(h("div", { class: "qwl-note", text: "ZILL-doelen blijven ongewijzigd." }));
       body.push(h("div", { class: "qwl-note", text: "Niets wordt geschreven tot je op 'Wijzigingen controleren' klikt en goedkeurt." }));
@@ -571,8 +735,8 @@
         var subject = subjInp.value, text = {}, changes = [];
         if ((subject || "") !== (edit.subject || "")) changes.push({ label: "Titel", old: edit.subject || "", nw: subject || "" });
         textFields.forEach(function (fld) {
-          var nv = areas[fld.template_field_id].value, ov = fld.content != null ? fld.content : "";
-          text[fld.template_field_id] = nv;
+          var nv = areas[fieldKey(fld)].value, ov = fld.content != null ? fld.content : "";
+          text[fieldKey(fld)] = nv;
           if (nv !== ov) changes.push({ label: fld.title || "Tekst", old: ov, nw: nv });
         });
         stagePending(f, edit, { subject: subject, text: text }, changes);
@@ -592,10 +756,23 @@
     if (opts.text !== undefined) e.text = opts.text;
     if (opts.tags !== undefined) e.tags = opts.tags;
     if (opts.create_tags !== undefined) e.createTags = opts.create_tags;
-    e.changes = (e.changes || []).filter(function (c) { return changes.every(function (n) { return n.label !== c.label; }); }).concat(changes);
+    // Goals (goals mode): one kind at a time; typing a kind back to its stored text unstages it.
+    var dropLabels = [];
+    if (opts.goals) {
+      e.goals = e.goals || {};
+      var gf = e.edit ? S().ficheGoalFields(e.edit) : {};
+      Object.keys(opts.goals).forEach(function (k) {
+        var orig = gf[k] ? S().goalText(gf[k].content) : "";
+        if (opts.goals[k] === orig) { delete e.goals[k]; dropLabels.push(k.toUpperCase()); }
+        else e.goals[k] = opts.goals[k];
+      });
+    }
     var origSubject = (e.edit && e.edit.subject != null) ? e.edit.subject : ficheName(f);
-    var textChanged = e.text && e.edit && Object.keys(e.text).some(function (k) { var fld = (e.edit.fields || []).filter(function (x) { return x.template_field_id === k; })[0]; return fld && (e.text[k] !== (fld.content != null ? fld.content : "")); });
-    var meaningful = (e.subject != null && e.subject !== origSubject) || (e.tags != null) || (e.createTags && e.createTags.length) || textChanged;
+    if (opts.subject !== undefined && opts.subject === origSubject) { e.subject = null; dropLabels.push("Titel"); }
+    e.changes = (e.changes || []).filter(function (c) { return dropLabels.indexOf(c.label) < 0 && changes.every(function (n) { return n.label !== c.label; }); }).concat(changes);
+    var textChanged = e.text && e.edit && Object.keys(e.text).some(function (k) { var fld = (e.edit.fields || []).filter(function (x) { return fieldKey(x) === k; })[0]; return fld && (e.text[k] !== (fld.content != null ? fld.content : "")); });
+    var goalsChanged = !!(e.goals && Object.keys(e.goals).length);
+    var meaningful = (e.subject != null && e.subject !== origSubject) || (e.tags != null) || (e.createTags && e.createTags.length) || textChanged || goalsChanged;
     if (meaningful) mgr.pending[f.id] = e; else delete mgr.pending[f.id];
   }
 
@@ -618,13 +795,31 @@
     var ft = m.querySelector(".qwl-modal-ft");
     ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Terug" }));
     ft.appendChild(h("button", { class: "qwl-btn qwl-ghost qwl-danger", onclick: function () { mgr.pending = {}; m.close(); renderList(); setStatus("Alle wijzigingen verworpen."); }, text: "Alles verwerpen" }));
-    ft.appendChild(h("button", { class: "qwl-btn", onclick: function () { m.close(); writePending(keys.slice()); }, text: "Wegschrijven (" + keys.length + ")" }));
+    var goalWrites = keys.filter(function (id) { return mgr.pending[id].goals && Object.keys(mgr.pending[id].goals).length; }).length;
+    if (goalWrites >= GOAL_BACKUP_MIN) body.push(h("div", { class: "qwl-note", text: "Eerst wordt een back-up (JSON) gedownload van de " + keys.length + " fiches zoals ze nu zijn." }));
+    ft.appendChild(h("button", { class: "qwl-btn", onclick: function () {
+      m.close();
+      if (goalWrites >= GOAL_BACKUP_MIN) backupPendingSnapshots(keys);
+      writePending(keys.slice());
+    }, text: "Wegschrijven (" + keys.length + ")" }));
+  }
+  // Bulk goal writes touch many fiches at once: download what they look like now (the edit
+  // snapshots goals mode already read — no extra calls) so a bad write can be rebuilt by hand.
+  var GOAL_BACKUP_MIN = 5;
+  function backupPendingSnapshots(keys) {
+    var data = keys.map(function (id) {
+      var p = mgr.pending[id], e = p && p.edit;
+      return e ? { id: e.id, subject: e.subject || "", grades: e.grades || [], tags: e.tags || [], fields: e.fields || [] }
+               : { id: id, subject: ficheName(p && p.fiche), __backup_incomplete: true };
+    });
+    if (!downloadFichesBackup(data)) setStatus("Back-up downloaden mislukt — wegschrijven gaat toch door.");
   }
   function writePending(keys) {
     var prog = progressModal("Wijzigingen wegschrijven");
     runSequential(keys, function (id) {
       var p = mgr.pending[id]; if (!p) return Promise.resolve();
       var opts = {}; if (p.subject != null) opts.subject = p.subject; if (p.text) opts.text = p.text; if (p.tags != null) opts.tags = p.tags; if (p.createTags && p.createTags.length) opts.create_tags = p.createTags;
+      if (p.goals && Object.keys(p.goals).length) opts.goals = p.goals;
       // Inline title edits carry no edit snapshot — fetch it now (for field ids + current tags).
       var editP = p.edit ? Promise.resolve(p.edit) : readFicheEdit(p.fiche.id);
       return editP.then(function (edit) { p.edit = edit; return writePatch(p.fiche.id, buildPatch(p.fiche.id, edit, opts)); }).then(function (result) {
@@ -634,6 +829,8 @@
         else if (mgr.tagChips[oldId]) mgr.tagChips[newId] = mgr.tagChips[oldId];
         if (oldId !== newId) delete mgr.tagChips[oldId];
         if (mgr.selected[oldId]) { delete mgr.selected[oldId]; mgr.selected[newId] = true; }
+        // The new version has new field ids — goals mode re-reads it (which also shows what landed).
+        delete mgr.goalEdits[oldId];
         delete mgr.pending[id];
       });
     }, prog.update).then(function (fails) { if (fails.length < keys.length) mgr.dirtyWrites = true; prog.done(fails, keys.length); renderList(); });
@@ -1151,8 +1348,18 @@
       }); },
       function () { return diagGet(api() + "/lessons?" + qs({ schoolId: sid(), status: "active", num: 1, default_tagId: 1 })).then(function (r) { addRow({ status: r.status === 200 ? "OK" : "WARN", name: "Zonder tag (default_tagId=1)", detail: "HTTP " + r.status }); }); },
       function () { if (!sampleFicheId) { addRow({ status: "SKIP", name: "Fiche edit-contract", detail: "geen sample" }); return; } return diagGet(api() + "/lessons/" + sampleFicheId + "?" + qs({ schoolId: sid(), return_format: "edit" })).then(function (r) {
-        var res = r.json && r.json.result, fld = res && res.fields && res.fields[0];
+        // Judge a TEMPLATE field — an extra (per-fiche) field can come first and has template_field_id null.
+        var res = r.json && r.json.result, fld = res && res.fields && (res.fields.filter(function (x) { return x && x.template_field_id != null; })[0] || res.fields[0]);
         addRow({ status: (res && res.fields && has(fld, "id") && has(fld, "template_field_id")) ? "OK" : "FAIL", name: "Fiche edit-contract", detail: "tags[" + ((res && res.tags) || []).length + "], fields[" + ((res && res.fields) || []).length + "]", next: (res && res.fields) ? null : "return_format=edit levert geen fields — bewerken kan breken." });
+        // Lesdoelen live in per-fiche extra fields: { id, type:"text", title, content, template_field_id:null }.
+        var extra = ((res && res.fields) || []).filter(function (x) { return x && x.template_field_id === null; });
+        if (!extra.length) addRow({ status: "SKIP", name: "Extra velden (lesdoelen)", detail: "sample-fiche heeft geen extra velden" });
+        else {
+          var okShape = extra.every(function (x) { return has(x, "id") && has(x, "title") && has(x, "content"); });
+          var gf = S().ficheGoalFields(res), kinds = ["weet", "ken", "kan"].filter(function (k) { return gf[k]; });
+          addRow({ status: okShape ? "OK" : "FAIL", name: "Extra velden (lesdoelen)", detail: extra.length + " extra veld(en): " + extra.map(function (x) { return x.title; }).join(", ") + (kinds.length ? " · doelen: " + kinds.join("/").toUpperCase() : ""),
+            next: okShape ? null : "Vorm van extra velden veranderd — lesdoelen lezen/schrijven kan breken." });
+        }
       }); },
       function () { return diagGet(api() + "/lessons/templates?" + qs({ schoolId: sid() })).then(function (r) {
         var arr = (r.json && r.json.result) || [];

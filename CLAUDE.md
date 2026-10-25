@@ -76,7 +76,7 @@ consumer that planner already has is a bug — export the existing one instead.
 `__QWP_SHARED` currently exposes: `ctx, API, API_ROOT, jget, qs, xsrfToken, writeHeaders,
 fetchTags, fetchOwnTags, fetchSharedTags, invalidateOwnTags, topTagsForOwner, childTags, tagTitle,
 tagColor, ownerName, h, detectContext, fetchMethods, fetchMethodLessons, fetchAllFichesByTag,
-storeGet, storeSet`.
+storeGet, storeSet, ficheGoalFields, goalText, IS_BETA, betaPill`.
 
 ## UI conventions
 
@@ -101,7 +101,7 @@ storeGet, storeSet`.
 | `qwp_state_v6` | planner | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), weeks, panels, split ratio, manual overrides |
 | `qwp_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
-| `qwp_goals_v1` | planner (print) | typed lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` |
+| `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and pre-beta text (own fiches now keep goals in the fiche) |
 | `qwp_print_v1` | planner (print) | print window choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool }` |
 | `qwp_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
@@ -235,10 +235,11 @@ so between the roll and 1 September nothing counts as given — hence the explic
 **Lesdoelen print.** The print window's "Versie" choice: Gewoon (the original layout, untouched) or
 Lesdoelen 1 A4 / 2 A4 (`printGoalsDocHtml`). Equal-height cards with WEET/KEN/KAN write lines
 (3 per card on 1 A4, 8 on 2 A4, both ≈7mm; titles fixed at 2 lines — front = first half of the lesuren, back = rest + week info); the
-free Wednesday afternoon holds thema names and the vak legend. Goals are typed straight into the
-preview iframe (`wireGoalsEditor`, listeners attached from the content script — Questi's CSP blocks
-inline scripts) and stored locally per fiche id, so they do NOT survive a fiche edit (new id) or reach
-another computer; moving them into the lesfiche is the planned follow-up. Kinds hide per fiche, all
+free Wednesday afternoon holds thema names and the vak legend. Goals live **in the fiche** (see
+"Lesdoelen in the fiche"); `loadPrintFicheGoals` reads them per print window and `goalsRecFor` merges
+them with the local record. Only a card with no own fiche behind it (fiche-less lesuur, methode fiche)
+is still typed in the preview (`wireGoalsEditor`, listeners attached from the content script —
+Questi's CSP blocks inline scripts) and stored locally. Kinds hide per fiche, all
 three included (LO, zwemmen); visible kinds split the block evenly (`goalsLayout`). Line pitch uses
 container-query units (`cqh`) on `.gl`, so it follows whatever height a wrapped title leaves.
 Other agendas ("Andere agenda's meeprinten", e.g. the zorgjuf's) never enter the Lesdoelen grid: they
@@ -269,6 +270,25 @@ copied Zelftest report includes the raw key names. Two related unknowns it does 
 because both would need a write: whether `attachments: []` on a fiche PATCH wipes existing
 attachments, and where the write-side `attachmentId` comes from (it matches neither `content.id`
 nor `id_attachment`). Test those by hand on a throwaway fiche.
+
+**Lesdoelen in the fiche (beta).** WEET/KEN/KAN are three per-fiche **extra** text fields (Questi
+editor "+ toevoegen → Tekst"): `template_field_id: null`, value in `content`, `description` = the ⓘ
+helper text. Matched by **title** (`ficheGoalFields`), never by id — field ids change with every fiche
+version. `buildPatch` sends every extra field exactly as Questi's editor does, `{ id, content }`, and
+`opts.goals` updates or appends them; never create an empty one. Text fields key on `fieldKey()`
+(template id, or `"x"+id` for an extra field) — keying on `template_field_id` alone made all extra
+fields share one `"null"` key. Goals mode in the manager (`makeGoalsTable`) stages into `mgr.pending`
+like any edit and backs up ≥5 goal writes first. A planned lesuur keeps its fiche **version**, so print
+falls back to the newest own fiche with the same title and marks the card "nieuwere versie".
+
+**Beta channel.** Branch `beta`, sideloaded from its own folder (git worktree) next to the stable
+addon. Manifest name contains `BETA` — that one string drives everything: `IS_BETA` in content.js,
+planner.js and background.js. The beta has **no manifest CSS**; the worker inserts it on first use
+(`QWP_INSERT_CSS`) so it never styles the stable overlay. content.js detects the stable copy by probing
+for its CSS (`.qwp-banner` is `display:flex`) and then stays dormant with a visible notice; its chips use
+`data-qwpb-*` attributes; shortcut Alt+Shift+P; update check + `update.bat` follow the `beta` branch.
+Keep beta-only differences in manifest/icons/version.json/update.bat so feature commits cherry-pick
+cleanly onto `dev`.
 
 ## Working on this repo
 

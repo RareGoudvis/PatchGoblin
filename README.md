@@ -141,6 +141,19 @@ fiche-bibliotheek** (los van de kalender).
   blijven altijd behouden.
 - **Verwijderen** is definitief: typ `VERWIJDER`, test eerst met één fiche, dan de rest.
 - **1/2 kolommen** en **Diagnose** (zelftest) staan links. **Importeren** komt binnenkort (OPSTAP).
+- **Lesdoelen invullen** (BETA). Links → **Lesdoelen invullen** zet de lijst om in een invulblad:
+  per fiche **Titel · WEET · KEN · KAN**. **Tab** = volgende vak, **Enter** = zelfde kolom, volgende
+  fiche (**Shift+Enter** = nieuwe regel). Ook de titel pas je hier aan. De doelen worden **in de
+  lesfiche zelf** bewaard (drie extra tekstvelden WEET / KEN / KAN, zichtbaar in Questi en voor je
+  collega's) — dus op elke computer. Het ⓘ-icoon naast een titel toont de doelen van de methode.
+  Alles loopt via **Wijzigingen controleren**; bij 5 of meer fiches wordt eerst een back-up (JSON)
+  gedownload. **Lokale doelen overnemen** zet doelen die je vroeger in het afdrukvoorbeeld typte
+  in de fiches. Tip: zet in Questi **"Onthouden"** aan op WEET/KEN/KAN, dan krijgt elke nieuwe
+  fiche die velden vanzelf.
+- ⚠ **Een ingeplande les houdt de fiche-versie waarmee ze gepland is** (Questi: "aanpassingen …
+  niet automatisch bijgewerkt in het gekoppelde agenda item"). Het Lesdoelen-afdrukvoorbeeld neemt
+  dan de doelen van de nieuwste fiche met dezelfde titel, en zet **"nieuwere versie"** op die kaart
+  (alleen op het scherm).
 
 ---
 
@@ -288,7 +301,14 @@ Per-key semantics (learned the hard way — see the gotchas):
 - **Include every `fields[]` entry** from the edit-read so none drop; put `content` only on the
   text fields you change (echo current `content` on the rest).
 - ⚠ **Every edit mints a NEW `result.id` ≠ `lessonId`.** Re-read `result.id` and use it for any
-  later op.
+  later op. Field ids change with every version too.
+
+**Extra per-fiche fields** (Questi editor: "+ toevoegen → Tekst") — no `template_field_id`. Read
+back as `{ id, type:"text", title, description, content, template_field_id:null }`: the **value is
+`content`**, `description` is the ⓘ helper text. Questi's own editor updates one as `{ id, content }`
+(no `template_field_id` key) and adds one as `{ field_type:"text", title, description, order,
+content }`. The beta stores lesdoelen in three such fields titled `WEET` / `KEN` / `KAN`, matched by
+title; `buildPatch` echoes every extra field as `{ id, content }` so a rename never drops them.
 
 **Delete** — `DELETE /cal/lessons?schoolId&lessons[]=<id>[&lessons[]=<id>…]`
 Bulk, **no body**, `x-xsrf-token` required → `{ "status":"success" }`. **Irreversible — no server

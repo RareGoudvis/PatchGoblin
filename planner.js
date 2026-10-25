@@ -1650,10 +1650,31 @@
     { key: "ken", label: "ken", ico: '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 3.2c2-.6 4.2-.4 6.2.9 2-1.3 4.2-1.5 6.2-.9v9.4c-2-.6-4.2-.4-6.2.9-2-1.3-4.2-1.5-6.2-.9z"/><path d="M8 4.1v9.4"/></svg>' },
     { key: "kan", label: "kan", ico: '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.2 2.2a3.2 3.2 0 0 0-3.9 4.1L2 10.6a1.4 1.4 0 0 0 2 2l4.3-4.3a3.2 3.2 0 0 0 4.1-3.9l-2 2-1.8-.4-.4-1.8z"/></svg>' }
   ];
-  // Typed goals, saved in this browser under qwp_goals_v1: { "f:<fiche id>" | "i:<item id>": {weet, ken, kan} }.
-  // Keyed by the fiche, so a reused fiche brings its goals along; a fiche-less lesuur keys on its item.
-  // Editing a fiche in Questi mints a new id (see CLAUDE.md), so its goals stay with the old version.
-  // Later the goals are meant to live in the lesfiche itself; this local store is the stopgap.
+  // Goals stored IN the fiche: three per-fiche extra text fields titled WEET, KEN, KAN (Questi's
+  // "+ toevoegen → Tekst" fields, which have no template_field_id). The value is `content`;
+  // `description` is the field's ⓘ helper text. Matched by title, never by id — every fiche
+  // version mints new field ids. Shapes: reference/questi-api-samples.md (2026-10-25).
+  function ficheGoalFields(edit) {
+    var out = { weet: null, ken: null, kan: null };
+    ((edit && edit.fields) || []).forEach(function (f) {
+      if (!f || f.template_field_id != null || f.type !== "text") return;
+      var k = String(f.title || "").trim().toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(out, k) && !out[k]) out[k] = f;
+    });
+    return out;
+  }
+  // Field HTML → plain text (Questi's editor may wrap a value in <p>). DOMParser runs no handlers.
+  function goalText(html) {
+    var s = String(html == null ? "" : html);
+    if (s.indexOf("<") < 0 && s.indexOf("&") < 0) return s.trim();
+    s = s.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|li)>/gi, "\n");
+    var doc = new DOMParser().parseFromString(s, "text/html");
+    return (doc.body.textContent || "").replace(/\n{2,}/g, "\n").trim();
+  }
+  // Local goals, saved in this browser under qwp_goals_v1: { "f:<fiche id>" | "i:<item id>": {weet, ken, kan, hide} }.
+  // Since goals live in the fiche (WEET/KEN/KAN fields), this store keeps only: the per-fiche hide
+  // flags, goals for fiche-less lesuren and methode fiches (nowhere else to put them), and goals typed
+  // before — shown read-only on an own fiche until "Lokale doelen overnemen" moves them in.
   var GOALS_STORE_KEY = "qwp_goals_v1", _goals = {}, _goalsSaveT = null;
   var _goalsTab = "word";   // tab label: "word" (WEET/KEN/KAN, vertical) or "icon"; set per render
   var _goalsLegendOn = true; // vak legend in the Wednesday box; set per render
@@ -1669,6 +1690,69 @@
     if (!s) return "";
     if (s.ficheContentId) return "f:" + s.ficheContentId;
     return s.itemId ? "i:" + s.itemId : "";
+  }
+  // Only a card with no own fiche behind it is typed in the preview; an own fiche is edited in the
+  // Lesfiche-manager (goals mode), so the fiche stays the one source.
+  function isMethodSlot(s) { return !!(s && s.ficheContentId && (s.ficheIsMethod || view.methodFicheIds[String(s.ficheContentId)])); }
+  function goalsEditableFor(s) { return !!s && (!s.ficheContentId || isMethodSlot(s)); }
+  // Goals read from the attached fiche for print. A planned lesuur keeps the fiche VERSION it was
+  // planned with, so goals typed afterwards live on a newer version: when the attached one has none,
+  // take the newest own fiche with the same title (read-only) and mark the card. Reset per print window.
+  var _printFicheGoals = {};    // ficheContentId -> { goals: {weet,ken,kan}|null, src: "fiche"|"newer"|"none" }
+  var _ownFicheByTitle = null;  // normalised subject -> id of the current own fiche with that title
+  function resetPrintFicheGoals() { _printFicheGoals = {}; _ownFicheByTitle = null; }
+  function normSubject(t) { return String(t || "").replace(/\s+/g, " ").trim().toLowerCase(); }
+  function fetchFicheEdit(id) {
+    return jget(API + "/lessons/" + id + "?" + qs({ schoolId: ctx.schoolId, return_format: "edit" })).then(function (j) { return (j && j.result) || j; });
+  }
+  function goalsOfEdit(edit) {
+    var gf = ficheGoalFields(edit), out = {}, any = false;
+    GOALS_KINDS.forEach(function (k) { var v = gf[k.key] ? goalText(gf[k.key].content) : ""; if (v) { out[k.key] = v; any = true; } });
+    return any ? out : null;
+  }
+  function ownFicheByTitle() {
+    if (_ownFicheByTitle) return Promise.resolve(_ownFicheByTitle);
+    if (ctx.ownDefaultTagId == null) return Promise.resolve({});
+    return fetchAllFichesByTag(ctx.ownerId, ctx.ownDefaultTagId).then(function (r) {
+      var map = {};
+      (r.items || []).forEach(function (f) { var k = normSubject(f.subject); if (k && (!map[k] || Number(f.id) > Number(map[k]))) map[k] = f.id; });
+      _ownFicheByTitle = map; return map;
+    }).catch(function () { return {}; });
+  }
+  // Read the goals of every own fiche on the sheet; resolves true when something new arrived.
+  function loadPrintFicheGoals(pv) {
+    var ids = {};
+    (pv.slots || []).forEach(function (s) {
+      if (!s || !s.ficheContentId || s.isGym || isMethodSlot(s)) return;
+      if (!(s.ficheContentId in _printFicheGoals)) ids[s.ficheContentId] = true;
+    });
+    var list = Object.keys(ids);
+    if (!list.length) return Promise.resolve(false);
+    list.forEach(function (id) { _printFicheGoals[id] = { goals: null, src: "loading" }; });
+    return Promise.all(list.map(function (id) {
+      return fetchFicheEdit(id).then(function (edit) {
+        var g = goalsOfEdit(edit);
+        if (g) { _printFicheGoals[id] = { goals: g, src: "fiche" }; return; }
+        return ownFicheByTitle().then(function (map) {
+          var nid = map[normSubject(edit && edit.subject)];
+          if (!nid || String(nid) === String(id)) { _printFicheGoals[id] = { goals: null, src: "none" }; return; }
+          return fetchFicheEdit(nid).then(function (e2) {
+            var g2 = goalsOfEdit(e2);
+            _printFicheGoals[id] = g2 ? { goals: g2, src: "newer" } : { goals: null, src: "none" };
+          });
+        });
+      }).catch(function () { _printFicheGoals[id] = { goals: null, src: "none" }; });
+    })).then(function () { return true; });
+  }
+  // What a card shows: the fiche's goals when it has any, else the local record (fiche-less lesuren,
+  // methode fiches, older typed goals). Hide flags always come from the local record.
+  function goalsRecFor(gk) {
+    var local = (gk && _goals[gk]) || {};
+    var fg = (gk && gk.indexOf("f:") === 0) ? _printFicheGoals[gk.slice(2)] : null;
+    if (!fg || !fg.goals) return local;
+    var rec = {}; if (local.hide) rec.hide = local.hide;
+    GOALS_KINDS.forEach(function (k) { if (fg.goals[k.key]) rec[k.key] = fg.goals[k.key]; });
+    return rec;
   }
   // Ruled lines per card: `n` (3 on one page, 8 on two — both ≈7mm). Visible kinds share them as
   // evenly as whole lines allow; leftover lines go to the lowest kinds (8 over 3 → 2/3/3). With fewer
@@ -1701,14 +1785,15 @@
   // The block shares whatever height the title leaves (flex), so a wrapped title shortens the lines a
   // bit instead of being cut off, and every card keeps the same outer height. Pitch = block height ÷ k
   // (container query units), so every kind sits on the same ruling.
-  function goalsLinesHtml(gk, n) {
-    var rec = (gk && _goals[gk]) || {}, lay = goalsLayout(rec, n);
+  // `editable`: typed here (no own fiche behind the card); otherwise the text is the fiche's, read-only.
+  function goalsLinesHtml(gk, n, editable) {
+    var rec = goalsRecFor(gk), lay = goalsLayout(rec, n);
     return '<div class="gl" data-n="' + n + '" style="--k:' + lay.k + '">' + GOALS_KINDS.map(function (k) {
       var m = lay.m[k.key];
       return '<div class="gl-row' + (m ? "" : " gl-off") + '" data-kind="' + k.key + '" style="--m:' + m + '">' +
         '<span class="gl-ico"' + (gk ? ' title="' + esc(k.label) + ' verbergen"' : "") + ">" +
           (_goalsTab === "icon" ? k.ico : '<span class="gl-vw">' + esc(k.label.toUpperCase()) + "</span>") + "</span>" +
-        (gk ? '<div class="gl-txt" contenteditable="true" spellcheck="false" data-kind="' + k.key + '">' + esc(rec[k.key] || "") + "</div>" : "") +
+        (gk ? '<div class="gl-txt"' + (editable ? ' contenteditable="true" spellcheck="false"' : ' title="Bewerk dit doel in Lesfiches → Lesdoelen invullen"') + ' data-kind="' + k.key + '">' + esc(rec[k.key] || "") + "</div>" : "") +
         "</div>";
     }).join("") + "</div>";
   }
@@ -1742,7 +1827,7 @@
     }
     // Re-apply the layout + controls (and, on twin cards, the text) to every card of `gk`.
     function relayout(gk, except) {
-      var rec = _goals[gk] || {};
+      var rec = goalsRecFor(gk);
       twins(gk).forEach(function (card) {
         var gl = card.querySelector(".gl"); if (!gl) return;
         var lay = goalsLayout(rec, +gl.getAttribute("data-n") || 3);
@@ -1965,13 +2050,15 @@
     var xt = (xs && xs.length) ? '<span class="gc-xt" style="color:' + esc(xs[0].color) + '">' + esc(xs[0].start) +
       (xs.length > 1 ? " +" + (xs.length - 1) : "") + "</span>" : "";
     // The vak label is gone from the card, so the fiche-vs-vak mismatch needs its own mark.
-    var mm = vakMismatch(s), gk = goalsKeyFor(s);
+    var mm = vakMismatch(s), gk = goalsKeyFor(s), fg = s.ficheContentId ? _printFicheGoals[s.ficheContentId] : null;
+    // Screen-only mark: these goals come from a newer version than the one this lesuur points at.
+    var src = (fg && fg.src === "newer") ? '<span class="gc-src" title="Doelen uit een nieuwere versie van deze fiche — dit agenda-item verwijst nog naar de oude versie.">nieuwere versie</span>' : "";
     var bar = p.color ? (' style="background:' + esc(p.color) + ";color:" + goalsInkOn(p.color) + '"') : "";
     var top = '<div class="gc-top"' + bar + '><span class="gc-title">' + esc(p.main || "") + "</span>" +
       (mm ? '<span class="gc-mm">≠ ' + esc(mm.ficheVak || "?") + "</span>" : "") +
       '<span class="gc-times"><span class="gc-time">' + esc(time) + "</span>" + xt + "</span></div>";
     return '<td class="gc gfilled"><div class="gc-in"' + (gk ? ' data-gk="' + esc(gk) + '"' : "") + ' style="height:' + innerH + 'px">' +
-      top + goalsLinesHtml(gk, n) + (gk ? '<div class="gc-ctl">' + goalsCtlHtml(_goals[gk]) + "</div>" : "") + "</div></td>";
+      top + goalsLinesHtml(gk, n, goalsEditableFor(s)) + src + (gk ? '<div class="gc-ctl">' + goalsCtlHtml(goalsRecFor(gk)) + "</div>" : "") + "</div></td>";
   }
   // One printed page holding `rows` (a slice of the week's effective rows). `info` = this page carries
   // the week info (Wednesday box, else a band); `n` = ruled lines per card.
@@ -2083,6 +2170,7 @@
     '.gl[data-n="3"] .gl-vw { font-size: 6.5px; letter-spacing: .02em; }' +   // 1 A4: a 1-line tab is only ~6mm tall
     '.gl-txt { height: 100%; margin-left: 26px; background-image: repeating-linear-gradient(to bottom, transparent 0 calc(100cqh / var(--k) / 2 + 5px), #bdbdbd calc(100cqh / var(--k) / 2 + 5px) calc(100cqh / var(--k) / 2 + 6px), transparent calc(100cqh / var(--k) / 2 + 6px) calc(100cqh / var(--k))); font-size: 9.5px; line-height: calc(100cqh / var(--k)); color: #1e2a33; white-space: pre-wrap; overflow: hidden; overflow-wrap: anywhere; outline: none; cursor: text; }' +
     '.gc-ctl { display: none; }' +
+    '.gc-src { display: none; }' +
     'td.gxcell { background: repeating-linear-gradient(135deg,#fffaf0,#fffaf0 8px,#fff6e6 8px,#fff6e6 16px); border: 1px dashed #e7cf94; padding: 2px 6px; white-space: nowrap; }' +
     'td.gx-empty { background: transparent; border: none; }' +
     'td.gxcell .gc-time { color: #b7891a; margin-right: 4px; }' +
@@ -2120,6 +2208,7 @@
     '  .xl-off:hover { opacity: 1; text-decoration: none; color: #137a3a; }' +
     '  .xl-more { display: block; cursor: pointer; color: #7a868d; font-style: italic; }' +
     '  .xl-more:hover { color: #2f6d6b; }' +
+    '  .gc-src { display: block; position: absolute; right: 3px; bottom: 2px; font-size: 8.5px; font-weight: 700; color: #8a5a00; background: #fff4d6; border-radius: 999px; padding: 0 5px; line-height: 13px; cursor: help; }' +
     '  td.gfilled:hover .gc-ctl { display: flex; gap: 3px; position: absolute; right: 4px; top: 2px; background: #fff; border-radius: 999px; padding: 1px; }' +
     '  .gc-ctl-b { display: inline-flex; align-items: center; font-size: 9.5px; font-weight: 700; color: #7a868d; background: #eef2f4; border-radius: 999px; padding: 0 5px; cursor: pointer; line-height: 14px; }' +
     '  .gc-ctl-b:hover { color: #2f6d6b; background: #dcebea; }' +
@@ -2399,6 +2488,7 @@
   // Fullscreen print window: left = settings (week nav, comment, extra calendars), main = live
   // A4 preview in an iframe. "Afdrukken" prints the iframe (its @page landscape is authoritative).
   function openPrintOverlay(pv) {
+    resetPrintFicheGoals(); // goals may have been edited in the manager since the last print
     var curPv = pv, curStart = pv.weekStart, weeks = pv.weeks, curExtras = {};
     var frame = h("iframe", { class: "qpp-frame", title: "Afdrukvoorbeeld" });
     var rangeLbl = h("span", { class: "qpp-range" });
@@ -2437,7 +2527,11 @@
     function renderPreview() {
       var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document); if (!doc) return;
       doc.open(); doc.write(printPrefs.mode !== "plain" ? printGoalsDocHtml(curPv, curExtras, opts(), printPrefs.mode, printPrefs) : printDocHtml(curPv, curExtras, opts())); doc.close();
-      if (printPrefs.mode !== "plain") wireGoalsEditor(doc, renderPreview);
+      if (printPrefs.mode !== "plain") {
+        wireGoalsEditor(doc, renderPreview);
+        // Goals live in the fiches: read them, then paint once more (a no-op once all are known).
+        loadPrintFicheGoals(curPv).then(function (changed) { if (changed) renderPreview(); });
+      }
       // scale-to-fit after layout settles (two frames), so each week is exactly one page
       requestAnimationFrame(function () { requestAnimationFrame(fitFrame); });
     }
@@ -4398,6 +4492,8 @@
     // the teacher can look at a previous school year.
     detectContext: detectContext,
     fetchMethods: fetchMethods, fetchMethodLessons: fetchMethodLessons,
-    fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet
+    fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet,
+    // Lesdoelen in the fiche (lessons.js goals mode, print)
+    ficheGoalFields: ficheGoalFields, goalText: goalText
   };
 })();
