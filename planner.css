@@ -15,13 +15,17 @@
 html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 
 #qwp-overlay {
-  --ink:#1E1F27; --muted:#6b7a82; --faint:#8b94a0;
-  --line:#e3e9ec; --line-soft:#eef1f5; --line2:#d5dbdf; --soft:#eef2f4; --band-line:#e7cf94;
+  --ink:#1E1F27; --muted:#5c6370; --faint:#8a8578;
+  /* Light = "Parchment" (default), dark = "Slate": html[data-pg-theme="dark"], block at the end.
+     --page = window background, --panel = sidebar and headers, --surface = cards and fields,
+     --hover = sunken / hover, --soft = segment and chip backgrounds. Print never reads these. */
+  --page:#F4F1E8; --panel:#FBF9F3; --hover:#F3EFE5;
+  --line:#E2DCCB; --line-soft:#EDE8DC; --line2:#D8D1BE; --soft:#ECE7DA; --band-line:#e7cf94;
   /* PatchGoblin brand palette ("Goblin": green, purple, orange on charcoal). --uq-blue for borders/fills/tints; --uq-blue-ink
      (a step deeper, ~5.7:1 against white) wherever blue carries text. --uq-cyan is never a text colour. */
   --qwp-side-w:360px; /* sidebar width; the user drags it (state.sideWidth → inline style) */
   --uq-blue:#8B5CF6; --uq-blue-ink:#6D3FE0; --uq-blue-tint:#f2edfe; --uq-amber:#7ED957; --uq-orange:#F59E0B; --uq-orange-tint:#fef3dc; --uq-orange-ink:#8a4b00; --uq-cyan:#7ED957; --uq-cyan-tint:#edf9e6;
-  --surface:#ffffff; --canvas:#ffffff; --raised:#fbfcfe;
+  --surface:#ffffff; --canvas:#ffffff; --raised:#FBF9F3;
   /* Questi brand tokens (from their Angular-Material theme): primary slate #304651,
      accent lime #e4e642, warn #f44336. Blends the panel into the host app. */
   --accent:#304651; --accent-weak:#eaeef1; --accent-line:#c2ccd7;
@@ -41,7 +45,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 #qwp-overlay.qwp-show { display: block; }
 
 /* Fullscreen page: fills the entire viewport. */
-.qwp-page { position: absolute; inset: 0; width: 100vw; height: 100vh; background: #f4f6f7; display: flex; flex-direction: column; }
+.qwp-page { position: absolute; inset: 0; width: 100vw; height: 100vh; background: var(--page); display: flex; flex-direction: column; }
 
 /* Header */
 .qwp-hdr { display: flex; align-items: baseline; gap: 12px; padding: 12px 18px; background: var(--surface); border-bottom: 1px solid var(--line); border-top: 3px solid var(--accent); }
@@ -53,11 +57,11 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-btn { background: var(--accent); color:#fff; border:1px solid var(--accent); border-radius: var(--radius-sm); padding:7px 13px; cursor:pointer; font-size:12.5px; font-weight:600; line-height:1; }
 .qwp-btn:hover { background:#29394a; border-color:#29394a; }
 .qwp-btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-.qwp-btn.qwp-ghost { background: var(--line-soft); color:#33404f; border-color:transparent; }
+.qwp-btn.qwp-ghost { background: var(--line-soft); color:var(--ink); border-color:transparent; }
 .qwp-btn.qwp-ghost:hover { background:#e4e8ef; }
 .qwp-btn.qwp-review { background:#47526a; border-color:#47526a; }
 .qwp-btn.qwp-review:hover { background:#3b4459; }
-.qwp-btn.qwp-commit { background:#d4d8de; color:#7a828c; border-color:#d4d8de; cursor:not-allowed; }
+.qwp-btn.qwp-commit { background:#d4d8de; color:#7a828c; border-color:var(--line2); cursor:not-allowed; }
 .qwp-btn.qwp-commit.armed { background:var(--change); border-color:var(--change); color:#fff; cursor:pointer; }
 .qwp-btn.qwp-commit.armed:hover { background:#0f6531; }
 .qwp-btn.qwp-approve { background:var(--change); border-color:var(--change); }
@@ -136,7 +140,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 /* Whole-week item that matches no vaktag — nudge, not an error. */
 .qwp-thema-untagged { margin-left:8px; font-size:9.5px; font-weight:600; text-transform:none; letter-spacing:0; color:var(--faint); font-style:italic; cursor:help; }
 /* Out of flow (the band is block flow now), so it can never add a line and grow the row. */
-.qwp-thema-more { position:absolute; top:5px; right:9px; font-size:10px; font-weight:700; color:var(--thema); background:#fff; border:1px solid var(--thema-line); border-radius:999px; padding:1px 7px; cursor:help; }
+.qwp-thema-more { position:absolute; top:5px; right:9px; font-size:10px; font-weight:700; color:var(--thema); background:var(--surface); border:1px solid var(--thema-line); border-radius:999px; padding:1px 7px; cursor:help; }
 
 /* Pauze / speeltijd band spanning the whole grid width. */
 .qwp-tt-break { grid-column:1 / -1; display:flex; align-items:center; justify-content:center; min-height:16px; }
@@ -360,7 +364,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-main { flex:1; display:flex; min-height:0; }
 
 /* ---- Sidebar ---- */
-.qwp-side { position:relative; flex:0 0 var(--qwp-side-w); width:var(--qwp-side-w); min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--line); }
+.qwp-side { position:relative; flex:0 0 var(--qwp-side-w); width:var(--qwp-side-w); min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--panel); border-right:1px solid var(--line); }
 .qwp-side-top { flex:0 0 auto; padding:14px 16px 10px; display:flex; flex-direction:column; gap:10px; border-bottom:1px solid var(--line); }
 .qwp-tabs { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:3px; background:var(--soft); border-radius:10px; padding:3px; }
 .qwp-tab { border:none; background:transparent; border-radius:8px; padding:6px 0; font-size:14px; font-weight:700; color:var(--accent); cursor:pointer; }
@@ -385,10 +389,10 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-filterbtn:hover { border-color:var(--accent-line); }
 .qwp-filterbtn.open { border-color:var(--uq-blue); background:var(--uq-blue-tint); }
 .qwp-filterbtn.on { border-color:var(--uq-orange); background:var(--uq-orange-tint); color:var(--uq-orange-ink); }
-.qwp-filter { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; padding:10px; background:#fafbfb; border:1px solid var(--line); border-radius:8px; }
+.qwp-filter { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; padding:10px; background:var(--hover); border:1px solid var(--line); border-radius:8px; }
 .qwp-flbl { display:flex; flex-direction:column; gap:3px; min-width:0; font-size:11.5px; font-weight:600; color:var(--muted); }
 .qwp-flbl.wide, .qwp-fchk.wide { grid-column:1 / -1; }
-.qwp-finp, .qwp-fsel { width:100%; min-width:0; border:1px solid var(--line2); border-radius:6px; padding:6px 8px; font-size:13px; font-weight:500; color:var(--ink); background:#fff; }
+.qwp-finp, .qwp-fsel { width:100%; min-width:0; border:1px solid var(--line2); border-radius:6px; padding:6px 8px; font-size:13px; font-weight:500; color:var(--ink); background:var(--surface); }
 .qwp-finp:focus, .qwp-fsel:focus { outline:none; border-color:var(--uq-blue); box-shadow:0 0 0 2px var(--uq-cyan-tint); }
 .qwp-fchk { display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--accent); cursor:pointer; }
 .qwp-fchk input { width:15px; height:15px; margin:0; accent-color:var(--uq-blue); }
@@ -398,8 +402,8 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 /* One fiche list; fills whatever height is left so the actions stay pinned to the bottom. */
 .qwp-picker { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
 .qwp-picker-list { flex:1 1 auto; min-height:0; overflow:auto; }
-.qwp-pfiche { display:flex; align-items:center; gap:10px; padding:8px 16px; border-bottom:1px solid var(--soft); background:#fff; cursor:grab; }
-.qwp-pfiche:hover { background:#f6f8f9; }
+.qwp-pfiche { display:flex; align-items:center; gap:10px; padding:8px 16px; border-bottom:1px solid var(--soft); background:var(--surface); cursor:grab; }
+.qwp-pfiche:hover { background:var(--hover); }
 .qwp-pfiche.d-plan { background:var(--uq-cyan-tint); box-shadow:inset 3px 0 0 var(--uq-cyan); }
 .qwp-pfiche.picked { background:var(--uq-blue-tint); box-shadow:inset 3px 0 0 var(--uq-blue); }
 .qwp-pfiche-pick { flex:0 0 auto; width:15px; height:15px; display:flex; align-items:center; justify-content:center; }
@@ -412,8 +416,8 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-pfiche-sub { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted); }
 .qwp-pfiche-date { flex:0 0 auto; font-size:12px; font-weight:600; color:var(--accent); white-space:nowrap; }
 .qwp-pfiche.d-used { background:#fafbfc; border-color:transparent; }
-.qwp-pfiche.d-used .qwp-pfiche-t { color:#9aa6ad; font-weight:500; }
-.qwp-pfiche.d-used .qwp-pfiche-date { color:#9aa6ad; font-weight:500; }
+.qwp-pfiche.d-used .qwp-pfiche-t { color:var(--faint); font-weight:500; }
+.qwp-pfiche.d-used .qwp-pfiche-date { color:var(--faint); font-weight:500; }
 .qwp-pfiche.d-used .qwp-pfiche-sq { opacity:.35; }
 .qwp-pfiche.d-used:hover { background:#f3f5f7; border-color:var(--line); }
 .qwp-pfiche.d-plan .qwp-pfiche-date { color:var(--ink); text-decoration:underline; text-decoration-color:var(--uq-cyan); text-decoration-thickness:3px; text-underline-offset:2px; }
@@ -422,7 +426,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 
 .qwp-right { flex:1 1 auto; min-width:0; min-height:0; display:flex; flex-direction:column; }
 /* Status strip under the main column: one line, note first, retry button inline. */
-.qwp-side-status { flex:0 0 auto; display:flex; align-items:center; gap:12px; min-height:26px; padding:3px 16px; border-top:1px solid var(--line); background:var(--surface); }
+.qwp-side-status { flex:0 0 auto; display:flex; align-items:center; gap:12px; min-height:26px; padding:3px 16px; border-top:1px solid var(--line); background:var(--panel); }
 .qwp-side-status .qwp-side-note, .qwp-side-status .qwp-status { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qwp-side-status .qwp-status { flex:1 1 auto; }
 .qwp-side-note { font-size:11.5px; color:var(--accent); font-weight:600; line-height:1.35; }
@@ -431,7 +435,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-retry:hover { background:#ffe2d1; }
 .qwp-status { font-size:11.5px; color:var(--muted); line-height:1.35; }
 
-.qwp-actions { flex:0 0 auto; display:flex; gap:6px; padding:8px 10px; border-top:1px solid var(--line); background:#fafbfb; }
+.qwp-actions { flex:0 0 auto; display:flex; gap:6px; padding:8px 10px; border-top:1px solid var(--line); background:var(--panel); }
 .qwp-actbtn { position:relative; flex:0 0 38px; height:36px; display:flex; align-items:center; justify-content:center; gap:8px; padding:0; border:none; border-radius:8px; background:transparent; color:var(--accent); font-size:13px; font-weight:700; cursor:pointer; }
 .qwp-actbtn:not(.primary) .qwp-actlbl { display:none; }
 .qwp-actbtn.primary { flex:1 1 auto; }
@@ -446,9 +450,9 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 
 /* ---- Main column ---- */
 .qwp-content { flex:1 1 auto; min-width:0; min-height:0; display:flex; flex-direction:column; }
-.qwp-mhdr { flex:0 0 auto; display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:10px 20px; background:#fff; border-bottom:1px solid var(--line); }
-.qwp-navarrow { width:34px; height:34px; border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--accent); font-size:15px; font-weight:600; cursor:pointer; }
-.qwp-navbtn { border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--accent); padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; }
+.qwp-mhdr { flex:0 0 auto; display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:10px 20px; background:var(--surface); border-bottom:1px solid var(--line); }
+.qwp-navarrow { width:34px; height:34px; border:1px solid var(--line2); border-radius:8px; background:var(--surface); color:var(--accent); font-size:15px; font-weight:600; cursor:pointer; }
+.qwp-navbtn { border:1px solid var(--line2); border-radius:8px; background:var(--surface); color:var(--accent); padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; }
 .qwp-navarrow:hover, .qwp-navbtn:hover { background:var(--soft); }
 .qwp-range { font-size:17px; font-weight:700; color:var(--ink); white-space:nowrap; font-variant-numeric:tabular-nums; }
 .qwp-range-sub { font-size:14px; font-weight:500; color:var(--muted); }
@@ -459,12 +463,12 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-staged-dot { width:8px; height:8px; border-radius:50%; background:var(--uq-blue); }
 .qwp-goalcount { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; border:1px solid var(--uq-orange); background:var(--uq-orange-tint); color:var(--uq-orange-ink); font-size:12.5px; font-weight:700; }
 .qwp-goalcount.ok { border-color:var(--line2); background:var(--soft); color:var(--ink); }
-.qwp-topx { flex:0 0 auto; width:34px; height:34px; border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--muted); cursor:pointer; font-size:15px; }
+.qwp-topx { flex:0 0 auto; width:34px; height:34px; border:1px solid var(--line2); border-radius:8px; background:var(--surface); color:var(--muted); cursor:pointer; font-size:15px; }
 .qwp-topx:hover { background:var(--soft); color:var(--ink); }
 
 /* Weeks, stacked. */
 .qwp-ttwrap { flex:1 1 auto; min-height:0; overflow:auto; padding:12px 20px 16px; display:flex; flex-direction:column; gap:14px; }
-.qwp-wk { flex:0 0 auto; background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px 12px; }
+.qwp-wk { flex:0 0 auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:10px 12px 12px; }
 .qwp-wk .qwp-tt { gap:5px 6px; }
 .qwp-tt-wklbl { align-self:end; font-size:13px; font-weight:700; color:var(--accent); }
 .qwp-wk .qwp-tt-dayhd { justify-content:center; background:none; border:none; padding:0 0 2px; font-size:12.5px; font-weight:700; color:var(--muted); container-type:inline-size; white-space:nowrap; overflow:hidden; }
@@ -477,10 +481,10 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk-empty { padding:16px; text-align:center; font-size:12.5px; color:var(--faint); }
 
 /* Lesuur card = the Lesdoelen print card: vak-coloured top bar, title below. */
-.qwp-wk .qwp-cell { display:flex; flex-direction:column; min-height:46px; padding:0; overflow:hidden; background:#fff; border:1px solid var(--line2); border-radius:6px; }
+.qwp-wk .qwp-cell { display:flex; flex-direction:column; min-height:46px; padding:0; overflow:hidden; background:var(--surface); border:1px solid var(--line2); border-radius:6px; }
 .qwp-wk .qwp-cell:hover { border-color:var(--accent-line); }
 .qwp-wk .qwp-cell.slot-empty::after { content:none; }
-.qwp-wk .qwp-cell.isgym, .qwp-wk .qwp-cell.isthema { background:#fff; border-left-width:1px; }
+.qwp-wk .qwp-cell.isgym, .qwp-wk .qwp-cell.isthema { background:var(--surface); border-left-width:1px; }
 .qwp-wk .qwp-cell.hasexisting { border-left-width:1px; }
 .qwp-cell-bar { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:17px; padding:2px 7px; background:var(--soft); color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
 .qwp-cell-bar .qwp-cell-vak { min-width:0; font-size:inherit; color:inherit; letter-spacing:inherit; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -489,9 +493,9 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-cell-body { padding:4px 7px 5px; }
 .qwp-wk .qwp-cell-title { margin:0; font-size:12px; font-weight:500; line-height:1.25; color:var(--ink); }
 .qwp-cell-sub { margin-top:2px; font-size:10.5px; line-height:1.25; color:var(--muted); }
-.qwp-wk .qwp-cell.unplanned { background:#fafbfb; border:1px dashed #c9d2d7; }
+.qwp-wk .qwp-cell.unplanned { background:var(--hover); border:1px dashed var(--line2); }
 .qwp-wk .qwp-cell.unplanned .qwp-cell-title { color:var(--muted); }
-.qwp-wk .qwp-cell.dirty { background:#fff; border:2px solid var(--uq-blue); }
+.qwp-wk .qwp-cell.dirty { background:var(--surface); border:2px solid var(--uq-blue); }
 .qwp-wk .qwp-cell.target { background:var(--uq-cyan-tint); border:2px solid var(--uq-blue); box-shadow:none; }
 .qwp-wk .qwp-cell.sel { box-shadow:0 0 0 2px var(--uq-cyan); }
 .qwp-wk .qwp-cell.drop { background:var(--uq-cyan-tint); border-color:var(--uq-blue); }
@@ -501,7 +505,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk .qwp-cell.empty { flex-direction:row; align-items:center; justify-content:center; background:transparent; border:1px dashed var(--line); }
 
 /* Thema band: striped strip spanning the week. */
-.qwp-wk .qwp-cell.thema-span { position:relative; flex-direction:row; align-items:stretch; gap:10px; min-height:0; padding:0 10px 0 0; border:1px solid var(--line); border-radius:6px; background:#fff; overflow:hidden; font-size:12px; }
+.qwp-wk .qwp-cell.thema-span { position:relative; flex-direction:row; align-items:stretch; gap:10px; min-height:0; padding:0 10px 0 0; border:1px solid var(--line); border-radius:6px; background:var(--surface); overflow:hidden; font-size:12px; }
 .qwp-wk .qwp-cell.thema-span > .qwp-band-t, .qwp-wk .qwp-cell.thema-span > .qwp-cell-mark, .qwp-wk .qwp-cell.thema-span > .qwp-thema-untagged { align-self:center; }
 .qwp-wk .qwp-cell.thema-span.empty { justify-content:flex-start; opacity:.65; }
 .qwp-wk .qwp-cell.thema-span.dirty { border:2px solid var(--uq-blue); }
@@ -518,11 +522,11 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-gl { flex:1 1 auto; display:flex; flex-direction:column; gap:1px; padding:3px 6px 5px; }
 .qwp-gl-row { display:grid; grid-template-columns:34px minmax(0, 1fr); gap:5px; align-items:end; min-height:22px; border-bottom:1px solid #bdbdbd; }
 .qwp-gl-row.empty { border-bottom-color:#dfe4e7; }
-.qwp-gl-k { padding-bottom:2px; font-size:9px; font-weight:700; letter-spacing:.06em; color:#93a0a7; }
+.qwp-gl-k { padding-bottom:2px; font-size:9px; font-weight:700; letter-spacing:.06em; color:var(--faint); }
 .qwp-gl-t { padding-bottom:2px; font-size:11.5px; line-height:1.25; color:var(--ink); white-space:pre-wrap; word-break:break-word; }
 .qwp-gl-t.ph { color:var(--uq-orange-ink); font-style:italic; }
 .qwp-gl-src { margin-top:3px; font-size:9.5px; font-weight:700; color:var(--uq-orange-ink); }
-.qwp-wkbar { flex:0 0 auto; display:flex; align-items:center; gap:10px; text-align:left; border:1px solid var(--line); background:#fff; border-radius:10px; padding:12px 16px; font-size:14px; font-weight:600; color:var(--accent); cursor:pointer; }
+.qwp-wkbar { flex:0 0 auto; display:flex; align-items:center; gap:10px; text-align:left; border:1px solid var(--line); background:var(--surface); border-radius:10px; padding:12px 16px; font-size:14px; font-weight:600; color:var(--accent); cursor:pointer; }
 .qwp-wkbar:hover { border-color:var(--uq-blue); }
 .qwp-wkbar-t { font-weight:700; }
 .qwp-wkbar-s { font-weight:500; color:var(--muted); }
@@ -532,19 +536,19 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-wk .qwp-cell.empty { cursor:help; }
 
 /* ---- Menus (Alles, Collega) ---- */
-.qwp-menu { position:fixed; z-index:45; display:flex; flex-direction:column; gap:2px; max-height:calc(100vh - 40px); overflow:auto; padding:10px; background:#fff; border:1px solid var(--line2); border-top:3px solid var(--uq-amber); border-radius:12px; box-shadow:0 10px 28px rgba(30,42,51,.18), 0 2px 6px rgba(30,42,51,.08); }
+.qwp-menu { position:fixed; z-index:45; display:flex; flex-direction:column; gap:2px; max-height:calc(100vh - 40px); overflow:auto; padding:10px; background:var(--surface); border:1px solid var(--line2); border-top:3px solid var(--uq-amber); border-radius:12px; box-shadow:0 10px 28px rgba(30,42,51,.18), 0 2px 6px rgba(30,42,51,.08); }
 .qwp-alles-menu { width:420px; max-width:calc(100vw - 24px); }
 .qwp-src-menu { width:280px; padding:6px; border-radius:10px; }
 .qwp-mgrp { padding:8px 10px 2px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
 .qwp-mi { display:flex; align-items:center; gap:12px; width:100%; text-align:left; border:none; background:transparent; border-radius:9px; padding:8px 10px; color:var(--ink); cursor:pointer; }
-.qwp-mi:hover { background:#f1f4f6; }
+.qwp-mi:hover { background:var(--hover); }
 .qwp-mi.off { opacity:.45; cursor:default; }
 .qwp-mi.off:hover { background:transparent; }
 .qwp-mi-ico { flex:0 0 auto; width:30px; height:30px; border-radius:8px; background:var(--soft); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:var(--accent); }
 .qwp-mi-txt { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
 .qwp-mi-n { font-size:14px; font-weight:700; }
 .qwp-mi-d { font-size:12px; color:var(--muted); }
-.qwp-mi-tag { flex:0 0 auto; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:700; color:#4a5a63; background:var(--soft); }
+.qwp-mi-tag { flex:0 0 auto; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:700; color:var(--muted); background:var(--soft); }
 .qwp-mi-tag.write { color:var(--ink); background:#ffe7c2; box-shadow:inset 0 0 0 1px var(--uq-amber); }
 .qwp-src-menu .qwp-mi { padding:6px 10px; }
 .qwp-src-menu .qwp-mi-n { font-size:13px; }
@@ -568,7 +572,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
  * ===================================================================== */
 .qwp-main.tab-print .qwp-side, .qwp-main.tab-print .qwp-content { display:none; }
 .qwp-main:not(.tab-print) .qpp-side, .qwp-main:not(.tab-print) .qpp-main { display:none; }
-.qpp-side { position:relative; flex:0 0 var(--qwp-side-w); width:var(--qwp-side-w); min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--line); }
+.qpp-side { position:relative; flex:0 0 var(--qwp-side-w); width:var(--qwp-side-w); min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--panel); border-right:1px solid var(--line); }
 .qpp-top { flex:0 0 auto; padding:14px 16px 12px; border-bottom:1px solid var(--line); }
 .qpp-body { flex:1 1 auto; min-height:0; overflow:auto; padding:14px 16px; display:flex; flex-direction:column; gap:16px; }
 .qpp-sec { display:flex; flex-direction:column; gap:8px; min-width:0; }
@@ -576,10 +580,10 @@ fieldset.qpp-sec { border:none; margin:0; padding:0; gap:6px; }
 .qpp-lbl { padding:0; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
 fieldset.qpp-sec > legend.qpp-lbl { margin-bottom:6px; }
 .qpp-wk { display:flex; align-items:center; gap:8px; }
-.qpp-arrow { flex:0 0 auto; width:32px; height:32px; border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--accent); font-size:14px; font-weight:600; cursor:pointer; }
+.qpp-arrow { flex:0 0 auto; width:32px; height:32px; border:1px solid var(--line2); border-radius:8px; background:var(--surface); color:var(--accent); font-size:14px; font-weight:600; cursor:pointer; }
 .qpp-arrow:hover { background:var(--soft); }
 .qpp-wk-lbl { flex:1 1 auto; min-width:0; text-align:center; font-size:14px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; }
-.qpp-ver { display:flex; align-items:center; gap:10px; border:1px solid var(--line2); background:#fff; border-radius:9px; padding:9px 12px; cursor:pointer; }
+.qpp-ver { display:flex; align-items:center; gap:10px; border:1px solid var(--line2); background:var(--surface); border-radius:9px; padding:9px 12px; cursor:pointer; }
 .qpp-ver:hover { border-color:var(--accent-line); }
 .qpp-ver.on { border:2px solid var(--accent); background:var(--soft); padding:8px 11px; }
 .qpp-ver input { margin:0; accent-color:var(--uq-blue); }
@@ -593,7 +597,7 @@ fieldset.qpp-sec > legend.qpp-lbl { margin-bottom:6px; }
 .qpp-check { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; }
 .qpp-check input { flex:0 0 auto; margin:0; width:15px; height:15px; accent-color:var(--uq-blue); }
 .qpp-cal-dot { flex:0 0 auto; width:9px; height:9px; border-radius:50%; }
-.qpp-ta { width:100%; border:1px solid var(--line2); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:500; line-height:1.4; color:var(--ink); background:#fff; resize:vertical; }
+.qpp-ta { width:100%; border:1px solid var(--line2); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:500; line-height:1.4; color:var(--ink); background:var(--surface); resize:vertical; }
 .qpp-ta:focus { outline:none; border-color:var(--uq-blue); box-shadow:0 0 0 2px var(--uq-cyan-tint); }
 .qpp-note { padding:9px 12px; border-radius:9px; background:var(--uq-blue-tint); color:var(--ink); font-size:12.5px; line-height:1.4; }
 .qpp-warn { display:flex; align-items:flex-start; gap:8px; padding:10px 12px; border-radius:9px; background:var(--uq-orange-tint); color:var(--uq-orange-ink); font-size:12.5px; font-weight:600; line-height:1.4; }
@@ -602,21 +606,21 @@ fieldset.qpp-sec > legend.qpp-lbl { margin-bottom:6px; }
 .qpp-warn a { color:var(--uq-orange-ink); }
 .qpp-hint { flex:0 0 auto; padding:8px 16px 0; font-size:12px; color:var(--muted); }
 .qpp-hint:empty { display:none; }
-.qpp-foot { flex:0 0 auto; display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); background:#fafbfb; }
-.qpp-btn { flex:1 1 0; border:1px solid var(--line2); background:#fff; border-radius:9px; padding:10px; font-size:13.5px; font-weight:700; color:var(--accent); cursor:pointer; }
+.qpp-foot { flex:0 0 auto; display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); background:var(--hover); }
+.qpp-btn { flex:1 1 0; border:1px solid var(--line2); background:var(--surface); border-radius:9px; padding:10px; font-size:13.5px; font-weight:700; color:var(--accent); cursor:pointer; }
 .qpp-btn:hover { background:var(--soft); }
 .qpp-btn.primary { border:none; background:var(--uq-amber); color:var(--ink); }
 .qpp-btn.primary:hover { background:#ffa61f; }
 .qpp-btn.primary:active { background:#f5a52d; }
-.qpp-main { flex:1 1 auto; min-width:0; min-height:0; display:flex; flex-direction:column; background:#e6eaec; }
+.qpp-main { flex:1 1 auto; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--soft); }
 .qpp-title { font-size:17px; font-weight:700; color:var(--ink); }
 .qpp-sub { min-width:0; font-size:13px; color:var(--muted); }
 .qpp-pageseg button { padding:6px 14px; font-size:13px; }
 .qpp-preview { position:relative; flex:1 1 auto; min-height:0; }
-.qpp-frame { display:block; width:100%; height:100%; border:none; background:#e6eaec; }
-.qpp-msg { position:absolute; top:14px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; max-width:calc(100% - 40px); padding:8px 14px; border-radius:9px; background:#fff; color:var(--ink); font-size:13px; font-weight:600; box-shadow:0 2px 10px rgba(30,42,51,.18); }
+.qpp-frame { display:block; width:100%; height:100%; border:none; background:var(--soft); }
+.qpp-msg { position:absolute; top:14px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; max-width:calc(100% - 40px); padding:8px 14px; border-radius:9px; background:var(--surface); color:var(--ink); font-size:13px; font-weight:600; box-shadow:0 2px 10px rgba(30,42,51,.18); }
 .qpp-msg.err { background:var(--uq-orange-tint); color:var(--uq-orange-ink); box-shadow:inset 0 0 0 1px var(--uq-orange), 0 2px 10px rgba(30,42,51,.18); }
-.qpp-msg-btn { border:1px solid currentColor; background:#fff; border-radius:7px; padding:4px 10px; font-size:12.5px; font-weight:700; color:inherit; cursor:pointer; }
+.qpp-msg-btn { border:1px solid currentColor; background:var(--surface); border-radius:7px; padding:4px 10px; font-size:12.5px; font-weight:700; color:inherit; cursor:pointer; }
 
 /* A lesuur card painted from the week LIST whose detail is still on its way (hydrateRangeLive). */
 .qwp-wk .qwp-cell.loading { cursor:progress; }
@@ -650,8 +654,8 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
  * Shared Controleer (Controleer.dc.html): tags → lesfiches → agenda.
  * ===================================================================== */
 .qwp-modal.qwp-cr { align-items:stretch; justify-content:stretch; }
-.qwp-cr-box { flex:1; display:flex; flex-direction:column; min-height:0; background:#f4f6f7; }
-.qwp-cr-hd { flex:0 0 auto; display:flex; align-items:center; gap:12px; padding:14px 28px; background:#fff; border-bottom:1px solid var(--line); }
+.qwp-cr-box { flex:1; display:flex; flex-direction:column; min-height:0; background:var(--hover); }
+.qwp-cr-hd { flex:0 0 auto; display:flex; align-items:center; gap:12px; padding:14px 28px; background:var(--surface); border-bottom:1px solid var(--line); }
 .qwp-cr-titles { display:flex; flex-direction:column; }
 .qwp-cr-title { font-size:20px; font-weight:700; color:var(--ink); }
 .qwp-cr-sub { font-size:13px; color:var(--muted); }
@@ -659,8 +663,8 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-cr-all input, .qwp-cr-row input, .qwp-cr-backup input { width:16px; height:16px; margin:0; accent-color:var(--uq-blue); }
 .qwp-cr-main { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:20px; padding:18px 28px; }
 .qwp-cr-secs { min-height:0; overflow:auto; display:flex; flex-direction:column; gap:16px; align-content:start; }
-.qwp-cr-sec { flex:0 0 auto; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-.qwp-cr-sechd { display:flex; align-items:center; gap:10px; padding:10px 14px; background:#fafbfb; border-bottom:1px solid var(--line); }
+.qwp-cr-sec { flex:0 0 auto; background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.qwp-cr-sechd { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--hover); border-bottom:1px solid var(--line); }
 .qwp-cr-n { width:24px; height:24px; border-radius:50%; background:var(--uq-blue-ink); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; }
 .qwp-cr-t { font-size:15px; font-weight:700; color:var(--ink); }
 .qwp-cr-d { font-size:13px; color:var(--muted); }
@@ -671,7 +675,7 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-cr-del { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--muted); cursor:pointer; }
 .qwp-cr-row:hover .qwp-cr-del { border-color:var(--line); }
 .qwp-cr-del:hover { color:#b3261e; border-color:#e9b7b2; background:#fdf1f0; }
-.qwp-cr-delall { display:inline-flex; align-items:center; gap:4px; height:32px; padding:0 12px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); font-size:13px; font-weight:600; cursor:pointer; }
+.qwp-cr-delall { display:inline-flex; align-items:center; gap:4px; height:32px; padding:0 12px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font-size:13px; font-weight:600; cursor:pointer; }
 .qwp-cr-delall:hover:not([disabled]) { color:#b3261e; border-color:#e9b7b2; background:#fdf1f0; }
 .qwp-cr-delall[disabled] { opacity:.45; cursor:default; }
 .qwp-cr-what { display:flex; flex-direction:column; min-width:0; }
@@ -689,8 +693,8 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-cr-grid > summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--uq-blue-ink); }
 .qwp-cr-aside { min-height:0; overflow:auto; display:flex; flex-direction:column; gap:12px; }
 .qwp-cr-aside .qwp-spacer { flex:1 1 auto; }
-.qwp-cr-card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--ink); }
-.qwp-cr-card ol { margin:0; padding-left:18px; line-height:1.6; color:#4a5a63; }
+.qwp-cr-card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--ink); }
+.qwp-cr-card ol { margin:0; padding-left:18px; line-height:1.6; color:var(--muted); }
 .qwp-cr-muted { font-size:12.5px; color:var(--muted); font-weight:500; }
 .qwp-cr-backup { flex-direction:row; align-items:center; gap:10px; cursor:pointer; }
 .qwp-cr-warn { background:var(--uq-orange-tint); border:1px solid var(--uq-orange); border-radius:12px; padding:12px 14px; font-size:13px; color:var(--uq-orange-ink); line-height:1.5; }
@@ -738,8 +742,30 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-pfiche { flex:0 0 auto; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
 .qwp-pfiche:hover { border-color:var(--accent-line); }
 .qwp-pfiche-t { white-space:normal; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; line-height:1.3; }
-.qwp-pfiche.d-old .qwp-pfiche-date { color:var(--faint, #93a0a7); }
-.qwp-subchip { background:#fff; border:1px solid var(--line2); color:var(--accent); font-weight:600; font-size:11.5px; padding:3px 10px; }
+.qwp-pfiche.d-old .qwp-pfiche-date { color:var(--faint, var(--faint)); }
+.qwp-subchip { background:var(--surface); border:1px solid var(--line2); color:var(--accent); font-weight:600; font-size:11.5px; padding:3px 10px; }
 .qwp-subchip:hover { border-color:var(--uq-blue); }
 .qwp-subchip.active { background:var(--uq-blue-ink); border-color:var(--uq-blue-ink); color:#fff; }
 .qwp-notag { display:inline-flex; vertical-align:-3px; }
+
+/* ---- Dark theme ("Slate"), chosen in Instellingen → Weergave. Only tokens change; the print
+   preview is its own white document and never reads these. ---- */
+html[data-pg-theme="dark"] #qwp-overlay {
+  --page:#1E1F27; --panel:#24252F; --surface:#374151; --canvas:#1E1F27; --raised:#24252F;
+  --hover:#2B2D38; --soft:#313543; --line:#3A3D4A; --line-soft:#33363F; --line2:#4B5060;
+  --ink:#F4F1E8; --muted:#A8ADB8; --faint:#8A8F9B;
+  --accent:#C9CCD3; --accent-weak:#2E3140; --accent-line:#4B5060;
+  --uq-blue-ink:#8B5CF6; --uq-blue-tint:#352C55; --uq-cyan-tint:#2E3B2A;
+  --uq-orange-tint:#3A2E17; --uq-orange-ink:#F8C15A;
+  --change:#7ED957; --change-weak:#2E3B2A; --change-line:#4D7A3A;
+  --thema:#F8C15A; --thema-weak:#3A2E17; --thema-line:#6b5a2e;
+  --shadow:0 10px 40px rgba(0,0,0,.5);
+  color-scheme: dark;
+  --gym:#C9CCD3; --gym-weak:#2B2D38; --band-line:#6b5a2e; --wksep:#4B5060;
+}
+
+/* Mascot: the head in front of the sidebar tabs, the whole goblin when everything was written. */
+.qwp-tabrow { display:flex; align-items:center; gap:8px; }
+.qwp-tabrow .qwp-tabs { flex:1 1 auto; min-width:0; }
+.qwp-goblin-head { flex:0 0 auto; width:34px; height:34px; object-fit:contain; }
+.qwp-goblin-full { display:block; width:auto; height:150px; margin:0 auto 8px; }

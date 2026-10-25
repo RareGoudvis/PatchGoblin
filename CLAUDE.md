@@ -24,7 +24,12 @@ ground-truth request/response captures live in `reference/questi-api-samples.md`
    "Godsdienst - Les 1" vanishing from the grid entirely because `slotAt` filtered it out.
 4. **Writes are gated.** Every mutation goes through a dry-run the user approves. Calendar writes
    are single-occurrence only (`apply_to_next_items=false`) — never touch a recurring series.
-5. **Light theme only.** All CSS namespaced under the module's overlay id.
+5. **Two themes, print always white.** Light "Parchment" (default) and dark "Slate" (`state.theme`,
+   Instellingen → Weergave; `applyTheme` sets `html[data-pg-theme]`). Every colour in the overlays'
+   CSS goes through tokens (`--page --panel --surface --hover --soft --line --line2 --ink --muted
+   --faint` + the `--uq-*` brand ones), each stylesheet ends with its dark token block — never a
+   hard-coded white or grey. The print documents in `planner.js` keep their own literal colours and
+   stay white in both themes. All CSS namespaced under the module's overlay id.
 6. **Dutch UI strings.** Code, comments and commits in English.
 7. **Reuse before writing.** Check `__QWP_SHARED` and the sibling modules first — a helper for
    what you need usually already exists. (A duplicate `fetchAllFichesByTag` once shadowed the

@@ -116,6 +116,7 @@
     { id: "agenda", t: "Agenda", d: "beschrijving, werkagenda", sub: "Hoe de planner in je Questi-agenda schrijft." },
     { id: "bronnen", t: "Collega’s & methodes", d: "wiens fiches je ziet", sub: "Extra bronnen voor de lijst met lesfiches." },
     { id: "afdrukken", t: "Afdrukken", d: "standaardversie, legende", sub: "Wat het afdrukvenster standaard kiest." },
+    { id: "weergave", t: "Weergave", d: "licht of donker", sub: "Hoe PatchGoblin eruitziet. Afdrukken blijft altijd op wit papier." },
     { id: "delen", t: "Delen & back-up", d: "export / import .json", sub: "Je instellingen bewaren of doorgeven aan een collega." },
     { id: "over", t: "Over", d: "versie " + manifestVersion(), sub: "Versie, bijwerken en privacy." }
   ];
@@ -255,7 +256,7 @@
   function renderSection() {
     if (!ui.body) return;
     ui.body.innerHTML = "";
-    var fn = { lesrooster: secLesrooster, vakken: secVakken, agenda: secAgenda, bronnen: secBronnen, afdrukken: secAfdrukken, delen: secDelen, over: secOver }[ui.sec];
+    var fn = { lesrooster: secLesrooster, vakken: secVakken, agenda: secAgenda, bronnen: secBronnen, afdrukken: secAfdrukken, weergave: secWeergave, delen: secDelen, over: secOver }[ui.sec];
     try { fn(ui.body); } catch (e) { console.error("[UQS] sectie " + ui.sec + ":", e); ui.body.appendChild(note("Dit onderdeel kon niet getoond worden: " + (e && e.message || e), "warn")); }
   }
 
@@ -535,6 +536,16 @@
 
   // ---------- Afdrukken ----------
   var PRINT_DEFAULTS = { mode: "plain", tabs: "word", legend: true };
+  // Theme: stored in the planner's state (state.theme), applied at once on every open overlay.
+  function secWeergave(body) {
+    var s = st();
+    body.appendChild(card([
+      cardTitle("Thema", "Licht is warm perkament, donker is leisteen."),
+      field("Thema", selectEl([{ v: "light", n: "Licht — Parchment" }, { v: "dark", n: "Donker — Slate" }, { v: "auto", n: "Zoals mijn computer" }],
+        s.theme || "light", function (v) { s.theme = v; save(); if (S().applyTheme) S().applyTheme(); })),
+      note("Het afdrukvoorbeeld en wat je afdrukt blijven altijd wit, in elk thema.")
+    ]));
+  }
   function secAfdrukken(body) {
     var holder = h("div", { class: "qws-two even" }, [h("span", { class: "qws-muted", text: "Laden…" })]);
     body.appendChild(holder);
@@ -1038,6 +1049,8 @@
   }
   function stepWelkom(c) {
     var x = ctx(), P = S(), first = String(x.ownerName || "").split(" ")[0];
+    var gsrc = ""; try { gsrc = chrome.runtime.getURL("icons/goblin-full.png"); } catch (e) {}
+    if (gsrc) c.appendChild(h("img", { class: "qws-goblin", src: gsrc, alt: "", "aria-hidden": "true" }));
     c.appendChild(h("h1", { class: "qws-h1", text: "Welkom" + (first ? ", " + first : "") }));
     c.appendChild(h("p", { class: "qws-lead", text: "De planner heeft je Questi-account gelezen. Alles hieronder komt rechtstreeks uit Questi — je hoeft niets in te typen." }));
     var tops = subjectTops(), subs = ownTags().filter(function (t) { return t.parent != null && t.parent !== 0; }).length;

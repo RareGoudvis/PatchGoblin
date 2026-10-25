@@ -85,15 +85,29 @@
   var state = { colleagues: [], settings: {}, weeks: 1, panelCount: 2, pickerView: "list", splitRatio: 0.58, sideCollapsed: null, workingCalendarId: null, manualSchoolId: null, manualSchoolyear: null, manualOwnTagId: null, themaVak: {}, slotVak: {}, saveThrottleMs: 250, mainMode: "plan", filterOpen: false, doelenWeek: 0, panels: [mkPanel(null, "az"), mkPanel(null, "az"), mkPanel(null, "az")] };
   function loadState() {
     return new Promise(function (res) {
+      function done() { applyTheme(); res(state); }
       try {
         if (chrome && chrome.storage && chrome.storage.local) {
-          chrome.storage.local.get([STORE_KEY], function (o) { if (o && o[STORE_KEY]) { try { mergeState(o[STORE_KEY]); } catch (e) {} } res(state); });
+          chrome.storage.local.get([STORE_KEY], function (o) { if (o && o[STORE_KEY]) { try { mergeState(o[STORE_KEY]); } catch (e) {} } done(); });
         } else {
           try { var s = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); if (s) mergeState(s); } catch (e) {}
-          res(state);
+          done();
         }
-      } catch (e) { res(state); }
+      } catch (e) { done(); }
     });
+  }
+  // Theme: state.theme "light" (Parchment, default) | "dark" (Slate) | "auto" (follows the OS).
+  // One attribute on <html>; every overlay's stylesheet swaps its tokens on it. Questi's own page
+  // and the print preview (its own white document) are never affected.
+  var _themeMq = null;
+  function applyTheme() {
+    var mode = state.theme === "dark" || state.theme === "auto" ? state.theme : "light";
+    if (mode === "auto" && !_themeMq && window.matchMedia) {
+      _themeMq = window.matchMedia("(prefers-color-scheme: dark)");
+      try { _themeMq.addEventListener("change", applyTheme); } catch (e) {}
+    }
+    var dark = mode === "dark" || (mode === "auto" && !!(_themeMq && _themeMq.matches));
+    document.documentElement.setAttribute("data-pg-theme", dark ? "dark" : "light");
   }
   function mergeState(s) {
     if (s.colleagues) state.colleagues = s.colleagues;
@@ -137,6 +151,7 @@
     if (typeof s.sideWidth === "number" && s.sideWidth > 0) state.sideWidth = s.sideWidth;
     if (s.weekFit === "fit" || s.weekFit === "scroll") state.weekFit = s.weekFit;
     if (s.vakSeen && typeof s.vakSeen === "object") state.vakSeen = s.vakSeen;
+    if (s.theme === "light" || s.theme === "dark" || s.theme === "auto") state.theme = s.theme;
     if (s.rosterTouched && typeof s.rosterTouched === "object") state.rosterTouched = s.rosterTouched;
     state.writeVakDescription = s.writeVakDescription != null ? !!s.writeVakDescription : true;
   }
@@ -1364,15 +1379,24 @@
   // The three tabs, drawn at the top of whichever sidebar is showing (Plannen's or Afdrukken's).
   // Plannen and Afdrukken swap the window's two columns (showTab); Lesfiches opens the manager.
   function openLesfichesTab() { goTab("lesfiches"); }
+  // The mascot (icons/*.png, web-accessible on questi.com). Decorative: empty alt.
+  function goblinImg(file, cls) {
+    var src = ""; try { src = chrome.runtime.getURL("icons/" + file); } catch (e) {}
+    return src ? h("img", { class: cls, src: src, alt: "", "aria-hidden": "true" }) : null;
+  }
   function tabsNav(active) {
     function tab(id, label, title, fn) {
       var on = id === active;
       return h("button", { class: "qwp-tab" + (on ? " active" : ""), "data-tab": id, "aria-current": on ? "page" : null, title: on ? null : title, text: label, onclick: fn });
     }
-    return h("nav", { class: "qwp-tabs", "aria-label": "Onderdelen" }, [
-      tab("plan", "Plannen", "Terug naar de weekplanning", function () { goTab("plan"); }),
-      tab("lesfiches", "Lesfiches", "Lesfiche-manager openen", function () { goTab("lesfiches"); }),
-      tab("print", "Afdrukken", "Afdrukken: de opgeslagen planning van een week", function () { goTab("print"); })
+    // The goblin's head sits in front of the tabs: no extra height in the sidebar.
+    return h("div", { class: "qwp-tabrow" }, [
+      goblinImg("head96.png", "qwp-goblin-head"),
+      h("nav", { class: "qwp-tabs", "aria-label": "Onderdelen" }, [
+        tab("plan", "Plannen", "Terug naar de weekplanning", function () { goTab("plan"); }),
+        tab("lesfiches", "Lesfiches", "Lesfiche-manager openen", function () { goTab("lesfiches"); }),
+        tab("print", "Afdrukken", "Afdrukken: de opgeslagen planning van een week", function () { goTab("print"); })
+      ])
     ]);
   }
   function buildShell() {
@@ -5374,7 +5398,7 @@
       if (!elId("qwp-commit-overlay")) showCommitOverlay(1);
       updateCommitOverlay(1, 1);
       msg2("Klaar — Questi wordt vernieuwd…");
-      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) sp.style.display = "none";
+      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) { var gob = goblinImg("goblin-full.png", "qwp-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
       setTimeout(function () { try { location.reload(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
       return;
     }
@@ -5438,7 +5462,7 @@
       setStatus("Klaar: " + ok + "/" + plan.length + " weggeschreven — Questi wordt vernieuwd…");
       updateCommitOverlay(plan.length, plan.length);
       var m = elId("qwp-commit-msg"); if (m) m.textContent = "Klaar — Questi wordt vernieuwd…";
-      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) sp.style.display = "none";
+      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) { var gob = goblinImg("goblin-full.png", "qwp-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
       setTimeout(function () { try { location.reload(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
     }
     function next() {
@@ -5915,6 +5939,9 @@
   window.__QWP_PRINT = openPrintTab;
 
   // Test hook (no effect in the browser).
+  // Read the stored state once at load so the chosen theme applies before Plannen is ever opened
+  // (boot reads it again; merging the same stored state twice is harmless).
+  loadState();
   window.__QWP_TEST = { boot: boot, view: view, state: state, ctx: ctx, detectContext: detectContext, renderTimetable: renderTimetable, openSlotPopup: openSlotPopup, openMassAdd: openMassAdd, openInstellingen: openInstellingen };
 
   // Read-only helper bag for the sibling Lesfiche-manager module (lessons.js), which
@@ -5931,7 +5958,7 @@
     // the teacher can look at a previous school year.
     detectContext: detectContext,
     fetchMethods: fetchMethods, fetchMethodLessons: fetchMethodLessons,
-    fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet, goalsInkOn: goalsInkOn,
+    fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet, goalsInkOn: goalsInkOn, applyTheme: applyTheme,
     // Lesdoelen in the fiche (lessons.js goals mode, print)
     ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread, vakAbbr: vakAbbr, refreshVakPicker: function () { renderVakToggle(0); renderSubcats(0); },
     mapLimit: mapLimit,

@@ -9,9 +9,9 @@
 html.qwm-locked, html.qwm-locked body { overflow: hidden !important; }
 
 #qwm-overlay {
-  --ink:#1f2733; --muted:#5b6470; --faint:#8b94a0;
-  --line:#e4e8ee; --line-soft:#eef1f5;
-  --surface:#ffffff; --canvas:#ffffff; --raised:#fbfcfe;
+  --ink:#1E1F27; --muted:#5c6370; --faint:#8a8578;
+  --line:#E2DCCB; --line-soft:#EDE8DC; --line2:#D8D1BE; --hover:#F3EFE5; --soft:#ECE7DA;
+  --surface:#ffffff; --canvas:#F4F1E8; --raised:#FBF9F3; --page:#F4F1E8; --panel:#FBF9F3;
   --accent:#304651; --accent-weak:#eaeef1; --accent-line:#c2ccd7;
   --change:#137a3a; --change-weak:#e8f5ec; --change-line:#b4e0c2;
   --thema:#a86400; --thema-weak:#fbf1df; --thema-line:#ecd3a6;
@@ -59,7 +59,7 @@ html.qwm-locked, html.qwm-locked body { overflow: hidden !important; }
 /* Buttons */
 .qwm-btn { background:var(--accent); color:#fff; border:1px solid var(--accent); border-radius:var(--radius-sm); padding:7px 13px; cursor:pointer; font-size:12.5px; font-weight:600; line-height:1; font-family:inherit; }
 .qwm-btn:hover { background:#29394a; border-color:#29394a; }
-.qwm-btn.ghost { background:var(--line-soft); color:#33404f; border-color:transparent; }
+.qwm-btn.ghost { background:var(--line-soft); color:var(--ink); border-color:transparent; }
 .qwm-btn.ghost:hover { background:#e4e8ef; }
 .qwm-btn.sm { padding:5px 10px; font-size:11.5px; }
 .qwm-btn.danger { color:var(--danger); }
@@ -98,7 +98,7 @@ html.qwm-locked, html.qwm-locked body { overflow: hidden !important; }
 
 .qwm-blk { display:flex; align-items:center; gap:10px; background:var(--accent-weak); border-bottom:1px solid var(--accent-line); padding:7px 8px; margin-top:6px; }
 .qwm-bname { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; color:var(--accent); }
-.qwm-bbar { width:76px; height:5px; border-radius:99px; background:#fff; overflow:hidden; }
+.qwm-bbar { width:76px; height:5px; border-radius:99px; background:var(--surface); overflow:hidden; }
 .qwm-bbar i { display:block; height:100%; background:var(--change); }
 .qwm-bcount { font-size:11.5px; color:var(--muted); font-weight:600; font-variant-numeric:tabular-nums; }
 
@@ -151,3 +151,17 @@ html.qwm-locked, html.qwm-locked body { overflow: hidden !important; }
 .qwm-graderow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 
 @media (prefers-reduced-motion:reduce) { #qwm-overlay * { transition:none !important; animation:none !important; } }
+
+/* ---- Dark theme ("Slate"): tokens only (see planner.css). ---- */
+html[data-pg-theme="dark"] #qwm-overlay {
+  --page:#1E1F27; --panel:#24252F; --surface:#374151; --canvas:#1E1F27; --raised:#24252F;
+  --hover:#2B2D38; --soft:#313543; --line:#3A3D4A; --line-soft:#33363F; --line2:#4B5060;
+  --ink:#F4F1E8; --muted:#A8ADB8; --faint:#8A8F9B;
+  --accent:#C9CCD3; --accent-weak:#2E3140; --accent-line:#4B5060;
+  --uq-blue-ink:#8B5CF6; --uq-blue-tint:#352C55; --uq-cyan-tint:#2E3B2A;
+  --uq-orange-tint:#3A2E17; --uq-orange-ink:#F8C15A;
+  --change:#7ED957; --change-weak:#2E3B2A; --change-line:#4D7A3A;
+  --thema:#F8C15A; --thema-weak:#3A2E17; --thema-line:#6b5a2e;
+  --shadow:0 10px 40px rgba(0,0,0,.5);
+  color-scheme: dark;
+}

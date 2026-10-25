@@ -16,9 +16,9 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
   /* --uq-blue-ink: the same blue, a step deeper (~5.7:1 against white either way) for anything that
      carries text — white on it, or it as text colour. Plain --uq-blue stays for borders/fills/tints. */
   --uq-blue-ink:#6D3FE0;
-  --ink:#1E1F27; --muted:#6b7a82; --faint:#93a0a7;
-  --line:#e3e9ec; --line-soft:#eef2f4; --line-strong:#d5dbdf;
-  --surface:#ffffff; --canvas:#f4f6f7; --raised:#fafbfb;
+  --ink:#1E1F27; --muted:#5c6370; --faint:#8a8578;
+  --line:#E2DCCB; --line-soft:#EDE8DC; --line-strong:#D8D1BE; --line2:#D8D1BE;
+  --surface:#ffffff; --canvas:#F4F1E8; --raised:#FBF9F3; --page:#F4F1E8; --panel:#FBF9F3; --hover:#F3EFE5; --soft:#ECE7DA;
   --accent:var(--uq-blue-ink); --accent-weak:#f2edfe; --accent-line:#d9cbfb;
   --accent2:var(--uq-amber);
   --change:var(--uq-blue-ink); --change-weak:#f2edfe;
@@ -67,7 +67,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-card-hd { display: flex; flex-direction: column; gap: 2px; }
 #qws-overlay .qws-card-t { font-size: 15px; font-weight: 700; }
 #qws-overlay .qws-muted { font-size: 12.5px; color: var(--muted); }
-#qws-overlay .qws-p { margin: 0; font-size: 13.5px; color: #4a5a63; line-height: 1.5; }
+#qws-overlay .qws-p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.5; }
 #qws-overlay .qws-p.muted { font-size: 12.5px; color: var(--muted); }
 #qws-overlay .qws-big { font-size: 22px; font-weight: 700; }
 #qws-overlay .qws-grow { flex: 1 1 auto; min-width: 0; }
@@ -77,9 +77,9 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-two { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
 #qws-overlay .qws-two.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 #qws-overlay .qws-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; }
-#qws-overlay .qws-ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: #4a5a63; line-height: 1.55; }
+#qws-overlay .qws-ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); line-height: 1.55; }
 
-#qws-overlay .qws-note { font-size: 13px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--accent-weak); color: #344451; line-height: 1.45; }
+#qws-overlay .qws-note { font-size: 13px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--accent-weak); color: var(--ink); line-height: 1.45; }
 #qws-overlay .qws-note.ok { background: var(--change-weak); color: #1d3f9e; }
 #qws-overlay .qws-note.warn { background: #fff3ec; color: #8a3410; border-left: 3px solid var(--uq-orange); }
 
@@ -112,7 +112,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-toggle-txt { display: flex; flex-direction: column; gap: 3px; }
 #qws-overlay .qws-switch { flex: 0 0 auto; position: relative; width: 44px; height: 24px; border-radius: 12px; border: none; background: #c9d2d7; cursor: pointer; margin-top: 2px; }
 #qws-overlay .qws-switch.on { background: var(--change); }
-#qws-overlay .qws-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: left .15s; }
+#qws-overlay .qws-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: left .15s; }
 #qws-overlay .qws-switch.on .qws-knob { left: 23px; }
 
 /* ---------- Lesrooster grid ---------- */
@@ -155,7 +155,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-results { display: flex; flex-direction: column; gap: 4px; }
 
 /* ---------- Import ---------- */
-#qws-overlay .qws-drop { border: 2px dashed #c9d2d7; border-radius: 10px; padding: 18px; text-align: center; font-size: 13.5px; color: #4a5a63; cursor: pointer; }
+#qws-overlay .qws-drop { border: 2px dashed var(--line2); border-radius: 10px; padding: 18px; text-align: center; font-size: 13.5px; color: var(--muted); cursor: pointer; }
 #qws-overlay .qws-drop.over { border-color: var(--accent); background: var(--accent-weak); }
 #qws-overlay .qws-map { display: flex; flex-direction: column; gap: 6px; }
 #qws-overlay .qws-maprow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
@@ -169,7 +169,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 /* ---------- Confirm ---------- */
 #qws-overlay .qws-confirm { position: absolute; inset: 0; z-index: 10; background: rgba(20,30,40,.35); display: flex; align-items: center; justify-content: center; padding: 16px; }
 #qws-overlay .qws-confirm-box { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 20px; width: min(480px, 100%); display: flex; flex-direction: column; gap: 10px; }
-#qws-overlay .qws-confirm-body p { margin: 0 0 6px; font-size: 13.5px; color: #4a5a63; line-height: 1.5; }
+#qws-overlay .qws-confirm-body p { margin: 0 0 6px; font-size: 13.5px; color: var(--muted); line-height: 1.5; }
 #qws-overlay .qws-confirm-ft { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ---------- Setup wizard ---------- */
@@ -184,7 +184,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-step[disabled] { cursor: default; }
 #qws-overlay .qws-step-dot { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; background: rgba(255,255,255,.18); color: #fff; }
 #qws-overlay .qws-step.cur .qws-step-dot { background: var(--uq-amber); color: var(--ink); }
-#qws-overlay .qws-step.done .qws-step-dot { background: #fff; color: var(--ink); }
+#qws-overlay .qws-step.done .qws-step-dot { background: var(--surface); color: var(--ink); }
 #qws-overlay .qws-step-txt { display: flex; flex-direction: column; min-width: 0; }
 #qws-overlay .qws-step-t { font-size: 14.5px; font-weight: 700; }
 #qws-overlay .qws-step-d { display: none; }   /* 12px white on blue fails contrast — the step title says enough */
@@ -194,7 +194,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-setup-body > * { max-width: 980px; }
 #qws-overlay .qws-setup-ft { display: flex; align-items: center; gap: 10px; padding: 14px 44px; background: var(--surface); border-top: 1px solid var(--line); }
 #qws-overlay .qws-h1 { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.2; }
-#qws-overlay .qws-lead { margin: 0; font-size: 14.5px; color: #4a5a63; max-width: 700px; line-height: 1.5; }
+#qws-overlay .qws-lead { margin: 0; font-size: 14.5px; color: var(--muted); max-width: 700px; line-height: 1.5; }
 #qws-overlay .qws-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-width: 760px; }
 #qws-overlay .qws-ctxcheck { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; }
 #qws-overlay .qws-ctxdot { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: var(--change-weak); color: var(--change); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
@@ -224,3 +224,21 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 #qws-overlay .qws-radios { display: flex; flex-direction: column; gap: 6px; }
 #qws-overlay .qws-radio { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
 #qws-overlay .qws-radio input { accent-color: var(--uq-blue); }
+
+/* ---- Dark theme ("Slate"): tokens only (see planner.css). ---- */
+html[data-pg-theme="dark"] #qws-overlay {
+  --page:#1E1F27; --panel:#24252F; --surface:#374151; --canvas:#1E1F27; --raised:#24252F;
+  --hover:#2B2D38; --soft:#313543; --line:#3A3D4A; --line-soft:#33363F; --line2:#4B5060;
+  --ink:#F4F1E8; --muted:#A8ADB8; --faint:#8A8F9B;
+  --accent:#C9CCD3; --accent-weak:#2E3140; --accent-line:#4B5060;
+  --uq-blue-ink:#8B5CF6; --uq-blue-tint:#352C55; --uq-cyan-tint:#2E3B2A;
+  --uq-orange-tint:#3A2E17; --uq-orange-ink:#F8C15A;
+  --change:#7ED957; --change-weak:#2E3B2A; --change-line:#4D7A3A;
+  --thema:#F8C15A; --thema-weak:#3A2E17; --thema-line:#6b5a2e;
+  --shadow:0 10px 40px rgba(0,0,0,.5);
+  color-scheme: dark;
+  --line-strong:#4B5060; --danger-weak:#3D2326;
+}
+
+/* The mascot on the wizard's welcome step. */
+#qws-overlay .qws-goblin { float: right; width: auto; height: 170px; margin: 0 0 12px 20px; }
