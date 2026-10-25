@@ -130,6 +130,12 @@
     if (Array.isArray(s.vakOrder)) state.vakOrder = s.vakOrder;
     if (s.setupDone != null) state.setupDone = !!s.setupDone;
     if (s.saveThrottleMs != null) state.saveThrottleMs = s.saveThrottleMs;   // was saved but never restored
+    // Sidebar/vak picker preferences (UnQuesti). Every field written to state must be restored
+    // here too — mergeState copies by name, so a field missing from this list silently resets.
+    if (s.vakView === "tiles" || s.vakView === "compact" || s.vakView === "select") state.vakView = s.vakView;
+    if (s.vakAbbr && typeof s.vakAbbr === "object") state.vakAbbr = s.vakAbbr;
+    if (typeof s.sideWidth === "number" && s.sideWidth > 0) state.sideWidth = s.sideWidth;
+    if (s.weekFit === "fit" || s.weekFit === "scroll") state.weekFit = s.weekFit;
     state.writeVakDescription = s.writeVakDescription != null ? !!s.writeVakDescription : true;
   }
   function writesDescriptions() { return state.writeVakDescription !== false; }
@@ -5619,6 +5625,7 @@
       view.weeks = 2;   // Plannen always shows this week + next; state.weeks stays the print default
       applySideWidth();
       [0, 1, 2].forEach(function (i) { if (state.panels[i]) view.panels[i] = Object.assign(view.panels[i], state.panels[i]); });
+      view.panels[0].autoBlock = true;   // first list load opens the stored vak on its current block
       applyFilterFold(); syncModeSeg();
       setStatus("Questi-context detecteren…");
       return authProbe().then(function (st) {

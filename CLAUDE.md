@@ -122,6 +122,10 @@ exported for settings.js too.
 | `qwp_print_v1` | planner (Afdrukken tab) + settings | print choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool, meta: bool }` (`meta` = week no. + print date, default on) |
 | `qwp_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
+**`qwp_state_v6` is restored field by field** (`mergeState` + `mergeUqSettings`): a new `state.x` that is
+saved but not listed there silently resets on every reload (shipped once: vak view, abbreviations,
+sidebar width, Passend/Ruim). Add every new field to the restore list.
+
 Generic `storeGet(key)` / `storeSet(key, val)` live in `planner.js` and are shared — use them
 rather than a fourth copy of the pattern.
 
