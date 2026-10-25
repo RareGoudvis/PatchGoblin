@@ -3260,7 +3260,8 @@
     var keys = themaRowKeys(), inner = h("div", { class: "qwp-ttinner", id: "qwp-ttinner" });
     wrap.appendChild(inner);
     for (var w = 0; w < view.weeks; w++) {
-      if (doel && w !== doelenWeek()) inner.appendChild(weekBar(w));
+      if (view.weeks > 1 && isHolidayWeek(w)) inner.appendChild(holidayBar(w));
+      else if (doel && w !== doelenWeek()) inner.appendChild(weekBar(w));
       else inner.appendChild(weekSection(w, keys, doel));
     }
     fitWeeks();
@@ -5416,28 +5417,77 @@
       renderTimetable(); syncHydrateStatus(); syncRetryBtn();
     }, 250);
   }
+  // ---- Holiday weeks don't count ----
+  // A week with no lesuren at all (herfst-, kerst-, paasvakantie) is shown as a thin bar, and the
+  // window grows one week at a time until it holds view.schoolWeeks weeks with lesuren — at most
+  // HOLIDAY_EXTRA extra (kerstvakantie = 2 weeks), so "this week + next" lands on the next week you
+  // actually teach. One extra list read per extra week; its details load like any other week's.
+  var HOLIDAY_EXTRA = 3;
+  function isHolidayWeek(w) {
+    return !view.slots.some(function (s) { return s.weekIdx === w && !s.isFullday && s.idCalendar !== "cal_holidays"; });
+  }
+  function schoolWeekCount() { var n = 0; for (var w = 0; w < view.weeks; w++) if (!isHolidayWeek(w)) n++; return n; }
+  function holidayNames(w) {
+    var a = isoDate(addDays(view.weekStart, w * 7)), b = isoDate(addDays(view.weekStart, w * 7 + 6)), seen = {};
+    return view.slots.filter(function (s) {
+      var sd = String(s.startdate || "").slice(0, 10), ed = String(s.enddate || s.startdate || "").slice(0, 10);
+      return s.idCalendar === "cal_holidays" && sd <= b && ed >= a;
+    }).map(function (s) { return (s.title || "").trim(); }).filter(function (t) { if (!t || seen[t]) return false; seen[t] = true; return true; });
+  }
+  function holidayBar(w) {
+    var names = holidayNames(w);
+    return h("div", { class: "qwp-wkbar qwp-holbar" }, [
+      h("span", { class: "qwp-wkbar-t", text: "Week " + weekNoOf(w) }),
+      h("span", { class: "qwp-wkbar-s", text: shortRange(w, w) + " · " + (names.length ? names.join(", ") + " — " : "") + "geen lesuren, overgeslagen" })
+    ]);
+  }
+  function holidayNote() {
+    var skipped = [];
+    for (var w = 0; w < view.weeks; w++) if (isHolidayWeek(w)) skipped.push(weekNoOf(w));
+    if (!skipped.length) return "";
+    return " Week " + skipped.join(", ") + " heeft geen lesuren (vakantie?) — " + (schoolWeekCount() < (view.schoolWeeks || 2) ? "na " + HOLIDAY_EXTRA + " extra weken gestopt met zoeken." : "de volgende lesweek is erbij geladen.");
+  }
   function reloadWeek() {
     stashCurrent();
     // Undo snapshots address slots by item id within ONE window; across windows they could hit a
     // kept slot of another week, so the history starts fresh per window (kept edits stay staged).
     if (view.undoStack.length) { view.undoStack = []; refreshUndoBtn(); }
+    var target = view.schoolWeeks || 2;
+    view.weeks = target;
     var wr = currentWeekRange(); view.weekStart = wr.start;
     var gen = ++_loadGen;
     setStatus("Rooster laden…");
     var kept = function (s) { return !!(view.stash && view.stash[slotKey(s)]); };
-    return hydrateRangeLive(wr.start, wr.end, function () { if (gen === _loadGen) scheduleHydratePaint(); }, kept).then(function (r) {
-      if (gen !== _loadGen) return;   // a newer load owns view.slots
-      // A lesuur with kept edits comes back as the kept object, re-seated in this window's week rows.
-      var base = addDays(wr.start, 0);
-      view.slots = r.slots.map(function (s) {
-        var k = view.stash && view.stash[slotKey(s)]; if (!k) return s;
-        var d0 = addDays(String(k.startdate).slice(0, 10), 0);
-        if (d0 && base) k.weekIdx = Math.max(0, Math.floor(Math.round((d0 - base) / 86400000) / 7));
-        return k;
+    var onDetail = function () { if (gen === _loadGen) scheduleHydratePaint(); };
+    // A lesuur with kept edits comes back as the kept object, re-seated in this window's week rows.
+    var base = addDays(wr.start, 0);
+    function reseat(s) {
+      var k = view.stash && view.stash[slotKey(s)]; if (!k) return s;
+      var d0 = addDays(String(k.startdate).slice(0, 10), 0);
+      if (d0 && base) k.weekIdx = Math.max(0, Math.floor(Math.round((d0 - base) / 86400000) / 7));
+      return k;
+    }
+    var dones = [], total = 0;
+    function grow() {
+      if (gen !== _loadGen || schoolWeekCount() >= target || view.weeks >= target + HOLIDAY_EXTRA) return Promise.resolve();
+      var s0 = isoDate(addDays(wr.start, 7 * view.weeks)), e0 = isoDate(addDays(wr.start, 7 * view.weeks + 6));
+      return hydrateRangeLive(s0, e0, onDetail, kept).then(function (r2) {
+        if (gen !== _loadGen) return;
+        view.slots = view.slots.concat(r2.slots.map(reseat)); view.weeks++;
+        total += r2.total; dones.push(r2.done);
+        return grow();
       });
-      view.slotsStart = wr.start; view.hydrateTotal = r.total;
+    }
+    return hydrateRangeLive(wr.start, wr.end, onDetail, kept).then(function (r) {
+      if (gen !== _loadGen) return;   // a newer load owns view.slots
+      view.slots = r.slots.map(reseat);
+      total = r.total; dones.push(r.done);
+      return grow();
+    }).then(function () {
+      if (gen !== _loadGen) return;
+      view.slotsStart = wr.start; view.hydrateTotal = total;
       reloadSlotVakLabels(); applyStoredVakken(view.slots);
-      view.hydrateP = r.done.then(function () {
+      view.hydrateP = Promise.all(dones).then(function () {
         if (gen !== _loadGen) return false;
         clearTimeout(_hydPaintT); _hydPaintT = null;
         if (els.root) { renderTimetable(); syncRetryBtn(); }
@@ -5453,7 +5503,7 @@
     }).then(function (current) {
       if (!current) return;
       var nt = view.slots.filter(function (s2) { return s2.autoThemaTitle && computeDirty(s2); }).length;
-      setStatus((nt ? (nt + " WO/Godsdienst-lesuur/lesuren krijgen de themafiche als titel en het vak als beschrijving — controleer bij Wijzigingen.") : "Rooster geladen.") + hydrateFailNote());
+      setStatus((nt ? (nt + " WO/Godsdienst-lesuur/lesuren krijgen de themafiche als titel en het vak als beschrijving — controleer bij Wijzigingen.") : "Rooster geladen.") + holidayNote() + hydrateFailNote());
       // Then, without blocking the paint, find out which fiches disagree with their lesuur's vak.
       resolveFicheVakken(view.slots, function (changed) {
         var n = applyStoredVakken(view.slots);
@@ -5689,7 +5739,7 @@
       if (!bar.contains(e.target)) closeGlobalResults();
     });
     loadState().then(function () {
-      view.weeks = 2;   // Plannen always shows this week + next; state.weeks stays the print default
+      view.weeks = view.schoolWeeks = 2;   // Plannen shows 2 school weeks (holiday weeks extra, see isHolidayWeek); state.weeks stays the print default
       applySideWidth();
       [0, 1, 2].forEach(function (i) { if (state.panels[i]) view.panels[i] = Object.assign(view.panels[i], state.panels[i]); });
       view.panels[0].autoBlock = true;   // first list load opens the stored vak on its current block

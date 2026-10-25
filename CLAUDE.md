@@ -202,6 +202,12 @@ through `commitSlots()` (loaded + offscreen); review rows are matched by item id
 whose id is also loaded is **held back** with a visible note. New per-slot loops over staged work must
 use `commitSlots().slots`, not `view.slots`.
 
+**Holiday weeks are skipped.** `view.schoolWeeks` (2) is the target; `view.weeks` is how many calendar
+weeks are actually loaded. A week with no non-fullday, non-`cal_holidays` item (`isHolidayWeek`)
+renders as a bar, and `reloadWeek` loads one more week at a time (`grow`, max `HOLIDAY_EXTRA` = 3)
+until the target is met. Loops over weeks keep using `view.weeks`; the status line says which weeks
+were skipped (`holidayNote`).
+
 **Thema rows** (whole-week full-day items: WO, Godsdienst, …). One row per distinct `themaKey`,
 so a third thema needs no code change. **Identity must survive a commit**, because the commit
 rewrites the item title to the fiche title (`assignFiche`, and again from the attachment POST
