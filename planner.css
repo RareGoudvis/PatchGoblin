@@ -17,9 +17,9 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 #qwp-overlay {
   --ink:#1e2a33; --muted:#6b7a82; --faint:#8b94a0;
   --line:#e3e9ec; --line-soft:#eef1f5; --line2:#d5dbdf; --soft:#eef2f4; --band-line:#e7cf94;
-  /* UnQuesti brand palette ("Glowing horizon"). White text on --uq-blue only at >=14px bold
-     (~4.1:1); smaller text gets blue as border/underline/tint. --uq-cyan is never a text colour. */
-  --uq-blue:#4272FF; --uq-blue-tint:#edf2ff; --uq-amber:#FFB343; --uq-orange:#FF7E42; --uq-orange-tint:#fff1e9; --uq-orange-ink:#8a3b12; --uq-cyan:#42EAFF; --uq-cyan-tint:#e9fcff;
+  /* UnQuesti brand palette ("Glowing horizon"). --uq-blue for borders/fills/tints; --uq-blue-ink
+     (a step deeper, ~5.7:1 against white) wherever blue carries text. --uq-cyan is never a text colour. */
+  --uq-blue:#4272FF; --uq-blue-ink:#2D5BE3; --uq-blue-tint:#edf2ff; --uq-amber:#FFB343; --uq-orange:#FF7E42; --uq-orange-tint:#fff1e9; --uq-orange-ink:#8a3b12; --uq-cyan:#42EAFF; --uq-cyan-tint:#e9fcff;
   --surface:#ffffff; --canvas:#ffffff; --raised:#fbfcfe;
   /* Questi brand tokens (from their Angular-Material theme): primary slate #304651,
      accent lime #e4e642, warn #f44336. Blends the panel into the host app. */
@@ -395,7 +395,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-tabs { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:3px; background:var(--soft); border-radius:10px; padding:3px; }
 .qwp-tab { border:none; background:transparent; border-radius:8px; padding:6px 0; font-size:14px; font-weight:700; color:var(--accent); cursor:pointer; }
 .qwp-tab:hover { background:#e2e8eb; }
-.qwp-tab.active, .qwp-tab.active:hover { background:var(--uq-blue); color:#fff; cursor:default; }
+.qwp-tab.active, .qwp-tab.active:hover { background:var(--uq-blue-ink); color:#fff; cursor:default; }
 .qwp-vaktoggle { display:flex; flex-wrap:wrap; gap:6px; }
 .qwp-vakbtn { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line2); background:var(--surface); border-radius:999px; padding:4px 10px; font-size:12px; font-weight:600; color:var(--ink); cursor:pointer; }
 .qwp-vakbtn:hover { border-color:var(--accent-line); }
@@ -470,7 +470,7 @@ html.qwp-locked, html.qwp-locked body { overflow: hidden !important; }
 .qwp-range-sub { font-size:14px; font-weight:500; color:var(--muted); }
 .qwp-modeseg { display:flex; background:var(--soft); border-radius:999px; padding:3px; }
 .qwp-modeseg button { border:none; background:transparent; border-radius:999px; padding:5px 16px; font-size:14px; font-weight:700; color:var(--accent); cursor:pointer; }
-.qwp-modeseg button.active { background:var(--uq-blue); color:#fff; }
+.qwp-modeseg button.active { background:var(--uq-blue-ink); color:#fff; }
 .qwp-staged { display:inline-flex; align-items:center; gap:6px; border:none; background:transparent; padding:4px 2px; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; text-decoration:underline; text-decoration-color:var(--uq-blue); text-decoration-thickness:2px; text-underline-offset:3px; }
 .qwp-staged-dot { width:8px; height:8px; border-radius:50%; background:var(--uq-blue); }
 .qwp-goalcount { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; border:1px solid var(--uq-orange); background:var(--uq-orange-tint); color:var(--uq-orange-ink); font-size:12.5px; font-weight:700; }

@@ -13,12 +13,15 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
      amber = action buttons + badges (dark ink on it); orange = attention, guessed slots;
      cyan = focus ring + subtle tint only, never text. Vak colours stay the user's Questi tag colours. */
   --uq-blue:#4272FF; --uq-amber:#FFB343; --uq-orange:#FF7E42; --uq-cyan:#42EAFF;
+  /* --uq-blue-ink: the same blue, a step deeper (~5.7:1 against white either way) for anything that
+     carries text — white on it, or it as text colour. Plain --uq-blue stays for borders/fills/tints. */
+  --uq-blue-ink:#2D5BE3;
   --ink:#1e2a33; --muted:#6b7a82; --faint:#93a0a7;
   --line:#e3e9ec; --line-soft:#eef2f4; --line-strong:#d5dbdf;
   --surface:#ffffff; --canvas:#f4f6f7; --raised:#fafbfb;
-  --accent:var(--uq-blue); --accent-weak:#eef3ff; --accent-line:#c5d4ff;
+  --accent:var(--uq-blue-ink); --accent-weak:#eef3ff; --accent-line:#c5d4ff;
   --accent2:var(--uq-amber);
-  --change:var(--uq-blue); --change-weak:#eef3ff;
+  --change:var(--uq-blue-ink); --change-weak:#eef3ff;
   --thema:#9a3d0f; --thema-weak:#fff3ec; --thema-line:var(--uq-orange);
   --danger:#b3261e; --danger-weak:#fbe5e3;
   --radius:12px; --radius-sm:8px;
@@ -170,7 +173,7 @@ html.qws-locked, html.qws-locked body { overflow: hidden !important; }
 /* ---------- Setup wizard ---------- */
 #qws-overlay .qws-setup { position: absolute; inset: 0; display: flex; }
 #qws-overlay .qws-steps { flex: 0 0 290px; background: var(--accent); color: #fff; display: flex; flex-direction: column; padding: 28px 20px; gap: 6px; }
-/* White on --uq-blue is ~4.1:1 — so every white text here is ≥14px bold; smaller copy sits on a white card. */
+/* The stepper uses --accent (= --uq-blue-ink, ~5.7:1 against white). */
 #qws-overlay .qws-steps-k { font-size: 14px; font-weight: 700; letter-spacing: .06em; }
 #qws-overlay .qws-steps-t { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
 #qws-overlay .qws-step { display: flex; align-items: center; gap: 12px; text-align: left; border: none; border-radius: 10px; padding: 9px 12px; background: transparent; color: #fff; cursor: pointer; }

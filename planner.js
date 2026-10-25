@@ -2193,7 +2193,9 @@
   // Legend = the vakken actually printed this week, in the teacher's tag order, with the colour the
   // card border uses (so legend and cards always agree).
   function goalsLegend(pv, weekIdx) {
-    var tops = topTagsForOwner(ownTagsList(), ctx.ownerId) || [], rank = {}, seen = {}, out = [];
+    // Ranked by the vak order from Instellingen; a top tag that is not ticked as vak still shows
+    // when a lesuur uses it (after the vakken), so the legend never hides a colour on the page.
+    var tops = vakTops(), rank = {}, seen = {}, out = [];
     tops.forEach(function (t, i) { rank[String(t.id)] = i; });
     pv.slots.forEach(function (s) {
       if (s.weekIdx !== weekIdx || s.isFullday || s.idCalendar === "cal_holidays") return;
@@ -3282,6 +3284,11 @@
     // s.vak holds a live top-tag id; if unset, no vak is pre-selected (no title-guessing —
     // the vak must come from a real tag pick so the written description stays authoritative).
     var curTagId = (s.vak ? (+s.vak) : null);
+    // A slot whose tag is no longer ticked as vak keeps it as an option, so opening the popup never
+    // silently changes its vak.
+    if (curTagId != null && !tops.some(function (t) { return String(t.id) === String(curTagId); })) {
+      var curTag = anyTagById(curTagId); if (curTag) tops = tops.concat([curTag]);
+    }
     var vakSel = h("select", { class: "qwp-input", id: "qwp-pop-vak" },
       [h("option", { value: "", text: "— kies vak —" })].concat(tops.map(function (t) { return h("option", { value: t.id, text: (t.title || "").trim(), selected: (String(curTagId) === String(t.id) ? "selected" : null) }); })));
     var searchInp = h("input", { class: "qwp-input", id: "qwp-pop-search", placeholder: "Zoek in eigen lesfiches…", value: (s.ficheTitle || "") });
@@ -3439,8 +3446,20 @@
   function tagPoolFor(source) { return isOwnSource(source) ? ownTagsList() : sharedTagsList(); }
   // A colleague's own top "Alle" tag (for their /lessons fetch); 8 = last resort.
   function colleagueDefaultTag(ownerId) { var t = topTagsForOwner(sharedTagsList(), ownerId); return t.length ? t[0].id : ALL_FICHES_TAG; }
+  // Own top tags that count as vakken (Instellingen → Vakken: state.vakTags, null = all) in legend
+  // order (state.vakOrder, rest as topTagsForOwner sorts). Used wherever the user PICKS a vak or
+  // browses by vak. Resolving an existing slot's vak still accepts any top tag, so a lesuur that was
+  // given a tag before it was un-ticked keeps it (the vak popup adds it back as an option).
+  function vakTops() {
+    var tops = topTagsForOwner(ownTagsList(), ctx.ownerId) || [], list = state.vakTags, order = state.vakOrder || [];
+    if (Array.isArray(list)) tops = tops.filter(function (t) { return list.some(function (x) { return String(x) === String(t.id); }); });
+    function rank(t) { for (var i = 0; i < order.length; i++) if (String(order[i]) === String(t.id)) return i; return 1e6; }
+    return tops.map(function (t, i) { return { t: t, i: i }; })
+      .sort(function (a, b) { return (rank(a.t) - rank(b.t)) || (a.i - b.i); })
+      .map(function (x) { return x.t; });
+  }
   function panelTopTags(source) {
-    if (isOwnSource(source)) return topTagsForOwner(ownTagsList(), ctx.ownerId);
+    if (isOwnSource(source)) return vakTops();
     var t = topTagsForOwner(sharedTagsList(), source);
     // Universal "Alle" fallback for a colleague with no own top tag exposed.
     if (!t.length) t = [{ id: ALL_FICHES_TAG, title: "Alle lesfiches", type: "default", parent: 0 }];

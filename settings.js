@@ -399,8 +399,8 @@
     body.appendChild(h("div", { class: "qws-two" }, [
       card([table, addRow, h("div", { class: "qws-bar" }, [btn("Volgorde terug alfabetisch", function () { s.vakOrder = null; save(); renderSection(); }, "ghost")])]),
       h("div", { class: "qws-stack" }, [
-        card([cardTitle("Wat is een vak?"), h("p", { class: "qws-p", text: "Een hoofdtag uit Questi die je hier aanvinkt. In Lesrooster en de eerste installatie kies je enkel uit vakken." }),
-          note("Plannen en Afdrukken tonen voorlopig nog al je hoofdtags; zij volgen deze keuze in een volgende versie.")]),
+        card([cardTitle("Wat is een vak?"), h("p", { class: "qws-p", text: "Een hoofdtag uit Questi die je hier aanvinkt. Overal waar je een vak kiest of op vak filtert, zie je enkel deze — in deze volgorde, ook in de legende op papier." }),
+          note("Een lesuur dat al een tag heeft die je hier uitvinkt, houdt die tag; je ziet ze dan nog als keuze bij dat lesuur.")]),
         card([cardTitle("Kleur"), h("p", { class: "qws-p", text: "Kleuren komen uit Questi en zijn hier alleen-lezen. Een kleur wijzigen is een schrijfactie in Questi; dat kan deze versie nog niet." })])
       ])
     ]));
