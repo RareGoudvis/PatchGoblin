@@ -2100,6 +2100,7 @@
   var GOALS_STORE_KEY = "qwp_goals_v1", _goals = {}, _goalsSaveT = null;
   var _goalsTab = "word";   // tab label: "word" (WEET/KEN/KAN, vertical) or "icon"; set per render
   var _goalsLegendOn = true; // vak legend in the Wednesday box; set per render
+  var _goalsHideEmpty = false; // "Lege doelen weglaten": a kind with no text prints no label and no lines; set per render
   // Other-agenda items hidden from the Lesdoelen print, saved under qwp_xhide_v1:
   // { "<calendar id>|r<id_repeat>" | "<calendar id>|i<item id>": true }. Keyed by the series when the
   // item recurs, so hiding a weekly moment for another class hides it in every week.
@@ -2250,8 +2251,17 @@
   // bit instead of being cut off, and every card keeps the same outer height. Pitch = block height ÷ k
   // (container query units), so every kind sits on the same ruling.
   // `editable`: typed here (no own fiche behind the card); otherwise the text is the fiche's, read-only.
+  // Print-time only: also hide every kind that has no text. The stored hide flags are untouched,
+  // so switching the option off brings every line back.
+  function withEmptyHidden(rec) {
+    var out = {}, hide = {};
+    Object.keys((rec && rec.hide) || {}).forEach(function (k) { hide[k] = rec.hide[k]; });
+    GOALS_KINDS.forEach(function (k) { out[k.key] = rec && rec[k.key]; if (!String((rec && rec[k.key]) || "").trim()) hide[k.key] = true; });
+    out.hide = hide;
+    return out;
+  }
   function goalsLinesHtml(gk, n, editable) {
-    var rec = goalsRecFor(gk), lay = goalsLayout(rec, n);
+    var rec = goalsRecFor(gk), lay = goalsLayout(_goalsHideEmpty ? withEmptyHidden(rec) : rec, n);
     return '<div class="gl" data-n="' + n + '" style="--k:' + lay.k + '">' + GOALS_KINDS.map(function (k) {
       var m = lay.m[k.key];
       return '<div class="gl-row' + (m ? "" : " gl-off") + '" data-kind="' + k.key + '" style="--m:' + m + '">' +
@@ -2685,6 +2695,7 @@
     extraByWeek = extraByWeek || {}; prefs = prefs || {};
     _goalsTab = prefs.tabs === "icon" ? "icon" : "word";
     _goalsLegendOn = prefs.legend !== false;
+    _goalsHideEmpty = !!prefs.hideEmpty;
     var body = "";
     for (var w = 0; w < pv.weeks; w++) body += printGoalsWeekHtml(pv, w, extraByWeek[w] || { cells: {}, inject: {} }, opts, mode);
     return "<!doctype html><html lang=\"nl\"><head><meta charset=\"utf-8\"><title>" +
@@ -2945,7 +2956,7 @@
   function ppLbl(t) { return h("div", { class: "qpp-lbl", text: t }); }
   function buildPrintPanel() {
     var P = _pp = { pv: null, start: null, weeks: 1, extras: {}, gen: 0, page: "front", pages: 0, plannerWeek: null, prefsLoaded: false,
-      prefs: { mode: "plain", tabs: "word", legend: true, meta: true }, calBoxes: [], verCards: [], tabBtns: [], pageBtns: [] };
+      prefs: { mode: "plain", tabs: "word", legend: true, meta: true, hideEmpty: false }, calBoxes: [], verCards: [], tabBtns: [], pageBtns: [] };
     P.frame = h("iframe", { class: "qpp-frame", title: "Afdrukvoorbeeld" });
     P.msg = h("div", { class: "qpp-msg", style: "display:none" });
     P.range = h("span", { class: "qpp-wk-lbl", text: "…" });
@@ -2957,6 +2968,8 @@
     P.metaChk.addEventListener("change", function () { P.prefs.meta = P.metaChk.checked; savePrintPrefs(); renderPrintPreview(); });
     P.legendChk = h("input", { type: "checkbox" }); P.legendChk.checked = true;
     P.legendChk.addEventListener("change", function () { P.prefs.legend = P.legendChk.checked; savePrintPrefs(); renderPrintPreview(); });
+    P.hideEmptyChk = h("input", { type: "checkbox" });
+    P.hideEmptyChk.addEventListener("change", function () { P.prefs.hideEmpty = P.hideEmptyChk.checked; savePrintPrefs(); renderPrintPreview(); });
     var verList = PRINT_VERSIONS.map(function (x) {
       var r = h("input", { type: "radio", name: "qpp-mode", value: x.v });
       r.addEventListener("change", function () { if (r.checked) { P.prefs.mode = x.v; savePrintPrefs(); renderPrintPreview(); } });
@@ -2971,7 +2984,8 @@
     // Only meaningful for the Lesdoelen versions; hidden for Gewoon.
     P.goalsOnly = [
       h("div", { class: "qpp-seg", role: "group", "aria-label": "Labels op de kaart" }, [tabBtn("word", "WEET / KEN / KAN"), tabBtn("icon", "Icoontjes")]),
-      h("label", { class: "qpp-check" }, [P.legendChk, h("span", { text: "Vakkenlegende in het woensdagvak" })])
+      h("label", { class: "qpp-check" }, [P.legendChk, h("span", { text: "Vakkenlegende in het woensdagvak" })]),
+      h("label", { class: "qpp-check", title: "Een WEET/KEN/KAN zonder tekst krijgt geen label en geen lijnen. Uitvinken brengt alles terug." }, [P.hideEmptyChk, h("span", { text: "Lege doelen weglaten (label + lijnen)" })])
     ];
     // Only meaningful for Gewoon: its note block prints ruled lines when no text was typed.
     P.notesRow = h("label", { class: "qpp-check" }, [P.notesChk, h("span", { text: "Lege notitieregels als er geen opmerking is" })]);
@@ -3018,7 +3032,7 @@
     window.addEventListener("resize", function () { if (view.tab === "print") fitPrintFrame(); });
     return P;
   }
-  // qwp_print_v1 = { mode, tabs, legend, meta } — shared with the Afdrukken section in settings.js.
+  // qwp_print_v1 = { mode, tabs, legend, meta, hideEmpty } — shared with the Afdrukken section in settings.js.
   function savePrintPrefs() { storeSet("qwp_print_v1", _pp.prefs); }
   function loadPrintPrefs() {
     return storeGet("qwp_print_v1").then(function (v) {
@@ -3027,7 +3041,8 @@
       if (v.tabs === "word" || v.tabs === "icon") p.tabs = v.tabs;
       if (typeof v.legend === "boolean") p.legend = v.legend;
       if (typeof v.meta === "boolean") p.meta = v.meta;
-      _pp.legendChk.checked = p.legend; _pp.metaChk.checked = p.meta;
+      if (typeof v.hideEmpty === "boolean") p.hideEmpty = v.hideEmpty;
+      _pp.legendChk.checked = p.legend; _pp.metaChk.checked = p.meta; _pp.hideEmptyChk.checked = p.hideEmpty;
     }).catch(function () {});
   }
   function ppOpts() {
