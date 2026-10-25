@@ -721,3 +721,13 @@ button.qwp-cell-load:hover { box-shadow:inset 0 0 0 1px var(--uq-orange); }
 .qwp-rowsearch { flex:1 1 60px; min-width:0; height:32px; box-sizing:border-box; }
 .qwp-ownerrow .qwp-filterbtn { position:relative; height:32px; padding:0 9px; }
 .qwp-filterdot { position:absolute; top:4px; right:4px; width:7px; height:7px; border-radius:50%; background:var(--uq-orange); }
+
+/* Fiche list: one card per fiche, titles up to two lines, clearer subtag chips. */
+.qwp-picker-list { display:flex; flex-direction:column; gap:4px; padding:6px 8px 8px; }
+.qwp-pfiche { flex:0 0 auto; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+.qwp-pfiche:hover { border-color:var(--accent-line); }
+.qwp-pfiche-t { white-space:normal; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; line-height:1.3; }
+.qwp-pfiche.d-old .qwp-pfiche-date { color:var(--faint, #93a0a7); }
+.qwp-subchip { background:#fff; border:1px solid var(--line2); color:var(--accent); font-weight:600; font-size:11.5px; padding:3px 10px; }
+.qwp-subchip:hover { border-color:var(--uq-blue); }
+.qwp-subchip.active { background:var(--uq-blue-ink); border-color:var(--uq-blue-ink); color:#fff; }

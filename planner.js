@@ -3988,20 +3988,12 @@
     if (pd) return { text: dm(pd) + " gepland", cls: "plan", title: "Gepland in de geladen weken" };
     var raw = f.last_used_date, s = String(raw == null ? "" : raw);
     if (!raw || s.indexOf("0000") === 0) return { text: "nooit", cls: "never", title: "Nog nooit gebruikt" };
-    if (/^\d{4}$/.test(s)) return { text: s, cls: "old", title: "Laatst gebruikt in " + s };
+    if (/^\d{4}$/.test(s)) return { text: "—", cls: "old", title: "Niet dit schooljaar (laatst in " + s + ")" };
     var dt = new Date(s.replace(" ", "T")); if (isNaN(dt.getTime())) return { text: "?", cls: "never", title: "Onbekende datum: " + s };
     var iso = s.slice(0, 10), full = iso.split("-").reverse().join("/");
     if (usedThisYear(f)) return { text: dm(iso) + " ✓", cls: "used", title: "Gebruikt dit schooljaar op " + full };
-    return { text: full.slice(0, 6) + full.slice(8), cls: "old", title: "Laatst gebruikt op " + full };
-  }
-  // In "Alle" (union) mode, which subtag each fiche came from — the "blok 3" line under its title.
-  function subtagIndex(p) {
-    var m = {};
-    if (!p.unionMode) return m;
-    childTags(p.filterVak, p.source).forEach(function (t) {
-      (view.ficheCache[cacheKey(p.source, t.id)] || []).forEach(function (f) { if (!m[f.id]) m[f.id] = (t.title || "").trim(); });
-    });
-    return m;
+    // Only this school year counts as "used"; an older date is shown on hover only.
+    return { text: "—", cls: "old", title: "Niet dit schooljaar (laatst op " + full + ")" };
   }
   function renderListHead(pi, n) {
     var el = elId("qwp-listhd-t"); if (!el) return;
@@ -4033,14 +4025,12 @@
       updatePickCount(pi); return;
     }
     var col = tagColor(p.source, p.filterVak);
-    var subOf = subtagIndex(p);
     items.forEach(function (f) {
       var chk = h("input", { type: "checkbox", title: "Aanvinken om meerdere fiches tegelijk in te plannen" }); if (p.picked[f.id]) chk.checked = true;
       var pickData = { id: f.id, subject: f.subject, tagId: p.filterVak, color: col, isMethod: !!f.__method };
       var di = ficheDateInfo(f, planned);
       var isMeth = !!(f.__method || view.methodFicheIds[String(f.id)]);
       var sq = h("span", { class: "qwp-pfiche-sq" }); if (col) sq.style.background = col;
-      var subTxt = subOf[f.id] || "";
       var row = h("label", {
         class: "qwp-pfiche d-" + di.cls + (p.picked[f.id] ? " picked" : ""), draggable: "true", title: (f.subject || "") + " — sleep op een lesuur",
         ondragstart: function (e) { e.dataTransfer.setData("text/plain", JSON.stringify(pickData)); startDragTargets(pickData.tagId); },
@@ -4049,7 +4039,7 @@
         h("span", { class: "qwp-pfiche-pick" }, [sq, chk]),
         h("span", { class: "qwp-pfiche-main" }, [
           h("span", { class: "qwp-pfiche-t", text: f.subject || "(zonder titel)" }),
-          (subTxt || isMeth) ? h("span", { class: "qwp-pfiche-sub" }, [subTxt || null, isMeth ? h("span", { class: "qwp-mbadge", text: "methode" }) : null]) : null
+          isMeth ? h("span", { class: "qwp-pfiche-sub" }, [h("span", { class: "qwp-mbadge", text: "methode" })]) : null
         ]),
         h("span", { class: "qwp-pfiche-date", title: di.title || null, text: di.text })
       ]);
