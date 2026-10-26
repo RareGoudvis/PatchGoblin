@@ -32,7 +32,7 @@ chrome.commands.onCommand.addListener(function (command) {
 // Version check: the content script asks the worker to fetch the repo's version.json
 // (cross-origin fetch is clean here — host is in host_permissions, no page CSP/CORS in play).
 // Never throws back to the caller; on any failure it just returns { ok:false }.
-var PG_VERSION_URL = "https://raw.githubusercontent.com/RareGoudvis/patchgoblin/" + (PG_IS_BETA ? "beta" : "main") + "/version.json";
+var PG_VERSION_URL = "https://raw.githubusercontent.com/RareGoudvis/PatchGoblin/" + (PG_IS_BETA ? "beta" : "main") + "/version.json";
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (!msg) return;
   if (msg.type === "PG_INSERT_CSS") {

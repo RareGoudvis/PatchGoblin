@@ -67,7 +67,7 @@ met je gewone Questi-login.
 De makkelijkste weg is de stap-voor-stap-gids: **[PatchGoblin installeren](https://claude.ai/artifact/BzuDN1SfiziugCxB5YvToL)**.
 In het kort:
 
-1. Download [`install.bat`](https://github.com/RareGoudvis/patchgoblin/blob/main/install.bat)
+1. Download [`install.bat`](https://github.com/RareGoudvis/PatchGoblin/blob/main/install.bat)
    en dubbelklik het. Het zet PatchGoblin in `%LOCALAPPDATA%\PatchGoblin`, kopieert die map naar je
    klembord en opent de extensiepagina van je browser.
 2. Zet daar **Ontwikkelaarsmodus** aan (Chrome/Brave: rechtsboven, Edge: links).

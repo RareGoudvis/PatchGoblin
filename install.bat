@@ -17,7 +17,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  $branch=$env:PG_BRANCH; $dest=Join-Path $env:LOCALAPPDATA 'PatchGoblin';" ^
   "  $zip=Join-Path $env:TEMP 'patchgoblin-install.zip'; $tmp=Join-Path $env:TEMP 'patchgoblin-install';" ^
   "  Write-Host ('Downloaden van GitHub (' + $branch + ')...');" ^
-  "  Invoke-WebRequest -Uri ('https://github.com/RareGoudvis/patchgoblin/archive/refs/heads/' + $branch + '.zip') -OutFile $zip;" ^
+  "  Invoke-WebRequest -Uri ('https://github.com/RareGoudvis/PatchGoblin/archive/refs/heads/' + $branch + '.zip') -OutFile $zip;" ^
   "  if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force };" ^
   "  Expand-Archive -Path $zip -DestinationPath $tmp -Force;" ^
   "  $src=Get-ChildItem $tmp -Directory | Select-Object -First 1;" ^

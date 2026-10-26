@@ -15,7 +15,7 @@ set "PG_DEST=%~dp0" & set "PG_SELF=%~f0" & powershell -NoProfile -ExecutionPolic
 
 #=PS=
 $ErrorActionPreference = 'Stop'
-$repo = 'https://github.com/RareGoudvis/patchgoblin/archive/refs/heads/main.zip'
+$repo = 'https://github.com/RareGoudvis/PatchGoblin/archive/refs/heads/main.zip'
 $dest = $env:PG_DEST.TrimEnd('\')
 Write-Host '=== PatchGoblin bijwerken ==='
 Write-Host ('Map: ' + $dest)
