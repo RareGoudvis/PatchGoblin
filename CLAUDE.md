@@ -129,7 +129,7 @@ how many parts were carried over (`migratedKeys()`). Every read must go through 
 
 | Key | Owner | Contents |
 |---|---|---|
-| `pg_state_v6` | planner (+ settings UI) | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), `weeks` (print default only — Plannen always shows 2), `panels[0]` (sidebar list filter), `mainMode` (`plan`/`doelen`), `filterOpen`, `doelenWeek`, manual overrides, `saveThrottleMs`; settings fields `vakTags` (top-tag ids that are vakken, `null` = all), `vakOrder` (legend order, `null` = A→Z), `setupDone`, `writeVakDescription` (missing in stored state ⇒ `true`, brand-new install ⇒ `false`). `panelCount`, `pickerView`, `splitRatio`, `sideCollapsed` are legacy and unused |
+| `pg_state_v6` | planner (+ settings UI) | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), `weeks` (legacy: ignored since v2.0.1 — print is always ONE week, Plannen always shows 2), `panels[0]` (sidebar list filter), `mainMode` (`plan`/`doelen`), `filterOpen`, `doelenWeek`, manual overrides, `saveThrottleMs`; settings fields `vakTags` (top-tag ids that are vakken, `null` = all), `vakOrder` (legend order, `null` = A→Z), `setupDone`, `writeVakDescription` (missing in stored state ⇒ `true`, brand-new install ⇒ `false`). `panelCount`, `pickerView`, `splitRatio`, `sideCollapsed` are legacy and unused |
 | `pg_ctx_v1` | planner | detected context per Questi user id (`schoolId, schoolyear, school, calendars, calendarId, groupId, ownDefaultTagId`) — boot starts from it after one `/users/me`, full detection re-verifies in the background and the status says when it changed |
 | `pg_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `pg_methodes_v1` | methodes | methode definitions, order, manual overrides |

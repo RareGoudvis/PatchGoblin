@@ -2312,7 +2312,7 @@
     function sheet(inner) { return '<div class="psheet-scale"><div class="psheet"><div class="psheet-inner tsheet">' + inner + "</div></div></div>"; }
     if (!W.nLes) {
       return sheet('<div class="tdhd">' + printLogoHtml(prefs, "tlogo") + '<div><div class="tbig">' + esc(opts.showMeta ? "Week " + W.wk : W.rng) + '</div><div class="tsub">' +
-        esc(opts.showMeta ? W.rng : "") + '</div></div></div><div class="pempty">Geen lesitems deze week.</div>');
+        esc(opts.showMeta ? W.rng : "") + '</div></div></div><div class="pempty">Geen lesitems deze week.</div>') + sheet("");   // blank back: always two pages
     }
     return sheet(todoFrontHtml(W, opts, prefs)) + sheet(todoBackHtml(W, opts, prefs));
   }
@@ -2930,11 +2930,14 @@
     var head = "<tr>", headBack = "<tr>";
     for (var d = 0; d < 5; d++) { head += goalsDayHeadHtml(pv, weekIdx * 7 + d); headBack += goalsDayHeadHtml(pv, weekIdx * 7 + d, true); }
     head += "</tr>"; headBack += "</tr>";
+    // goals2 is printed double-sided: every week must be exactly two pages, or the front/back
+    // pairing (and the Voorkant/Achterkant preview) shifts for every week after it.
+    var blankBack = mode === "goals2" ? '<div class="psheet-scale"><div class="gsheet"></div></div>' : "";
     if (!er.rows.length) {
-      return '<div class="psheet-scale"><div class="gsheet"><table class="gweek"><thead>' + head + '</thead></table><div class="gnone">Geen lesitems deze week.</div></div></div>';
+      return '<div class="psheet-scale"><div class="gsheet"><table class="gweek"><thead>' + head + '</thead></table><div class="gnone">Geen lesitems deze week.</div></div></div>' + blankBack;
     }
     var nLes = er.rows.filter(function (t) { return !er.injected[t]; }).length;
-    if (mode !== "goals2" || nLes < 2) return goalsPageHtml(pv, weekIdx, er, er.rows, marks, parts, head, true, 3);
+    if (mode !== "goals2" || nLes < 2) return goalsPageHtml(pv, weekIdx, er, er.rows, marks, parts, head, true, 3) + blankBack;
     // Front = rows up to and including the ceil(n/2)-th lesuur; back = the rest (+ the week info).
     var want = Math.ceil(nLes / 2), seen = 0, cutAt = er.rows.length;
     for (var i = 0; i < er.rows.length; i++) {
@@ -3478,15 +3481,15 @@
   // Voorkant / Achterkant: on screen show every other page (front = 1st, 3rd…; back = 2nd, 4th…).
   function applyPrintPage() {
     var P = _pp, doc = P.frame.contentDocument; if (!doc || !doc.head) return;
-    var goals = P.prefs.mode !== "plain";
+    var twoSided = P.prefs.mode === "goals2" || P.prefs.mode === "todo";
     P.pages = doc.querySelectorAll(".psheet-scale").length;
-    if (P.pages < 2) P.page = "front";
+    if (P.pages < 2 || !twoSided) P.page = "front";
     var st = doc.getElementById("qpp-page");
     if (!st) { st = doc.createElement("style"); st.id = "qpp-page"; doc.head.appendChild(st); }
-    st.textContent = (goals && P.pages > 1) ? ("@media screen { .psheet-scale:nth-of-type(" + (P.page === "back" ? "odd" : "even") + ") { display: none; } }") : "";
+    st.textContent = (twoSided && P.pages > 1) ? ("@media screen { .psheet-scale:nth-of-type(" + (P.page === "back" ? "odd" : "even") + ") { display: none; } }") : "";
     P.pageBtns.forEach(function (b) {
       b.el.classList.toggle("active", b.v === P.page);
-      if (b.v === "back") { b.el.disabled = P.pages < 2; b.el.title = P.pages < 2 ? "Deze versie heeft maar één pagina" : ""; }
+      if (b.v === "back") { b.el.disabled = !twoSided || P.pages < 2; b.el.title = (!twoSided || P.pages < 2) ? "Deze versie heeft maar één pagina" : ""; }
     });
     requestAnimationFrame(fitPrintFrame);
   }
@@ -3556,7 +3559,10 @@
   }
   function loadPrintWeek(start) {
     var P = _pp, gen = ++P.gen;
-    P.start = start; P.weeks = Math.max(1, +state.weeks || 1);
+    // Always ONE week. state.weeks is a leftover of the old "1 week / 2 weken" choice (no UI since
+    // v1.3); reading it could silently print two weeks, and with them a two-sided version whose
+    // pages no longer pair up front/back.
+    P.start = start; P.weeks = 1;
     P.range.textContent = printRangeLabel(start, P.weeks);
     ppMsg("Week laden…");
     return (plannerPrintView(start, P.weeks) || fetchPrintView(start, P.weeks)).then(function (pv) {
