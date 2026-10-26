@@ -536,7 +536,7 @@
   function methodEntry(m) { return { id: S().METHOD_PREFIX + m.id, name: m.name, isMethod: true, methodKey: m.id, isCluster: !!m.is_cluster }; }
 
   // ---------- Afdrukken ----------
-  var PRINT_DEFAULTS = { mode: "plain", tabs: "word", legend: true, logo: "head", goblin: false, huiswerk: true };
+  var PRINT_DEFAULTS = { mode: "plain", tabs: "word", legend: true, logo: "head", goblin: false };
   var PRINT_MODES = [{ v: "plain", n: "Weekplanning" }, { v: "goals1", n: "Lesdoelen · 1 A4" }, { v: "goals2", n: "Lesdoelen · 2 A4" }, { v: "todo", n: "Te doen · 2 A4" }];
   // Theme: stored in the planner's state (state.theme), applied at once on every open overlay.
   function secWeergave(body) {
@@ -560,8 +560,6 @@
       hideEmpty.addEventListener("change", function () { put("hideEmpty", hideEmpty.checked); });
       var goblin = h("input", { type: "checkbox" }); goblin.checked = prefs.goblin === true;
       goblin.addEventListener("change", function () { put("goblin", goblin.checked); });
-      var hw = h("input", { type: "checkbox" }); hw.checked = prefs.huiswerk !== false;
-      hw.addEventListener("change", function () { put("huiswerk", hw.checked); });
       holder.innerHTML = "";
       holder.appendChild(card([cardTitle("Standaard bij openen", "Het afdrukvenster onthoudt ook zelf je laatste keuze."),
         field("Versie", selectEl(PRINT_MODES, prefs.mode, function (v) { put("mode", v); })),
@@ -569,8 +567,7 @@
         field("Logo linksboven (Weekplanning, Te doen)", selectEl([{ v: "head", n: "Kopje" }, { v: "full", n: "Volledige goblin" }], prefs.logo, function (v) { put("logo", v); })),
         h("label", { class: "pgs-check" }, [legend, h("span", { text: "Vakkenlegende" })]),
         h("label", { class: "pgs-check" }, [hideEmpty, h("span", { text: "Lege doelen weglaten" })]),
-        h("label", { class: "pgs-check" }, [goblin, h("span", { text: "Goblin in een vrij vak (Weekplanning, Te doen)" })]),
-        h("label", { class: "pgs-check" }, [hw, h("span", { text: "Huiswerkkolom (Te doen)" })])
+        h("label", { class: "pgs-check" }, [goblin, h("span", { text: "Goblin in een vrij vak (Weekplanning, Te doen)" })])
       ]));
       var hidMsg = h("span", { class: "pgs-muted", text: hidden ? (hidden + " item(s) van andere agenda’s verborgen op de Lesdoelen-afdruk.") : "Geen verborgen items." });
       holder.appendChild(card([cardTitle("Andere agenda’s"),
@@ -888,7 +885,7 @@
         if (/^(plain|goals1|goals2|todo)$/.test(a.mode || "")) next.mode = a.mode;
         if (/^(word|icon)$/.test(a.tabs || "")) next.tabs = a.tabs;
         if (/^(head|full)$/.test(a.logo || "")) next.logo = a.logo;
-        ["legend", "meta", "hideEmpty", "goblin", "huiswerk"].forEach(function (k) { if (typeof a[k] === "boolean") next[k] = a[k]; });
+        ["legend", "meta", "hideEmpty", "goblin"].forEach(function (k) { if (typeof a[k] === "boolean") next[k] = a[k]; });
         storeSet(PRINT_KEY, next); sum.push("Afdrukkeuzes overgenomen.");
       });
     }

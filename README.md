@@ -215,6 +215,8 @@ naar de nieuwe versie.
 
 ![Te doen: je week als tijdlijn](docs/img/07b-te-doen.png)
 
+![Te doen: achterkant met de doelen van elke les](docs/img/07c-te-doen-achterkant.png)
+
 Het tabblad **Afdrukken** toont een voorbeeld op A4 van de week die in Questi staat (dus niet je
 klaargezette wijzigingen — die zegt het er ook bij).
 
@@ -223,13 +225,15 @@ klaargezette wijzigingen — die zegt het er ook bij).
     bovenaan, onderaan je opmerking en de legende.
   - **Lesdoelen** op 1 of 2 A4 — per les schrijflijnen voor WEET, KEN en KAN. Op de vrije
     woensdagnamiddag staan de thema's, de legende en de goblin.
-  - **Te doen · 2 A4** (nieuw) — voorkant: je week als tijdlijn, elke les zo lang als ze duurt;
-    achterkant: per dag een afvinklijst met ruimte voor materiaal en huiswerk. Toetsen herkent het
-    aan het woord ‘toets’ in de titel (dat staat ook op het blad).
+  - **Te doen · 2 A4** (nieuw) — voorkant: je week als tijdlijn met je echte begintijden, elke les
+    zo lang als ze duurt, en per dag een vak Notities (voorbereiding, huiswerk); achterkant: per dag
+    een afvinklijst met de WEET, KEN en KAN van elke les, en een schrijflijn waar een doel nog
+    ontbreekt. Toetsen herkent het aan het woord ‘toets’ in de titel.
 - **Op het blad**: weeknummer en afdrukdatum, legende, het logo linksboven (kopje of de volledige
-  goblin) en — als je hem graag ziet — de goblin groot in een vrij vak.
+  goblin) en — als je hem graag ziet — de goblin groot in een vrij vak (bij Te doen: de vrije
+  namiddag; zonder goblin staan daar notitielijnen).
 - **Andere agenda's meeprinten**, bv. die van de zorgjuf. Klik een item om het te verbergen.
-- **Opmerking voor deze week** komt mee op het blad.
+- **Opmerking voor deze week** komt mee op het blad (niet bij Te doen: daar is het vak Notities).
 - "**N kaarten zonder doelen · nu invullen**" brengt je meteen naar die fiches.
 - **Bewaar als PDF** of **Afdrukken** opent het afdrukvenster van je browser.
 

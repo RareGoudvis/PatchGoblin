@@ -136,7 +136,7 @@ how many parts were carried over (`migratedKeys()`). Every read must go through 
 | `pg_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
 | `pg_threads_v1` | planner (print) + lessons | fiche lineage `{ "<thread>": newest fiche id seen }` — learned from every edit view read/written (the list has no `thread`) |
 | `pg_goalcache_v1` | lessons (goals mode) + print | goals per fiche VERSION `{ "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }` — exact forever (an id never changes content), so a seen fiche costs no request |
-| `pg_print_v1` | planner (Afdrukken tab) + settings | print choices `{ mode: "plain" \| "goals1" \| "goals2" \| "todo", tabs: "word" \| "icon", legend, meta, hideEmpty, logo: "head" \| "full", goblin, huiswerk }` (`meta` = week no. + print date, default on; `goblin` off, `huiswerk` on; a missing field keeps its default) |
+| `pg_print_v1` | planner (Afdrukken tab) + settings | print choices `{ mode: "plain" \| "goals1" \| "goals2" \| "todo", tabs: "word" \| "icon", legend, meta, hideEmpty, logo: "head" \| "full", goblin }` (`meta` = week no. + print date, default on; `goblin` off; a missing field keeps its default; an old `huiswerk` is ignored) |
 | `pg_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
 **`pg_state_v6` is restored field by field** (`mergeState` + `mergeUqSettings`): a new `state.x` that is
@@ -376,11 +376,12 @@ so between the roll and 1 September nothing counts as given — hence the explic
 **Afdrukken tab** (`buildPrintPanel`, built once inside `buildShell`; `showTab` swaps the column pairs via
 `.pg-main.tab-print`). Sidebar: the same tabs (`tabsNav`), week ← →, Versie cards, Op het blad
 (only the rows that apply to the version — `P.onPage[].modes`: labels/hide-empty/goblin note for Lesdoelen,
-legend, week no. + date, logo Kopje | Volledige goblin and "Goblin in een vrij vak" for Weekplanning / Te doen,
-Huiswerkkolom for Te doen), other agendas (hidden for Te doen), "Opmerking voor deze week" (Weekplanning
+legend, week no. + date, logo Kopje | Volledige goblin and "Goblin in een vrij vak" for Weekplanning / Te doen),
+other agendas (hidden for Te doen), "Opmerking voor deze week" (hidden for Te doen; Weekplanning
 adds "Lege notitieregels" when it is empty), a note when edits are staged or a detail failed, the
 orange "N kaarten zonder doelen · nu invullen" (own fiches → `openLesfichesTab` when `__PG_LESSONS`
-exists, else Plannen in Doelen mode; methode cards are typed in the preview), and **Bewaar als PDF** /
+exists, else Plannen in Doelen mode; methode cards are typed in the Lesdoelen preview; shown for Lesdoelen and
+Te doen, which both read goals via `loadPrintFicheGoals`), and **Bewaar als PDF** /
 **Afdrukken** pinned at the bottom — both open the browser print dialog; PDF says to pick "Opslaan als
 PDF". Main: the live A4 preview iframe; for every version but Weekplanning a Voorkant/Achterkant switch hides
 every other page on screen only (`@media screen` style injected by `applyPrintPage`). Entering waits on
@@ -397,16 +398,20 @@ the app's card look: logo · "Week N" · dates · meta, one-line charcoal day he
 cards with a vak-coloured top bar (`goalsInkOn` ink; no colour → grey bar), breaks as 3px gaps, lesuur rows
 weighted by duration (`fr`) so the week fills one page; each day's trailing free rows (no lesuur, no other-agenda
 item, `printFreeRuns`) merge into one hatched box; footer = note + legend. Other-agenda chips sit in the card, an
-uncovered time gets its own `auto` row. Te doen: front = timeline (axis rounded to the hour, a block per lesson at
-its real time, consecutive lesuren of the same lesson merged — same fiche content id, else same vak + shown title,
+uncovered time gets its own `auto` row. Te doen: front = timeline (axis from the week's first start to its last end, labelled with the real start
+times; a break ≥ 30 min empty on EVERY day is drawn `TODO_GAP_DRAW` minutes wide; a block per lesson at its real time, consecutive lesuren of the same lesson merged — same fiche content id, else same vak + shown title,
 never across a gap ≥ 30 min, `todoDayBlocks`; gaps labelled speeltijd/middag; a day ending before the week's first
-afternoon lesson gets "vrije namiddag"); back = per-day checklist + writing areas, toetsen, lesuren per vak, notes.
+afternoon lesson gets "vrije namiddag": the goblin in the first one when `goblin`, else notes lines) plus a lined
+Notities box per day (prep and homework); no footer. Back = no header, `wk N` + Lessen | weet | ken | kan, each day
+and row a CSS subgrid so rows line up; vertical day labels, no times; goals from `goalsRecFor` (fiche, else local),
+an empty goal gets a writing line, a kind hidden for that fiche (`rec.hide`) gets nothing; a crowded day shrinks
+its type and goal line clamp (`--gfs`/`--gl`).
 Only the planner's own lesuren (`pv.slots`), never other agendas. **A toets is a guess**: the word "toets" in the
-shown title (`TODO_TOETS_RE`), and the front footer says so. **Images:** `icons/head96.png` / `goblin-full.png`
+shown title (`TODO_TOETS_RE`); the page no longer says so (the user dropped the footer). **Images:** `icons/head96.png` / `goblin-full.png`
 (web-accessible) by `chrome.runtime.getURL` — the preview iframe is about:blank on questi.com's origin, where the
 overlay already shows them; no URL → no image. Logo top-left (Weekplanning, Te doen front) follows `logo`;
-`goblin` puts the full goblin in Weekplanning's free Wednesday box and a small one with a bubble on the Te doen
-back. Lesdoelen ALWAYS has the full goblin bottom-right in the Wednesday box (`goalsBoxHtml`; 2 A4 = back page);
+`goblin` puts the full goblin in Weekplanning's free Wednesday box and in Te doen's first free afternoon. The
+preview sheets are square (no rounded corners — they clipped the edge). Lesdoelen ALWAYS has the full goblin bottom-right in the Wednesday box (`goalsBoxHtml`; 2 A4 = back page);
 no free Wednesday afternoon → no goblin. No logo in any day heading.
 
 **Lesdoelen print.** The Afdrukken tab's "Versie" choice:

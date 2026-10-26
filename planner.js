@@ -2132,7 +2132,7 @@
     '@media screen {' +
     '  body { background: #e6eaec; padding: 20px; }' +
     '  .psheet-scale { zoom: var(--ss, 1); margin: 0 auto 18px; width: 1040px; }' +
-    '  .psheet { border-radius: 12px; box-shadow: 0 4px 22px rgba(20,40,60,.16); }' +
+    '  .psheet { box-shadow: 0 4px 22px rgba(20,40,60,.16); }' +
     '}';
   // One-page fit — run from the extension (isolated world) on the iframe's own DOM, NOT as an inline
   // <script> in the doc (questi.com's CSP would block that). Measures each sheet's natural content
@@ -2171,12 +2171,16 @@
   // ---- Te doen (mode "todo"): two pages per week, front and back of one sheet ----
   // Front: a timeline — one lane per school day, every lesson a block as long as the lesson itself (the
   // same lesson in consecutive lesuren is one block, never across the lunch break), breaks as faint
-  // labels, a free afternoon as a dashed block. Back: per day a checklist next to writing space for
-  // preparation (and homework, pref `huiswerk`), plus toetsen, lesuren per vak and notes. The same
-  // lesuren as the Weekplanning grid (the planner's own lesson calendar(s)); other agendas stay out.
-  // A toets is a GUESS from the word "toets" in the shown title, and the page says so.
+  // labels, a free afternoon as a dashed box (the goblin, pref `goblin`, else notes lines), and a lined
+  // Notities box at the end of every lane. The axis runs from the week's first start to its last end,
+  // labelled with the real start times; a break that is empty on EVERY day is drawn short.
+  // Back: per day the lessons as a checklist with their WEET / KEN / KAN (goalsRecFor — the fiche, else
+  // the local record) in three equal columns; an empty goal gets a writing line, a kind hidden for that
+  // fiche gets nothing. The same lesuren as the Weekplanning grid (the planner's own lesson
+  // calendar(s)); other agendas stay out. A toets is a GUESS from the word "toets" in the shown title.
   var TODO_TOETS_RE = /\btoets/i;
   var TODO_LUNCH_MIN = 30;   // a gap this long or longer is "middag" (and never merged across)
+  var TODO_GAP_DRAW = 12;    // minutes of width a break empty on every day is drawn as
   function todoSlotEnd(pv, s, start, fb) {
     var em = hhmmToMin(s.endtime ? String(s.endtime).slice(0, 5) : timeFromISO(s.enddate));
     if (em == null || em <= start) { var m = pv.rowMeta && pv.rowMeta[minToHHMM(start)]; em = (m && m.end) ? hhmmToMin(m.end) : null; }
@@ -2190,7 +2194,8 @@
     if (fa || fb) return String(fa || "") === String(fb || "");
     return !!a.key && a.key === b.key && String(a.top) === String(b.top) && !!a.slot.isGym === !!b.slot.isGym;
   }
-  // A day's lessons, sorted, consecutive lesuren of the same lesson merged. n = lesuren in the block.
+  // A day's lessons, sorted, consecutive lesuren of the same lesson merged. n = lesuren in the block,
+  // st = their start times (the axis labels).
   function todoDayBlocks(pv, weekIdx, day, fb) {
     var les = pv.slots.filter(function (s) {
       return s.weekIdx === weekIdx && s.dayIdx === day && s.idCalendar !== "cal_holidays" && !s.isFullday && (s.time || s.starttime);
@@ -2198,14 +2203,14 @@
       var st = hhmmToMin(s.time || String(s.starttime).slice(0, 5));
       var p = printCellParts(pv, s) || { vak: "", main: "", color: "" };
       var col = p.color || "#3E424D";
-      return { slot: s, s: st, e: st == null ? null : todoSlotEnd(pv, s, st, fb), p: p, key: normTitle(p.main || ""), top: topTagIdOf(s.vak), n: 1,
+      return { slot: s, s: st, e: st == null ? null : todoSlotEnd(pv, s, st, fb), p: p, key: normTitle(p.main || ""), top: topTagIdOf(s.vak), n: 1, st: [st],
         col: col, ink: goalsInkOn(col), lbl: p.vak || (s.isGym ? "beweging" : ""), toets: TODO_TOETS_RE.test(p.main || "") };
     }).filter(function (x) { return x.s != null; }).sort(function (a, b) { return a.s - b.s; });
     var out = [];
     les.forEach(function (L) {
       var prev = out[out.length - 1];
       if (prev && L.s >= prev.e - 1 && L.s - prev.e < TODO_LUNCH_MIN && todoSameLesson(prev, L)) {
-        prev.e = Math.max(prev.e, L.e); prev.n++; prev.toets = prev.toets || L.toets; return;
+        prev.e = Math.max(prev.e, L.e); prev.n++; prev.st.push(L.s); prev.toets = prev.toets || L.toets; return;
       }
       out.push(L);
     });
@@ -2213,7 +2218,7 @@
   }
   // Everything both pages need for one week.
   function todoWeekData(pv, weekIdx) {
-    var fb = commonDurationMin(pv), days = [], t0 = null, t1 = null, aft = null, nLes = 0;
+    var fb = commonDurationMin(pv), days = [], t0 = null, t1 = null, aft = null, nLes = 0, busy = [], starts = {};
     for (var d = 0; d < 5; d++) {
       var bl = todoDayBlocks(pv, weekIdx, d, fb);
       bl.forEach(function (L) {
@@ -2221,6 +2226,8 @@
         if (t0 == null || L.s < t0) t0 = L.s;
         if (t1 == null || L.e > t1) t1 = L.e;
         if (L.s >= 720 && (aft == null || L.s < aft)) aft = L.s;   // the week's first afternoon lesson
+        busy.push([L.s, L.e]);
+        L.st.forEach(function (m) { starts[m] = true; });
       });
       days.push({ info: printDayInfo(pv, weekIdx * 7 + d), blocks: bl });
     }
@@ -2230,24 +2237,45 @@
       var last = D.blocks[D.blocks.length - 1].e;
       if (last <= aft && t1 - aft >= 30) D.free = { s: aft, e: t1 };
     });
-    return { days: days, nLes: nLes, t0: t0 == null ? 0 : Math.floor(t0 / 60) * 60, t1: t1 == null ? 0 : Math.ceil(t1 / 60) * 60,
+    // Breaks of TODO_LUNCH_MIN or more with no lesson on any day: drawn TODO_GAP_DRAW minutes wide.
+    var gaps = [], reach = t0;
+    busy.sort(function (a, b) { return a[0] - b[0]; }).forEach(function (iv) {
+      if (iv[0] - reach >= TODO_LUNCH_MIN) gaps.push([reach, iv[0]]);
+      reach = Math.max(reach, iv[1]);
+    });
+    function drawn(m) {
+      var x = m - t0;
+      gaps.forEach(function (g) { x -= Math.max(0, Math.min(m, g[1]) - g[0]) * (1 - TODO_GAP_DRAW / (g[1] - g[0])); });
+      return x;
+    }
+    var span = t0 == null ? 1 : Math.max(1, drawn(t1));
+    return { days: days, nLes: nLes, t0: t0 == null ? 0 : t0, t1: t1 == null ? 0 : t1,
+      frac: function (m) { return drawn(m) / span; },
+      ticks: Object.keys(starts).map(Number).sort(function (a, b) { return a - b; }),
       wk: isoWeekNo(isoDate(addDays(pv.weekStart, weekIdx * 7))), rng: weekTitleFor(pv, weekIdx), themas: printThemaList(pv, weekIdx) };
   }
   function todoFrontHtml(W, opts, prefs) {
-    var span = Math.max(60, W.t1 - W.t0);
-    function pct(m) { return ((m - W.t0) / span * 100).toFixed(3) + "%"; }
+    function pct(m) { return (W.frac(m) * 100).toFixed(3) + "%"; }
     function lr(a, b, inset) { return "left:calc(" + pct(a) + " + " + inset + "px);width:calc(" + pct(b) + " - " + pct(a) + " - " + (2 * inset) + "px);"; }
     var title = opts.showMeta ? ("Week " + W.wk) : W.rng;
     var h = '<div class="tdhd">' + printLogoHtml(prefs, "tlogo") + '<div><div class="tbig">' + esc(title) + '</div><div class="tsub">' +
-      esc((opts.showMeta ? W.rng + " · " : "") + W.nLes + (W.nLes === 1 ? " lesuur" : " lesuren")) + '</div></div><span class="tsp"></span><div class="tpills">' +
+      esc((opts.showMeta ? W.rng + " · " : "") + W.nLes + (W.nLes === 1 ? " lesuur" : " lesuren") + (opts.showMeta ? " · afgedrukt " + todayDDMMYYYY() : "")) +
+      '</div></div><span class="tsp"></span><div class="tpills">' +
       W.themas.map(function (b) { return '<span class="tpill">' + (b.label ? printChipHtml("tpchip", b.label, b.color) : "") + "<span>" + esc(b.txt) + "</span></span>"; }).join("") +
       "</div></div>";
-    h += '<div class="taxis">';
-    for (var m = W.t0; m <= W.t1; m += 60) h += '<span style="left:' + pct(m) + '">' + minToHHMM(m) + "</span>";
-    h += '</div><div class="tlanes">';
-    var halves = Math.max(1, Math.round(span / 30));
+    // Axis: every real start time plus the end; a label too close to the previous one is left out.
+    h += '<div class="tax"><div class="taxis">';
+    var lastF = -1;
+    W.ticks.concat([W.t1]).forEach(function (m, i, all) {
+      var f = W.frac(m), end = i === all.length - 1;
+      if (lastF >= 0 && f - lastF < 0.045) return;
+      lastF = f;
+      h += '<span' + (end ? ' class="tend"' : "") + ' style="left:' + pct(m) + '">' + minToHHMM(m) + "</span>";
+    });
+    h += '</div><div class="tbh">Notities</div></div><div class="tlanes">';
+    var gob = prefs.goblin ? printGoblinHtml("tfgob") : "", gobUsed = false;
     W.days.forEach(function (D) {
-      h += '<div class="tlane"><div class="tday"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="ttrack" style="background-image:repeating-linear-gradient(90deg, #F5F6F8 0, #F5F6F8 calc(100% / ' + halves + ' - 1px), #E9EBEF calc(100% / ' + halves + ' - 1px), #E9EBEF calc(100% / ' + halves + '))">';
+      h += '<div class="tlane"><div class="tday"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="ttrack">';
       if (!D.blocks.length) h += '<div class="tnone">geen lessen</div>';
       D.blocks.forEach(function (L, i) {
         var nx = D.blocks[i + 1];
@@ -2258,54 +2286,36 @@
       if (D.free) {
         var last = D.blocks[D.blocks.length - 1].e;
         if (D.free.s - last >= 10) h += '<div class="tbrk" style="' + lr(last, D.free.s, 0) + '"><span>' + (D.free.s - last < TODO_LUNCH_MIN ? "speeltijd" : "middag") + "</span></div>";
-        h += '<div class="tfree" style="' + lr(D.free.s, D.free.e, 2) + '">vrije namiddag</div>';
+        // The goblin in the first free afternoon (pref `goblin`); otherwise that box is room for notes.
+        if (gob && !gobUsed) { gobUsed = true; h += '<div class="tfree" style="' + lr(D.free.s, D.free.e, 2) + '">' + gob + "<span>vrije namiddag</span></div>"; }
+        else h += '<div class="tfree tfnote" style="' + lr(D.free.s, D.free.e, 2) + '"><span>vrije namiddag</span></div>';
       }
-      h += "</div></div>";
+      h += '</div><div class="twr"></div></div>';
     });
-    h += '</div><div class="tfoot"><span>Blokken zo lang als de les zelf · een dubbel lesuur is één blok · zwart omlijnd = toets, herkend aan het woord ‘toets’ in de titel</span>' +
-      '<span class="tside">' + (opts.showMeta ? "afgedrukt " + esc(todayDDMMYYYY()) + " · " : "") + "voorkant · draai om voor je to-do ↻</span></div>";
-    return h;
+    return h + "</div>";
   }
-  function todoBackHtml(W, opts, prefs) {
-    var hw = prefs.huiswerk !== false, toetsen = [], perVak = {}, order = [];
-    var h = '<div class="tdhd tback"><div><div class="tbig sm">Te doen · ' + esc(opts.showMeta ? "week " + W.wk : W.rng) + '</div><div class="tsub">vink af wat klaarligt · noteer wat je nodig hebt' +
-      (hw ? " en wat de klas meekrijgt" : "") + '</div></div><span class="tsp"></span><span class="tside">achterkant</span></div>';
-    h += '<div class="tbk"><div class="tbt' + (hw ? "" : " nohw") + '"><div class="tbh"></div><div class="tbh">Lessen</div><div class="tbh">Voorbereiden / materiaal</div>' + (hw ? '<div class="tbh">Huiswerk</div>' : "");
+  function todoBackHtml(W, opts) {
+    var h = '<div class="tc"><div class="tbh twk">' + (opts.showMeta ? "wk " + W.wk : "") + '</div><div class="tbh">Lessen</div>' +
+      GOALS_KINDS.map(function (k) { return '<div class="tbh tgh">' + k.ico + esc(k.label) + "</div>"; }).join("");
     W.days.forEach(function (D) {
-      var n = D.blocks.length + (D.free ? 1 : 0);
-      var fs = n <= 8 ? 10 : Math.max(7, Math.floor(84 / n));   // a long day shrinks its list instead of clipping it
-      h += '<div class="tbd"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="tbl" style="font-size:' + fs + 'px">';
-      if (!D.blocks.length) h += '<div class="tli tvrij">geen lessen</div>';
+      var n = Math.max(1, D.blocks.length);
+      // A crowded day gets smaller type and fewer goal lines instead of clipping mid-line.
+      var fs = n <= 6 ? 8.5 : Math.max(6.5, Math.round(51 / n * 10) / 10), lines = Math.max(1, Math.min(4, Math.floor(118 / n / (fs * 1.2))));
+      h += '<div class="tbd tbv"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="tcl" style="--gfs:' + fs + "px;--gl:" + lines + '">';
+      if (!D.blocks.length) h += '<div class="tcr"><div class="tli tmut">geen lessen</div></div>';
       D.blocks.forEach(function (L) {
-        if (L.toets) toetsen.push({ day: D.info.ab, s: L.s, t: L.p.main });
-        var k = L.lbl || "geen vak";
-        if (!perVak[k]) { perVak[k] = { n: 0, col: L.col }; order.push(k); }
-        perVak[k].n += L.n;
-        h += '<div class="tli"><span class="tcb"></span><span class="ttm">' + minToHHMM(L.s) + '</span><i style="background:' + esc(L.col) + '"></i><span class="tlt' + (L.p.main ? "" : " tmut") + '">' + esc(L.p.main || L.lbl) + "</span>" +
-          (L.toets ? '<span class="ttg">TOETS</span>' : "") + "</div>";
+        var rec = goalsRecFor(goalsKeyFor(L.slot)), hide = rec.hide || {};
+        h += '<div class="tcr"><div class="tli"><span class="tcb"></span><i style="background:' + esc(L.col) + '"></i><span class="tlt' + (L.p.main ? "" : " tmut") + '">' + esc(L.p.main || L.lbl) + "</span>" +
+          (L.toets ? '<span class="ttg">TOETS</span>' : "") + "</div>" +
+          GOALS_KINDS.map(function (k) {
+            if (hide[k.key]) return '<div class="tcg"></div>';
+            var t = String(rec[k.key] || "").trim();
+            return t ? '<div class="tcg">' + esc(t) + "</div>" : '<div class="tcg twl"></div>';
+          }).join("") + "</div>";
       });
-      if (D.free) h += '<div class="tli tvrij"><span class="ttm">' + minToHHMM(D.free.s) + "</span>vrije namiddag</div>";
-      h += '</div><div class="twr"></div>' + (hw ? '<div class="twr hw"></div>' : "");
+      h += "</div>";
     });
-    h += '</div><div class="tbside">';
-    h += '<div class="tpanel"><h5>Toetsen</h5>' + (toetsen.length ? toetsen.map(function (t) {
-      return '<div class="ttl"><b>' + esc(t.day.toLowerCase()) + " " + minToHHMM(t.s) + "</b><span>" + esc(t.t) + "</span></div>";
-    }).join("") : '<div class="tmuted">geen gevonden</div>') + "</div>";
-    order.sort(function (a, b) { return perVak[b].n - perVak[a].n || a.localeCompare(b, "nl"); });
-    var max = order.length ? perVak[order[0]].n : 1, total = 0;
-    h += '<div class="tpanel tbars"><h5>Lesuren per vak</h5>' + order.map(function (k) {
-      total += perVak[k].n;
-      return '<div><span>' + esc(k) + '</span><u style="width:' + Math.round(perVak[k].n / max * 100) + "%;background:" + esc(perVak[k].col) + '"></u><b>' + perVak[k].n + "</b></div>";
-    }).join("") + "</div>";
-    var txt = (opts.comment || "").trim();
-    h += '<div class="tpanel tnotesp"><h5>Opmerkingen</h5><div class="tnotes">' + (txt ? esc(txt) : "") + "</div></div>";
-    if (prefs.goblin) {
-      var gob = printGoblinHtml("tgob");
-      if (gob) h += '<div class="tgstrip"><div class="tbub">' + total + (total === 1 ? " lesuur, " : " lesuren, ") + toetsen.length + (toetsen.length === 1 ? " toets" : " toetsen") +
-        ". Lijst staat klaar — jij zet de koffie.</div>" + gob + "</div>";
-    }
-    h += "</div></div>";
-    return h;
+    return h + "</div>";
   }
   function printTodoWeekHtml(pv, weekIdx, opts, prefs) {
     var W = todoWeekData(pv, weekIdx);
@@ -2314,15 +2324,13 @@
       return sheet('<div class="tdhd">' + printLogoHtml(prefs, "tlogo") + '<div><div class="tbig">' + esc(opts.showMeta ? "Week " + W.wk : W.rng) + '</div><div class="tsub">' +
         esc(opts.showMeta ? W.rng : "") + '</div></div></div><div class="pempty">Geen lesitems deze week.</div>') + sheet("");   // blank back: always two pages
     }
-    return sheet(todoFrontHtml(W, opts, prefs)) + sheet(todoBackHtml(W, opts, prefs));
+    return sheet(todoFrontHtml(W, opts, prefs)) + sheet(todoBackHtml(W, opts));
   }
   var PRINT_TODO_CSS =
     '.tdhd { flex: none; display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }' +
-    '.tdhd.tback { margin-bottom: 6px; }' +
     '.tlogo { width: 46px; height: 46px; object-fit: contain; }' +
     '.tlogo.full { width: auto; height: 64px; margin: -8px 0 -6px; }' +
     '.tbig { font-size: 24px; font-weight: 900; letter-spacing: -.02em; line-height: 1; }' +
-    '.tbig.sm { font-size: 19px; }' +
     '.tsub { font-size: 12px; color: #5B5F6B; font-weight: 600; margin-top: 3px; }' +
     '.tsp { flex: 1; }' +
     '.tpills { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 560px; }' +
@@ -2330,15 +2338,20 @@
     '.tpill > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
     '.tpill:not(:has(.tpchip)) { padding-left: 11px; }' +
     '.tpchip { flex: none; border-radius: 999px; padding: 2px 8px; font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase; background: #EEF0F3; color: #5B5F6B; }' +
-    '.tside { font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #A0A4AE; white-space: nowrap; }' +
-    '.taxis { flex: none; position: relative; height: 16px; margin: 0 8px 0 64px; }' +
+    '.tbh { font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #8A8E99; align-self: end; padding-left: 2px; white-space: nowrap; }' +
+    // front: axis + one lane per day (day | timeline | Notities)
+    '.tax { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 6px; }' +
+    '.taxis { position: relative; height: 16px; margin-left: 64px; }' +
     '.taxis span { position: absolute; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: #8A8E99; }' +
+    '.taxis span:first-child { transform: none; }' +
+    '.taxis span.tend { transform: translateX(-100%); }' +
+    '.tax .tbh { padding-left: 4px; }' +
     '.tlanes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 6px; }' +
-    '.tlane { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 6px; min-height: 0; }' +
+    '.tlane { display: grid; grid-template-columns: 58px minmax(0, 1fr) 170px; gap: 6px; min-height: 0; }' +
     '.tday, .tbd { border-radius: 10px; background: #1E1F27; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }' +
     '.tday b { font-size: 17px; font-weight: 900; }' +
     '.tday span, .tbd span { font-size: 10px; opacity: .75; margin-top: 4px; }' +
-    '.ttrack { position: relative; border-radius: 10px; background-color: #F5F6F8; margin-right: 8px; }' +
+    '.ttrack { position: relative; border-radius: 10px; background: #F5F6F8; }' +
     '.tblk { position: absolute; top: 4px; bottom: 4px; border-radius: 8px; padding: 5px 7px; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }' +
     '.tk { display: flex; gap: 6px; font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; opacity: .85; white-space: nowrap; }' +
     '.tk span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }' +
@@ -2348,45 +2361,33 @@
     '.tst { position: absolute; right: 5px; bottom: 4px; transform: rotate(-6deg); background: #fff; color: #1E1F27; font-size: 8px; font-weight: 900; letter-spacing: .1em; padding: 1px 5px; border-radius: 3px; box-shadow: 0 0 0 1px #1E1F27; }' +
     '.tbrk { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }' +
     '.tbrk span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #A0A4AE; white-space: nowrap; }' +
-    '.tfree { position: absolute; top: 4px; bottom: 4px; border-radius: 8px; border: 2px dashed #7ED957; background: #F3FBEF; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #3B7A22; font-size: 13px; overflow: hidden; white-space: nowrap; }' +
+    '.tfree { position: absolute; top: 4px; bottom: 4px; border-radius: 8px; border: 2px dashed #7ED957; background: #F3FBEF; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 800; color: #3B7A22; font-size: 13px; overflow: hidden; white-space: nowrap; }' +
+    '.tfgob { height: 92%; width: auto; }' +
+    '.tfree.tfnote { align-items: flex-start; justify-content: flex-start; padding: 3px 8px; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; background-color: #fff; background-image: repeating-linear-gradient(transparent, transparent 19px, #E3E6EB 19px, #E3E6EB 20px); background-position: 0 4px; }' +
     '.tnone { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #A0A4AE; font-weight: 700; font-size: 12px; }' +
-    '.tfoot { flex: none; display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 7px; font-size: 9.5px; color: #8A8E99; }' +
-    // back: one row per day + a side column
-    '.tbk { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 10px; }' +
-    '.tbt { display: grid; grid-template-columns: 40px minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, .85fr); grid-template-rows: 18px repeat(5, minmax(0, 1fr)); gap: 5px 6px; min-height: 0; }' +
-    '.tbt.nohw { grid-template-columns: 40px minmax(0, 1.25fr) minmax(0, 1.85fr); }' +
-    '.tbh { font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #8A8E99; align-self: end; padding-left: 2px; }' +
+    '.twr { min-height: 0; border: 1px solid #EDE4C8; border-radius: 8px; background-color: #FBF8EE; background-image: repeating-linear-gradient(transparent, transparent 19px, #E9DFC2 19px, #E9DFC2 20px); background-position: 0 6px; }' +
+    // back: day | lessons | weet | ken | kan; each day and each row a subgrid, so every row lines up with the header
+    '.tc { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 26px minmax(0, 1.15fr) repeat(3, minmax(0, 1fr)); grid-template-rows: 14px repeat(5, minmax(0, 1fr)); gap: 4px 0; }' +
+    '.tc .tbh { font-size: 8.5px; }' +
+    '.tc .twk { color: #1E1F27; font-size: 7.5px; letter-spacing: .02em; padding: 0; text-align: center; }' +
+    '.tc .tgh { display: flex; gap: 4px; align-items: center; padding-left: 24px; }' +
+    '.tc .tbh:nth-child(2) { padding-left: 13px; }' +
     '.tbd { border-radius: 8px; }' +
-    '.tbd b { font-size: 15px; font-weight: 900; }' +
-    '.tbd span { font-size: 9px; }' +
-    '.tbl { border: 1px solid #E2E4E9; border-radius: 8px; padding: 3px 7px; display: flex; flex-direction: column; justify-content: space-around; min-height: 0; overflow: hidden; }' +
-    '.tli { display: flex; align-items: center; gap: 5px; line-height: 1.2; min-width: 0; }' +
+    '.tbd b { font-size: 13px; font-weight: 900; }' +
+    '.tbv { flex-direction: row; gap: 6px; writing-mode: vertical-rl; transform: rotate(180deg); }' +
+    '.tbv span { margin-top: 0; }' +
+    '.tcl { grid-column: span 4; margin-left: 6px; display: grid; grid-template-columns: subgrid; grid-auto-rows: minmax(0, 1fr); border: 1px solid #E2E4E9; border-radius: 8px; padding: 0 10px 0 7px; min-height: 0; overflow: hidden; font-size: calc(var(--gfs) + 1px); }' +
+    '.tcr { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; min-height: 0; }' +
+    '.tcr + .tcr { border-top: 1px solid #F0F1F4; }' +
+    '.tcr > * + * { padding-left: 18px; }' +
+    '.tli { display: flex; align-items: center; gap: 5px; min-width: 0; }' +
     '.tcb { width: 11px; height: 11px; border: 1.5px solid #1E1F27; border-radius: 3px; flex: 0 0 auto; }' +
-    '.ttm { font-size: .85em; font-weight: 700; color: #8A8E99; flex: 0 0 auto; width: 2.7em; }' +
     '.tli i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }' +
-    '.tlt { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }' +
+    '.tlt { font-weight: 600; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.15; }' +
+    '.tmut { color: #8A8E99; font-weight: 500; font-style: italic; }' +
     '.ttg { margin-left: auto; background: #F59E0B; color: #1E1F27; border-radius: 3px; padding: 0 4px; font-size: 7.5px; font-weight: 900; letter-spacing: .08em; flex: 0 0 auto; }' +
-    '.tlt.tmut { color: #8A8E99; font-weight: 500; font-style: italic; }' +
-    '.tli.tvrij { color: #3B7A22; font-weight: 800; padding-left: 16px; }' +
-    '.twr { min-height: 0; border: 1px solid #E2E4E9; border-radius: 8px; background-color: #fff; background-image: repeating-linear-gradient(transparent, transparent 19px, #E3E6EB 19px, #E3E6EB 20px); background-position: 0 4px; }' +
-    '.twr.hw { background-color: #FBF8EE; border-color: #EDE4C8; background-image: repeating-linear-gradient(transparent, transparent 19px, #E9DFC2 19px, #E9DFC2 20px); }' +
-    '.tbside { display: flex; flex-direction: column; gap: 8px; min-height: 0; }' +
-    '.tpanel { flex: 0 1 auto; min-height: 0; border: 1px solid #E2E4E9; border-radius: 10px; padding: 8px 10px; overflow: hidden; }' +
-    '.tpanel h5 { margin: 0 0 6px; font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #8A8E99; }' +
-    '.ttl { display: flex; gap: 6px; align-items: baseline; font-size: 10px; margin-bottom: 4px; }' +
-    '.ttl b { background: #F59E0B; color: #1E1F27; border-radius: 3px; padding: 0 5px; font-size: 9px; white-space: nowrap; }' +
-    '.ttl span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }' +
-    '.tmuted { font-size: 10px; color: #8A8E99; }' +
-    '.tbars div { display: grid; grid-template-columns: 78px minmax(0, 1fr) 14px; gap: 6px; align-items: center; font-size: 9.5px; margin-bottom: 4px; }' +
-    '.tbars span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-    '.tbars u { display: block; height: 9px; border-radius: 3px; text-decoration: none; }' +
-    '.tbars b { text-align: right; }' +
-    '.tnotesp { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 60px; }' +
-    '.tnotes { flex: 1; min-height: 0; overflow: hidden; white-space: pre-wrap; font-size: 10.5px; line-height: 20px; background-image: repeating-linear-gradient(#fff, #fff 19px, #E7E9EE 19px, #E7E9EE 20px); }' +
-    '.tgstrip { flex: none; display: flex; align-items: flex-end; gap: 6px; }' +
-    '.tgob { width: 58px; height: auto; flex: 0 0 auto; }' +
-    '.tbub { position: relative; flex: 1 1 auto; background: #fff; border: 1.5px solid #1E1F27; border-radius: 12px; padding: 5px 7px; margin-bottom: 18px; font-size: 9.5px; font-weight: 600; line-height: 1.3; }' +
-    '.tbub::after { content: ""; position: absolute; right: -7px; bottom: 10px; width: 12px; height: 12px; background: #fff; border-right: 1.5px solid #1E1F27; border-bottom: 1.5px solid #1E1F27; transform: rotate(-45deg); }';
+    '.tcg { font-size: var(--gfs); line-height: 1.2; color: #3E424D; min-height: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: var(--gl); -webkit-box-orient: vertical; }' +
+    '.tcg.twl { display: block; align-self: end; height: 1px; margin-bottom: 4px; background: #C9CDD4; background-clip: content-box; }';
   function printTodoDocHtml(pv, opts, prefs) {
     prefs = prefs || {};
     var body = "";
@@ -3020,7 +3021,7 @@
     '  body { background: #e6eaec; padding: 20px; }' +
     '  .psheet-scale { zoom: var(--ss, 1); margin: 0 auto 18px; width: 1076px; }' +
     // fitPrintDoc's --ss zoom assumes the 1040×712 sheet; this page is 1076×746, so shrink 5% more.
-    '  .gsheet { border-radius: 12px; box-shadow: 0 4px 22px rgba(20,40,60,.16); zoom: .95; }' +
+    '  .gsheet { box-shadow: 0 4px 22px rgba(20,40,60,.16); zoom: .95; }' +
     '  .gl-row { cursor: text; }' +
     '  .gl-row:hover .gl-txt { background-color: rgba(109,63,224,.05); }' +
     '  .gl-row:focus-within .gl-txt { background-color: rgba(109,63,224,.10); }' +
@@ -3301,7 +3302,7 @@
     { v: "plain", t: "Weekplanning", d: "één blad per week, alle lessen" },
     { v: "goals1", t: "Lesdoelen · 1 A4", d: "één blad per week, 3 lijnen per les" },
     { v: "goals2", t: "Lesdoelen · 2 A4", d: "voor- en achterkant, 8 lijnen per les" },
-    { v: "todo", t: "Te doen · 2 A4", d: "voorkant tijdlijn, achterkant afvinklijst", nieuw: true }
+    { v: "todo", t: "Te doen · 2 A4", d: "voorkant tijdlijn en notities, achterkant afvinklijst met doelen", nieuw: true }
   ];
   function isGoalsMode(m) { return m === "goals1" || m === "goals2"; }
   // Checkbox row; `sub` = a muted second line (an element, so its text can change per version).
@@ -3311,7 +3312,7 @@
   function ppLbl(t) { return h("div", { class: "qpp-lbl", text: t }); }
   function buildPrintPanel() {
     var P = _pp = { pv: null, start: null, weeks: 1, extras: {}, gen: 0, page: "front", pages: 0, plannerWeek: null, prefsLoaded: false,
-      prefs: { mode: "plain", tabs: "word", legend: true, meta: true, hideEmpty: false, logo: "head", goblin: false, huiswerk: true },
+      prefs: { mode: "plain", tabs: "word", legend: true, meta: true, hideEmpty: false, logo: "head", goblin: false },
       calBoxes: [], verCards: [], tabBtns: [], pageBtns: [], logoBtns: [] };
     P.frame = h("iframe", { class: "qpp-frame", title: "Afdrukvoorbeeld" });
     P.msg = h("div", { class: "qpp-msg", style: "display:none" });
@@ -3328,8 +3329,6 @@
     P.hideEmptyChk.addEventListener("change", function () { P.prefs.hideEmpty = P.hideEmptyChk.checked; savePrintPrefs(); renderPrintPreview(); });
     P.goblinChk = h("input", { type: "checkbox" });
     P.goblinChk.addEventListener("change", function () { P.prefs.goblin = P.goblinChk.checked; savePrintPrefs(); renderPrintPreview(); });
-    P.hwChk = h("input", { type: "checkbox" }); P.hwChk.checked = true;
-    P.hwChk.addEventListener("change", function () { P.prefs.huiswerk = P.hwChk.checked; savePrintPrefs(); renderPrintPreview(); });
     var verList = PRINT_VERSIONS.map(function (x) {
       var r = h("input", { type: "radio", name: "qpp-mode", value: x.v });
       r.addEventListener("change", function () { if (r.checked) { P.prefs.mode = x.v; savePrintPrefs(); renderPrintPreview(); } });
@@ -3352,7 +3351,6 @@
     P.gobInfo = h("div", { class: "qpp-info" });
     P.onPage = [
       { modes: "goals1 goals2", el: h("div", { class: "qpp-seg", role: "group", "aria-label": "Labels op de kaart" }, [tabBtn("word", "WEET / KEN / KAN"), tabBtn("icon", "Icoontjes")]) },
-      { modes: "todo", el: ppCheck(P.hwChk, "Huiswerkkolom", h("small", { class: "qpp-check-sub", text: "op de achterkant, naast materiaal" })) },
       { modes: "plain goals1 goals2", el: ppCheck(P.legendChk, "Vakkenlegende") },
       { modes: "goals1 goals2", el: ppCheck(P.hideEmptyChk, "Lege doelen weglaten", null, "Een WEET/KEN/KAN zonder tekst krijgt geen label en geen lijnen. Uitvinken brengt alles terug.") },
       { modes: "plain goals1 goals2 todo", el: ppCheck(P.metaChk, "Weeknummer en afdrukdatum") },
@@ -3379,7 +3377,7 @@
       h("fieldset", { class: "qpp-sec qpp-vers" }, [h("legend", { class: "qpp-lbl", text: "Versie" })].concat(verList)),
       h("div", { class: "qpp-sec" }, [ppLbl("Op het blad")].concat(P.onPage.map(function (o) { return o.el; }))),
       P.cals,
-      h("div", { class: "qpp-sec" }, [h("label", { class: "qpp-lbl", text: "Opmerking voor deze week" }), P.ta, P.notesRow]),
+      P.noteSec = h("div", { class: "qpp-sec" }, [h("label", { class: "qpp-lbl", text: "Opmerking voor deze week" }), P.ta, P.notesRow]),
       P.staged,
       P.warn
     ]);
@@ -3404,8 +3402,8 @@
     window.addEventListener("resize", function () { if (view.tab === "print") fitPrintFrame(); });
     return P;
   }
-  // pg_print_v1 = { mode, tabs, legend, meta, hideEmpty, logo, goblin, huiswerk } — shared with the
-  // Afdrukken section in settings.js. A missing or odd field keeps its default.
+  // pg_print_v1 = { mode, tabs, legend, meta, hideEmpty, logo, goblin } — shared with the Afdrukken
+  // section in settings.js. A missing or odd field keeps its default; an old `huiswerk` is ignored.
   function savePrintPrefs() { storeSet("pg_print_v1", _pp.prefs); }
   function loadPrintPrefs() {
     return storeGet("pg_print_v1").then(function (v) {
@@ -3417,9 +3415,8 @@
       if (typeof v.hideEmpty === "boolean") p.hideEmpty = v.hideEmpty;
       if (v.logo === "head" || v.logo === "full") p.logo = v.logo;
       if (typeof v.goblin === "boolean") p.goblin = v.goblin;
-      if (typeof v.huiswerk === "boolean") p.huiswerk = v.huiswerk;
       _pp.legendChk.checked = p.legend; _pp.metaChk.checked = p.meta; _pp.hideEmptyChk.checked = p.hideEmpty;
-      _pp.goblinChk.checked = p.goblin; _pp.hwChk.checked = p.huiswerk;
+      _pp.goblinChk.checked = p.goblin;
     }).catch(function () {});
   }
   function ppOpts() {
@@ -3432,8 +3429,9 @@
     P.tabBtns.forEach(function (b) { b.el.classList.toggle("active", b.v === P.prefs.tabs); });
     P.logoBtns.forEach(function (b) { b.el.classList.toggle("active", b.v === P.prefs.logo); });
     P.onPage.forEach(function (o) { o.el.style.display = (" " + o.modes + " ").indexOf(" " + mode + " ") >= 0 ? "" : "none"; });
-    P.goblinSub.textContent = mode === "todo" ? "klein, onderaan naast de lijst op de achterkant"
+    P.goblinSub.textContent = mode === "todo" ? "in de vrije namiddag op de voorkant — anders staan daar notitielijnen"
       : "groot, in de vrije woensdagnamiddag — geen vrije namiddag, dan geen goblin";
+    P.noteSec.style.display = mode === "todo" ? "none" : "";   // Te doen has a Notities box per day instead
     P.gobInfo.textContent = "De goblin staat in het vrije woensdagvak" + (mode === "goals2" ? " (achterkant)" : "") + ".";
     P.notesRow.style.display = plain ? "" : "none";
     P.pageSeg.style.display = plain ? "none" : "";
@@ -3468,8 +3466,8 @@
       : mode === "todo" ? printTodoDocHtml(P.pv, ppOpts(), P.prefs) : printDocHtml(P.pv, P.extras, ppOpts(), P.prefs));
     doc.close();
     applyPrintPage();
-    if (goals) {
-      wireGoalsEditor(doc, renderPrintPreview);
+    if (goals) wireGoalsEditor(doc, renderPrintPreview);
+    if (goals || mode === "todo") {
       // Goals live in the fiches: read them (max 4 in flight, goal cache first), then paint once more.
       var pv = P.pv;
       loadPrintFicheGoals(pv).then(function (changed) { if (P.pv !== pv) return; if (changed) renderPrintPreview(); else syncPrintWarn(); });
@@ -3507,14 +3505,15 @@
   }
   function syncPrintWarn() {
     var P = _pp, w = P.warn; w.innerHTML = "";
-    var c = (isGoalsMode(P.prefs.mode) && P.pv) ? printGoalsMissing(P.pv) : null;
+    var todo = P.prefs.mode === "todo";
+    var c = ((isGoalsMode(P.prefs.mode) || todo) && P.pv) ? printGoalsMissing(P.pv) : null;
     if (!c || (!c.own && !c.meth && !c.loading)) { w.style.display = "none"; return; }
     w.style.display = "";
     var kids = [];
     if (c.loading) kids.push(h("span", { text: "doelen laden…" }));
     if (c.own) kids.push(h("span", null, [c.own + (c.own === 1 ? " kaart" : " kaarten") + " zonder doelen · ",
       h("a", { href: "#", text: "nu invullen", onclick: function (e) { e.preventDefault(); openGoalsFix(); } })]));
-    if (c.meth) kids.push(h("span", { text: c.meth + (c.meth === 1 ? " methodekaart" : " methodekaarten") + " zonder doelen — typ ze in het voorbeeld" }));
+    if (c.meth) kids.push(h("span", { text: c.meth + (c.meth === 1 ? " methodekaart" : " methodekaarten") + " zonder doelen — typ ze in het voorbeeld" + (todo ? " van Lesdoelen" : "") }));
     w.appendChild(h("span", { class: "qpp-warn-i", "aria-hidden": "true", text: "!" }));
     w.appendChild(h("span", { class: "qpp-warn-t" }, kids));
   }
