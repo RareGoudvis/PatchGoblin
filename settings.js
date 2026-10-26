@@ -1,35 +1,36 @@
 /* PatchGoblin — settings.js
  * Instellingen (7 sections), the first-run setup wizard, settings export/import, and the
- * Zelftest "Opslaan als .json" report. Overlay #qws-overlay, CSS prefix qws-.
+ * Zelftest "Opslaan als .json" report. Overlay #pgs-overlay, CSS prefix pgs-.
  *
- * Owns no state of its own: everything lives in the planner's qwp_state_v6 object, shared BY
- * REFERENCE through __QWP_SHARED.state and persisted with __QWP_SHARED.saveState(). Print choices
- * stay in qwp_print_v1 (the print window reads them).
+ * Owns no state of its own: everything lives in the planner's pg_state_v6 object, shared BY
+ * REFERENCE through __PG_SHARED.state and persisted with __PG_SHARED.saveState(). Print choices
+ * stay in pg_print_v1 (the print window reads them).
  *
  * Writes to Questi: only creating a tag (a missing vak), and only after an explicit confirm.
  * Everything else here is local.
  *
- * Exposes window.__UQ_SETTINGS = { open(sectionId?), openSetup(), close(), exportSettings(opts),
+ * Exposes window.__PG_SETTINGS = { open(sectionId?), openSetup(), close(), exportSettings(opts),
  *   saveDebugJson(rows, opts), vakTops(includeNonVak) }.
  */
 (function () {
   "use strict";
-  if (window.__UQ_SETTINGS_LOADED) return;
-  window.__UQ_SETTINGS_LOADED = true;
+  if (window.__PG_SETTINGS_LOADED) return;
+  window.__PG_SETTINGS_LOADED = true;
 
-  function S() { return window.__QWP_SHARED; }
+  function S() { return window.__PG_SHARED; }
   function h(tag, attrs, kids) { return S().h(tag, attrs, kids); }
   function ctx() { return S().ctx; }
   function st() { return S().state; }
   function save() { S().saveState(); }
 
-  var EXPORT_FORMAT = "unquesti-settings", EXPORT_VERSION = 1;
-  var PRINT_KEY = "qwp_print_v1", XHIDE_KEY = "qwp_xhide_v1";
+  // Files exported before v2.0 say "unquesti-settings"; import still takes them.
+  var EXPORT_FORMAT = "patchgoblin-settings", OLD_EXPORT_FORMATS = ["unquesti-settings"], EXPORT_VERSION = 1;
+  var PRINT_KEY = "pg_print_v1", XHIDE_KEY = "pg_xhide_v1";
   var DAYS = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag"];
 
   function manifestVersion() { try { var m = chrome.runtime.getManifest(); return m.version_name || m.version || "?"; } catch (e) { return "?"; } }
   function manifestSemver() { try { return chrome.runtime.getManifest().version || "0"; } catch (e) { return "0"; } }
-  console.log("[UQS] settings.js geladen — " + manifestVersion());
+  console.log("[PGS] settings.js geladen — " + manifestVersion());
 
   // ========================================================================
   //  Tags / vakken
@@ -75,12 +76,12 @@
   function ensureReady() {
     // Opened before the planner ever booted: state is still the in-memory default, and the first
     // saveState() would overwrite what is stored. Load it first (the planner's boot does the same).
-    var p = document.getElementById("qwp-overlay") ? Promise.resolve() : S().loadState();
+    var p = document.getElementById("pg-overlay") ? Promise.resolve() : S().loadState();
     p = p.then(function () { return ctx().ready ? null : S().detectContext(); });
-    return p.then(function () { return S().fetchOwnTags(); }).catch(function (e) { console.warn("[UQS] context/tags:", e); });
+    return p.then(function () { return S().fetchOwnTags(); }).catch(function (e) { console.warn("[PGS] context/tags:", e); });
   }
   function plannerLoaded() { var v = S().view; return !!(v && v.weekStart && v.slots); }
-  function plannerShown() { var p = document.getElementById("qwp-overlay"); return !!(p && p.classList.contains("qwp-show")); }
+  function plannerShown() { var p = document.getElementById("pg-overlay"); return !!(p && p.classList.contains("pg-show")); }
   function timeRows() {
     if (!plannerLoaded()) return [];
     try { S().computeTimeRows(); } catch (e) { return []; }
@@ -89,7 +90,7 @@
   // Create a vak tag in Questi. Callers ALWAYS confirm first. Uses the Lesfiche-manager's create
   // call (same endpoint, same body), then refreshes the shared own-tag cache.
   function createTag(title, color, parentId) {
-    var L = window.__QWP_LESSONS;
+    var L = window.__PG_LESSONS;
     if (!L || !L.createUserTag) return Promise.reject(new Error("Lesfiche-module niet geladen"));
     var body = { title: title, color: color || "#e0e0e0", schoolId: ctx().schoolId };
     if (parentId != null) body.parent = Number(parentId);
@@ -124,25 +125,25 @@
 
   function build() {
     if (!ui.root || !document.body.contains(ui.root)) {
-      ui.root = h("div", { id: "qws-overlay" });
+      ui.root = h("div", { id: "pgs-overlay" });
       document.body.appendChild(ui.root);
     }
     if (!ui.keyBound) {
       ui.keyBound = true;
       document.addEventListener("keydown", function (e) {
-        if (e.key !== "Escape" || !ui.root || !ui.root.classList.contains("qws-show")) return;
+        if (e.key !== "Escape" || !ui.root || !ui.root.classList.contains("pgs-show")) return;
         e.stopPropagation(); e.preventDefault();
-        var c = ui.root.querySelector(".qws-confirm");
+        var c = ui.root.querySelector(".pgs-confirm");
         if (c) c.remove(); else close();
       }, true);
     }
   }
-  function show() { ui.root.classList.add("qws-show"); document.documentElement.classList.add("qws-locked"); }
+  function show() { ui.root.classList.add("pgs-show"); document.documentElement.classList.add("pgs-locked"); }
   function close() {
     if (!ui.root) return;
     if (ui.mode === "setup" && !st().setupDone) { st().setupDone = true; save(); }
-    ui.root.classList.remove("qws-show"); ui.root.innerHTML = "";
-    document.documentElement.classList.remove("qws-locked");
+    ui.root.classList.remove("pgs-show"); ui.root.innerHTML = "";
+    document.documentElement.classList.remove("pgs-locked");
     ui.mode = null;
     flushPlanner();
   }
@@ -151,39 +152,39 @@
     var P = S();
     if (ui.plannerDirty) {
       ui.plannerDirty = false;
-      try { P.reloadSlotVakLabels(); P.ensureThemaKeys(P.view.slots); if (plannerShown()) { P.renderTimetable(); if (P.refreshVakPicker) P.refreshVakPicker(); } } catch (e) { console.warn("[UQS] planner verversen:", e); }
+      try { P.reloadSlotVakLabels(); P.ensureThemaKeys(P.view.slots); if (plannerShown()) { P.renderTimetable(); if (P.refreshVakPicker) P.refreshVakPicker(); } } catch (e) { console.warn("[PGS] planner verversen:", e); }
     }
     if (ui.sourcesDirty) {
       ui.sourcesDirty = false;
-      try { if (plannerShown()) P.loadColleagueFiches(); } catch (e) { console.warn("[UQS] collega's laden:", e); }
+      try { if (plannerShown()) P.loadColleagueFiches(); } catch (e) { console.warn("[PGS] collega's laden:", e); }
     }
   }
   function loading(text) {
     ui.root.innerHTML = "";
-    ui.root.appendChild(h("div", { class: "qws-loading" }, [h("div", { class: "qws-spinner" }), h("div", { text: text || "Laden…" })]));
+    ui.root.appendChild(h("div", { class: "pgs-loading" }, [h("div", { class: "pgs-spinner" }), h("div", { text: text || "Laden…" })]));
   }
 
   // ---------- Small UI parts ----------
   function btn(text, onclick, cls, attrs) {
-    var a = { class: "qws-btn" + (cls ? " " + cls : ""), type: "button", text: text, onclick: onclick };
+    var a = { class: "pgs-btn" + (cls ? " " + cls : ""), type: "button", text: text, onclick: onclick };
     if (attrs) Object.keys(attrs).forEach(function (k) { a[k] = attrs[k]; });
     return h("button", a);
   }
-  function note(text, kind) { return h("div", { class: "qws-note" + (kind ? " " + kind : ""), text: text }); }
-  function card(kids, cls) { return h("section", { class: "qws-card" + (cls ? " " + cls : "") }, kids); }
-  function cardTitle(t, sub) { return h("div", { class: "qws-card-hd" }, [h("span", { class: "qws-card-t", text: t }), sub ? h("span", { class: "qws-muted", text: sub }) : null]); }
+  function note(text, kind) { return h("div", { class: "pgs-note" + (kind ? " " + kind : ""), text: text }); }
+  function card(kids, cls) { return h("section", { class: "pgs-card" + (cls ? " " + cls : "") }, kids); }
+  function cardTitle(t, sub) { return h("div", { class: "pgs-card-hd" }, [h("span", { class: "pgs-card-t", text: t }), sub ? h("span", { class: "pgs-muted", text: sub }) : null]); }
   function field(label, control, hint) {
     var single = control && /^(SELECT|INPUT|TEXTAREA)$/.test(control.tagName || "");
-    return h(single ? "label" : "div", { class: "qws-field" }, [h("span", { class: "qws-field-l", text: label }), control, hint ? h("span", { class: "qws-muted", text: hint }) : null]);
+    return h(single ? "label" : "div", { class: "pgs-field" }, [h("span", { class: "pgs-field-l", text: label }), control, hint ? h("span", { class: "pgs-muted", text: hint }) : null]);
   }
   function toggle(on, label, desc, onFlip) {
-    var b = h("button", { class: "qws-switch" + (on ? " on" : ""), type: "button", role: "switch", "aria-checked": on ? "true" : "false", "aria-label": label },
-      [h("span", { class: "qws-knob" })]);
+    var b = h("button", { class: "pgs-switch" + (on ? " on" : ""), type: "button", role: "switch", "aria-checked": on ? "true" : "false", "aria-label": label },
+      [h("span", { class: "pgs-knob" })]);
     b.addEventListener("click", function () { onFlip(!on); });
-    return h("div", { class: "qws-card qws-toggle" }, [b, h("div", { class: "qws-toggle-txt" }, [h("span", { class: "qws-card-t", text: label }), desc ? h("span", { class: "qws-muted", text: desc }) : null])]);
+    return h("div", { class: "pgs-card pgs-toggle" }, [b, h("div", { class: "pgs-toggle-txt" }, [h("span", { class: "pgs-card-t", text: label }), desc ? h("span", { class: "pgs-muted", text: desc }) : null])]);
   }
   function selectEl(options, value, onchange, attrs) {
-    var sel = h("select", Object.assign({ class: "qws-select" }, attrs || {}), options.map(function (o) {
+    var sel = h("select", Object.assign({ class: "pgs-select" }, attrs || {}), options.map(function (o) {
       return h("option", { value: String(o.v), text: o.n, selected: String(o.v) === String(value == null ? "" : value) ? "selected" : null });
     }));
     if (onchange) sel.addEventListener("change", function () { onchange(sel.value, sel); });
@@ -192,18 +193,18 @@
   // Modal confirm inside the overlay. lines: strings or nodes.
   function confirmBox(title, lines, okText, onOk, opts) {
     opts = opts || {};
-    var box = h("div", { class: "qws-confirm" }, [
-      h("div", { class: "qws-confirm-box", role: "dialog", "aria-modal": "true", "aria-label": title }, [
-        h("div", { class: "qws-card-t", text: title }),
-        h("div", { class: "qws-confirm-body" }, lines.map(function (l) { return typeof l === "string" ? h("p", { text: l }) : l; })),
-        h("div", { class: "qws-confirm-ft" }, [
+    var box = h("div", { class: "pgs-confirm" }, [
+      h("div", { class: "pgs-confirm-box", role: "dialog", "aria-modal": "true", "aria-label": title }, [
+        h("div", { class: "pgs-card-t", text: title }),
+        h("div", { class: "pgs-confirm-body" }, lines.map(function (l) { return typeof l === "string" ? h("p", { text: l }) : l; })),
+        h("div", { class: "pgs-confirm-ft" }, [
           btn(opts.cancelText || "Annuleren", function () { box.remove(); }, "ghost"),
           btn(okText, function () { box.remove(); onOk(); }, opts.danger ? "danger" : "primary")
         ])
       ])
     ]);
     ui.root.appendChild(box);
-    var ok = box.querySelector(".qws-confirm-ft .qws-btn:last-child"); if (ok) setTimeout(function () { try { ok.focus(); } catch (e) {} }, 0);
+    var ok = box.querySelector(".pgs-confirm-ft .pgs-btn:last-child"); if (ok) setTimeout(function () { try { ok.focus(); } catch (e) {} }, 0);
   }
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
   function tsStamp() { var d = new Date(); return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + "-" + pad2(d.getHours()) + pad2(d.getMinutes()); }
@@ -215,7 +216,7 @@
       document.body.appendChild(a); a.click();
       setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 0);
       return true;
-    } catch (e) { console.error("[UQS] download faalde:", e); return false; }
+    } catch (e) { console.error("[PGS] download faalde:", e); return false; }
   }
   function storeGet(k) { return S().storeGet(k); }
   function storeSet(k, v) { S().storeSet(k, v); }
@@ -224,7 +225,7 @@
   //  Instellingen
   // ========================================================================
   function open(sectionId) {
-    if (!S()) { console.warn("[UQS] __QWP_SHARED ontbreekt — planner niet geladen."); return; }
+    if (!S()) { console.warn("[PGS] __PG_SHARED ontbreekt — planner niet geladen."); return; }
     build(); ui.mode = "settings";
     if (sectionId && secById(sectionId)) ui.sec = sectionId;
     show(); loading("Instellingen laden…");
@@ -233,48 +234,48 @@
   function renderSettings() {
     ui.root.innerHTML = "";
     var sec = secById(ui.sec) || SECTIONS[0];
-    var nav = h("nav", { class: "qws-navlist", "aria-label": "Instellingen" }, SECTIONS.map(function (s) {
-      return h("button", { type: "button", class: "qws-navbtn" + (s.id === sec.id ? " on" : ""), "aria-current": s.id === sec.id ? "page" : null,
-        onclick: function () { ui.sec = s.id; renderSettings(); } }, [h("span", { class: "qws-navbtn-t", text: s.t }), h("span", { class: "qws-navbtn-d", text: s.d })]);
+    var nav = h("nav", { class: "pgs-navlist", "aria-label": "Instellingen" }, SECTIONS.map(function (s) {
+      return h("button", { type: "button", class: "pgs-navbtn" + (s.id === sec.id ? " on" : ""), "aria-current": s.id === sec.id ? "page" : null,
+        onclick: function () { ui.sec = s.id; renderSettings(); } }, [h("span", { class: "pgs-navbtn-t", text: s.t }), h("span", { class: "pgs-navbtn-d", text: s.d })]);
     }));
-    var aside = h("aside", { class: "qws-aside" }, [
-      h("div", { class: "qws-aside-t" }, [h("span", { text: "Instellingen" }), S().betaPill ? S().betaPill() : null]),
+    var aside = h("aside", { class: "pgs-aside" }, [
+      h("div", { class: "pgs-aside-t" }, [h("span", { text: "Instellingen" }), S().betaPill ? S().betaPill() : null]),
       nav,
-      h("div", { class: "qws-aside-ft" }, [btn("Sluiten", close, "ghost wide")])
+      h("div", { class: "pgs-aside-ft" }, [btn("Sluiten", close, "ghost wide")])
     ]);
-    ui.body = h("div", { class: "qws-body" });
-    var main = h("main", { class: "qws-main" }, [
-      h("header", { class: "qws-hdr" }, [
-        h("div", { class: "qws-hdr-txt" }, [h("span", { class: "qws-hdr-t", text: sec.t }), h("span", { class: "qws-hdr-s", text: sec.sub })]),
-        h("button", { class: "qws-x", type: "button", title: "Sluiten (Esc)", "aria-label": "Sluiten", text: "×", onclick: close })
+    ui.body = h("div", { class: "pgs-body" });
+    var main = h("main", { class: "pgs-main" }, [
+      h("header", { class: "pgs-hdr" }, [
+        h("div", { class: "pgs-hdr-txt" }, [h("span", { class: "pgs-hdr-t", text: sec.t }), h("span", { class: "pgs-hdr-s", text: sec.sub })]),
+        h("button", { class: "pgs-x", type: "button", title: "Sluiten (Esc)", "aria-label": "Sluiten", text: "×", onclick: close })
       ]),
       ui.body
     ]);
-    ui.root.appendChild(h("div", { class: "qws-shell" }, [aside, main]));
+    ui.root.appendChild(h("div", { class: "pgs-shell" }, [aside, main]));
     renderSection();
   }
   function renderSection() {
     if (!ui.body) return;
     ui.body.innerHTML = "";
     var fn = { lesrooster: secLesrooster, vakken: secVakken, agenda: secAgenda, bronnen: secBronnen, afdrukken: secAfdrukken, weergave: secWeergave, delen: secDelen, over: secOver }[ui.sec];
-    try { fn(ui.body); } catch (e) { console.error("[UQS] sectie " + ui.sec + ":", e); ui.body.appendChild(note("Dit onderdeel kon niet getoond worden: " + (e && e.message || e), "warn")); }
+    try { fn(ui.body); } catch (e) { console.error("[PGS] sectie " + ui.sec + ":", e); ui.body.appendChild(note("Dit onderdeel kon niet getoond worden: " + (e && e.message || e), "warn")); }
   }
 
   // ---------- Lesrooster: slot→vak grid (shared with the wizard) ----------
   // o: { value(key) → tagId|null, guess(key) → {id, why}|null, onChange(key, tagId|null), onAccept(key), vakList }
   function slotGrid(o) {
     var rows = timeRows(), opts = vakTops(false, o.vakList);
-    var wrap = h("div", { class: "qws-grid" });
+    var wrap = h("div", { class: "pgs-grid" });
     wrap.appendChild(h("span"));
-    DAYS.forEach(function (d) { wrap.appendChild(h("span", { class: "qws-grid-hd", text: d })); });
+    DAYS.forEach(function (d) { wrap.appendChild(h("span", { class: "pgs-grid-hd", text: d })); });
     rows.forEach(function (t) {
-      wrap.appendChild(h("span", { class: "qws-grid-time", text: t }));
+      wrap.appendChild(h("span", { class: "pgs-grid-time", text: t }));
       for (var d = 0; d < 5; d++) wrap.appendChild(slotCell(o, opts, d, t));
     });
     return wrap;
   }
   function slotCell(o, opts, day, time) {
-    if (S().isNoSchool(day, time)) return h("div", { class: "qws-cell free", text: "vrij" });
+    if (S().isNoSchool(day, time)) return h("div", { class: "pgs-cell free", text: "vrij" });
     var key = day + "|" + time, val = o.value(key), g = (val == null && o.guess) ? o.guess(key) : null;
     var shown = val != null ? val : (g ? g.id : null);
     var list = [{ v: "", n: "— geen —" }].concat(opts.map(function (t) { return { v: t.id, n: tagName(t) }; }));
@@ -284,11 +285,11 @@
       list.push({ v: shown, n: tt ? tagName(tt) + " (geen vak meer)" : "onbekende tag #" + shown });
     }
     var sel = selectEl(list, shown == null ? "" : shown, function (v) { o.onChange(key, v ? +v : null); }, { "aria-label": DAYS[day] + " " + time });
-    var stripe = h("span", { class: "qws-stripe", style: "background:" + (shown != null ? tagHex(tagById(shown)) : "transparent") });
+    var stripe = h("span", { class: "pgs-stripe", style: "background:" + (shown != null ? tagHex(tagById(shown)) : "transparent") });
     var kids = [stripe, sel];
     // A voorstel must never look like a saved choice: dashed, italic, labelled, until ✓.
-    if (g) kids.push(h("button", { class: "qws-accept", type: "button", title: "Voorstel bewaren", "aria-label": "Voorstel bewaren", text: "✓", onclick: function () { o.onAccept(key); } }));
-    return h("div", { class: "qws-cell" + (g ? " guess" : "") + (shown == null ? " empty" : ""), title: g ? ("Voorstel " + g.why + " — kies of bevestig") : null }, kids);
+    if (g) kids.push(h("button", { class: "pgs-accept", type: "button", title: "Voorstel bewaren", "aria-label": "Voorstel bewaren", text: "✓", onclick: function () { o.onAccept(key); } }));
+    return h("div", { class: "pgs-cell" + (g ? " guess" : "") + (shown == null ? " empty" : ""), title: g ? ("Voorstel " + g.why + " — kies of bevestig") : null }, kids);
   }
   // Whole-week items (thema bars) in the loaded week, grouped by their stable identity.
   function themaGroups() {
@@ -315,15 +316,15 @@
   function themaList(o) {
     var groups = themaGroups(), opts = vakTops(false, o.vakList);
     if (!groups.length) return note(plannerLoaded() ? "Geen items van een volledige week in de geladen week." : "Open eerst Plannen: thema’s worden uit de geladen week gelezen.");
-    return h("div", { class: "qws-themas" }, groups.map(function (g) {
+    return h("div", { class: "pgs-themas" }, groups.map(function (g) {
       var cur = o.value(g);
       var auto = g.slots[0].themaTagId != null && cur == null ? tagName(tagById(g.slots[0].themaTagId)) : "";
       var list = [{ v: "", n: "automatisch" + (cur == null ? (auto ? " (nu: " + auto + ")" : " (geen gevonden)") : "") }]
         .concat(opts.map(function (t) { return { v: t.id, n: tagName(t) }; }));
       if (cur != null && !opts.some(function (t) { return sameId(t.id, cur); })) list.push({ v: cur, n: (tagName(tagById(cur)) || "tag #" + cur) + " (geen vak meer)" });
-      return h("div", { class: "qws-thema" }, [
-        h("span", { class: "qws-thema-t", text: "“" + (g.title || "?") + "”" }),
-        h("span", { class: "qws-muted", text: "hoort bij" }),
+      return h("div", { class: "pgs-thema" }, [
+        h("span", { class: "pgs-thema-t", text: "“" + (g.title || "?") + "”" }),
+        h("span", { class: "pgs-muted", text: "hoort bij" }),
         selectEl(list, cur == null ? "" : cur, function (v) { o.onChange(g, v ? +v : null); }, { "aria-label": "Vak voor " + g.title })
       ]);
     }));
@@ -334,8 +335,8 @@
       reread.disabled = true; reread.textContent = "Lezen…";
       S().reloadAndRender().then(renderSection, function () { reread.disabled = false; reread.textContent = "Opnieuw uit agenda lezen"; status.textContent = "Lezen mislukt."; });
     });
-    var status = h("span", { class: "qws-muted", text: plannerLoaded() ? ("Lesuren uit de geladen week (" + S().view.weekStart + ").") : "" });
-    body.appendChild(h("div", { class: "qws-bar" }, [h("span", { class: "qws-grow", text: "Kies per lesuur het vak. Dit bepaalt welk vak een leeg lesuur krijgt." }), reread]));
+    var status = h("span", { class: "pgs-muted", text: plannerLoaded() ? ("Lesuren uit de geladen week (" + S().view.weekStart + ").") : "" });
+    body.appendChild(h("div", { class: "pgs-bar" }, [h("span", { class: "pgs-grow", text: "Kies per lesuur het vak. Dit bepaalt welk vak een leeg lesuur krijgt." }), reread]));
     body.appendChild(status);
     var rows = timeRows();
     var c = card([]);
@@ -347,7 +348,7 @@
       onChange: function (k, v) { if (v == null) delete s.settings[k]; else s.settings[k] = v; (s.rosterTouched || (s.rosterTouched = {}))[k] = true; save(); ui.plannerDirty = true; renderSection(); }
     }));
     var setCount = Object.keys(s.settings || {}).length;
-    c.appendChild(h("div", { class: "qws-muted", text: setCount + " lesuur/lesuren hebben een vast vak. Een lesuur dat je in Plannen zelf aanpast, houdt die keuze." }));
+    c.appendChild(h("div", { class: "pgs-muted", text: setCount + " lesuur/lesuren hebben een vast vak. Een lesuur dat je in Plannen zelf aanpast, houdt die keuze." }));
     body.appendChild(c);
     body.appendChild(card([
       cardTitle("Hele week", "Items van een volledige week (bv. thema WO, Godsdienst). Kies bij welk vak ze horen; ‘automatisch’ laat de planner het uit de titel afleiden."),
@@ -361,7 +362,7 @@
     var s = st(), cur = (s.vakAbbr && s.vakAbbr[String(t.id)]) || "";
     var dflt = "";
     if (S().vakAbbr) { var keep = s.vakAbbr; s.vakAbbr = null; try { dflt = S().vakAbbr(t); } finally { s.vakAbbr = keep; } }
-    var inp = h("input", { class: "qws-input qws-abbr", type: "text", maxlength: "6", value: cur, placeholder: dflt, "aria-label": "Afkorting voor " + tagName(t) });
+    var inp = h("input", { class: "pgs-input pgs-abbr", type: "text", maxlength: "6", value: cur, placeholder: dflt, "aria-label": "Afkorting voor " + tagName(t) });
     inp.addEventListener("change", function () {
       var v = (inp.value || "").trim().toUpperCase();
       s.vakAbbr = s.vakAbbr || {};
@@ -373,17 +374,17 @@
   // Tegels (full names, 2 columns) · Compact (abbreviations) · Lijst (one dropdown) → state.vakView.
   function viewChoice() {
     var s = st(), cur = s.vakView === "compact" || s.vakView === "select" ? s.vakView : "tiles";
-    return h("div", { class: "qws-radios" }, [["tiles", "Tegels", "volledige namen, twee kolommen"], ["compact", "Compact", "afkortingen, veel per rij"], ["select", "Lijst", "één keuzelijst, het kleinst"]].map(function (o) {
-      var r = h("input", { type: "radio", name: "qws-vakview", value: o[0] }); r.checked = cur === o[0];
+    return h("div", { class: "pgs-radios" }, [["tiles", "Tegels", "volledige namen, twee kolommen"], ["compact", "Compact", "afkortingen, veel per rij"], ["select", "Lijst", "één keuzelijst, het kleinst"]].map(function (o) {
+      var r = h("input", { type: "radio", name: "pgs-vakview", value: o[0] }); r.checked = cur === o[0];
       r.addEventListener("change", function () { if (r.checked) { s.vakView = o[0]; save(); ui.plannerDirty = true; } });
-      return h("label", { class: "qws-radio" }, [r, h("span", {}, [h("b", { text: o[1] }), h("span", { class: "qws-muted", text: " — " + o[2] })])]);
+      return h("label", { class: "pgs-radio" }, [r, h("span", {}, [h("b", { text: o[1] }), h("span", { class: "pgs-muted", text: " — " + o[2] })])]);
     }));
   }
   // ---------- Vakken ----------
   function secVakken(body) {
     var s = st(), tops = vakTops(true);
-    var table = h("div", { class: "qws-vaktable" }, [
-      h("div", { class: "qws-vakrow hd" }, [h("span", { text: "Volgorde" }), h("span", { text: "Kleur" }), h("span", { text: "Tag" }), h("span", { text: "Afkorting" }), h("span", { text: "Subtags" }), h("span", { text: "Tonen" })])
+    var table = h("div", { class: "pgs-vaktable" }, [
+      h("div", { class: "pgs-vakrow hd" }, [h("span", { text: "Volgorde" }), h("span", { text: "Kleur" }), h("span", { text: "Tag" }), h("span", { text: "Afkorting" }), h("span", { text: "Subtags" }), h("span", { text: "Tonen" })])
     ]);
     if (!tops.length) table.appendChild(note("Geen eigen hoofdtags gevonden. Maak hieronder een vak aan, of controleer de Zelftest.", "warn"));
     tops.forEach(function (t, i) {
@@ -395,15 +396,15 @@
         if (chk.checked) cur.push(t.id);
         s.vakTags = compactVakTags(cur); save(); ui.plannerDirty = true; renderSection();
       });
-      table.appendChild(h("div", { class: "qws-vakrow" + (on ? "" : " off") }, [
-        h("span", { class: "qws-move" }, [
+      table.appendChild(h("div", { class: "pgs-vakrow" + (on ? "" : " off") }, [
+        h("span", { class: "pgs-move" }, [
           btn("↑", function () { moveVak(i, -1); }, "icon", { title: "Hoger", "aria-label": tagName(t) + " hoger", disabled: i === 0 ? "disabled" : null }),
           btn("↓", function () { moveVak(i, 1); }, "icon", { title: "Lager", "aria-label": tagName(t) + " lager", disabled: i === tops.length - 1 ? "disabled" : null })
         ]),
-        h("span", { class: "qws-swatch", style: "background:" + tagHex(t), title: "Kleur uit Questi: " + (t.color || "geen") }),
-        h("span", { class: "qws-vakname", text: tagName(t) }),
+        h("span", { class: "pgs-swatch", style: "background:" + tagHex(t), title: "Kleur uit Questi: " + (t.color || "geen") }),
+        h("span", { class: "pgs-vakname", text: tagName(t) }),
         abbrInput(t),
-        h("span", { class: "qws-muted", text: String(childrenOf(t.id).length) }),
+        h("span", { class: "pgs-muted", text: String(childrenOf(t.id).length) }),
         chk
       ]));
     });
@@ -414,10 +415,10 @@
       s.vakOrder = ids; save(); renderSection();
     }
     // New vak = a new top tag in Questi → explicit confirm.
-    var nameInp = h("input", { class: "qws-input", type: "text", placeholder: "naam van het vak, bv. Lichamelijke opvoeding" });
-    var colorInp = h("input", { class: "qws-color", type: "color", value: "#e0e0e0", "aria-label": "Kleur" });
-    var msg = h("span", { class: "qws-muted" });
-    var addRow = h("div", { class: "qws-addrow" }, [nameInp, colorInp, btn("Nieuw vak…", function () {
+    var nameInp = h("input", { class: "pgs-input", type: "text", placeholder: "naam van het vak, bv. Lichamelijke opvoeding" });
+    var colorInp = h("input", { class: "pgs-color", type: "color", value: "#e0e0e0", "aria-label": "Kleur" });
+    var msg = h("span", { class: "pgs-muted" });
+    var addRow = h("div", { class: "pgs-addrow" }, [nameInp, colorInp, btn("Nieuw vak…", function () {
       var title = (nameInp.value || "").trim(); if (!title) { msg.textContent = "Geef een naam op."; return; }
       if (subjectTops().some(function (t) { return norm(t.title) === norm(title); })) { msg.textContent = "Die tag bestaat al."; return; }
       confirmBox("Nieuwe tag in Questi", ["Dit maakt de hoofdtag “" + title + "” aan in je Questi-lesfiches.", "Verwijderen kan later in Lesfiches → Tags."], "Aanmaken", function () {
@@ -425,13 +426,13 @@
         createTag(title, colorInp.value).then(function () { renderSection(); }, function (e) { msg.textContent = "Aanmaken mislukt: " + ((e && e.message) || e); });
       });
     }), msg]);
-    body.appendChild(h("div", { class: "qws-two" }, [
-      card([table, addRow, h("div", { class: "qws-bar" }, [btn("Volgorde terug alfabetisch", function () { s.vakOrder = null; save(); renderSection(); }, "ghost")])]),
-      h("div", { class: "qws-stack" }, [
+    body.appendChild(h("div", { class: "pgs-two" }, [
+      card([table, addRow, h("div", { class: "pgs-bar" }, [btn("Volgorde terug alfabetisch", function () { s.vakOrder = null; save(); renderSection(); }, "ghost")])]),
+      h("div", { class: "pgs-stack" }, [
         card([cardTitle("Weergave in Plannen", "Hoe de vakken bovenaan de lijst staan."), viewChoice()]),
-        card([cardTitle("Wat is een vak?"), h("p", { class: "qws-p", text: "Een hoofdtag uit Questi die je hier aanvinkt. Overal waar je een vak kiest of op vak filtert, zie je enkel deze — in deze volgorde, ook in de legende op papier." }),
+        card([cardTitle("Wat is een vak?"), h("p", { class: "pgs-p", text: "Een hoofdtag uit Questi die je hier aanvinkt. Overal waar je een vak kiest of op vak filtert, zie je enkel deze — in deze volgorde, ook in de legende op papier." }),
           note("Een lesuur dat al een tag heeft die je hier uitvinkt, houdt die tag; je ziet ze dan nog als keuze bij dat lesuur.")]),
-        card([cardTitle("Kleur"), h("p", { class: "qws-p", text: "Kleuren komen uit Questi en zijn hier alleen-lezen. Een kleur wijzigen is een schrijfactie in Questi; dat kan deze versie nog niet." })])
+        card([cardTitle("Kleur"), h("p", { class: "pgs-p", text: "Kleuren komen uit Questi en zijn hier alleen-lezen. Een kleur wijzigen is een schrijfactie in Questi; dat kan deze versie nog niet." })])
       ])
     ]));
   }
@@ -444,22 +445,22 @@
       function (on) { s.writeVakDescription = on; save(); ui.plannerDirty = true; renderSection(); }));
     body.appendChild(note(s.writeVakDescription === true ? "Aan — elk lesuur krijgt bij wegschrijven het vak als beschrijving." : "Uit — beschrijvingen blijven onaangeroerd.", s.writeVakDescription === true ? "ok" : ""));
 
-    var cals = ctx().calendars || [], calMsg = h("span", { class: "qws-muted" });
+    var cals = ctx().calendars || [], calMsg = h("span", { class: "pgs-muted" });
     var calCtl;
     if (cals.length > 1) {
       var calSel = selectEl([{ v: "", n: "— automatisch (agenda met de meeste lesuren) —" }].concat(cals.map(function (c) { return { v: c.id, n: c.name }; })), s.workingCalendarId == null ? "" : s.workingCalendarId);
-      calCtl = h("div", { class: "qws-inline" }, [calSel, btn("Toepassen", function () { applyCalendar(calSel.value || null, calMsg); }, "ghost")]);
+      calCtl = h("div", { class: "pgs-inline" }, [calSel, btn("Toepassen", function () { applyCalendar(calSel.value || null, calMsg); }, "ghost")]);
     } else {
-      calCtl = h("span", { class: "qws-p", text: cals.length ? cals[0].name + " (je enige agenda)" : "Geen agenda gevonden." });
+      calCtl = h("span", { class: "pgs-p", text: cals.length ? cals[0].name + " (je enige agenda)" : "Geen agenda gevonden." });
     }
-    var thr = h("input", { class: "qws-input", type: "number", min: "0", max: "10000", step: "50", style: "width:130px", value: String(s.saveThrottleMs != null ? s.saveThrottleMs : 250) });
+    var thr = h("input", { class: "pgs-input", type: "number", min: "0", max: "10000", step: "50", style: "width:130px", value: String(s.saveThrottleMs != null ? s.saveThrottleMs : 250) });
     thr.addEventListener("change", function () { var v = parseInt(thr.value, 10); s.saveThrottleMs = (isNaN(v) || v < 0) ? 250 : Math.min(v, 10000); thr.value = String(s.saveThrottleMs); save(); });
     body.appendChild(card([
       field("Agenda om in te plannen", calCtl, "Welke agenda Plannen toont en waarnaar het wegschrijft."), calMsg,
       field("Vertraging tussen opgeslagen lesuren (ms)", thr, "Basisvertraging + toevallige spreiding. Verhoog dit (bv. 2000) als Questi klaagt dat je te snel opslaat. Standaard 250.")
-    ], "qws-grid2"));
+    ], "pgs-grid2"));
     body.appendChild(card([cardTitle("Vast gedrag (geen instelling)"),
-      h("ul", { class: "qws-ul" }, [
+      h("ul", { class: "pgs-ul" }, [
         h("li", { text: "Gym: een lesuur met het gym-vinkje krijgt enkel een titel (Lichamelijke opvoeding of Zwemmen), geen fiche en geen beschrijving." }),
         h("li", { text: "Een leeg WO/Godsdienst-lesuur krijgt de naam van de themafiche van die week als titel; een leeg lesuur zonder thema houdt ‘Lesuur 1, 2, 3 …’." }),
         h("li", { text: "Questi’s eigen titel “* fiche (1)” wordt bij wegschrijven vervangen door je eigen titel. ‘Titels opschonen’ in Plannen herstelt oudere lesuren." })
@@ -483,24 +484,24 @@
   function secBronnen(body) {
     var s = st(), P = S();
     var people = (P.view && P.view.people) || [];
-    var listEl = h("div", { class: "qws-stack" }), results = h("div", { class: "qws-results" });
+    var listEl = h("div", { class: "pgs-stack" }), results = h("div", { class: "pgs-results" });
     function renderColleagues() {
       listEl.innerHTML = "";
       var mine = s.colleagues.filter(function (c) { return !c.isMethod; });
-      if (!mine.length) listEl.appendChild(h("span", { class: "qws-muted", text: "Nog geen collega’s." }));
+      if (!mine.length) listEl.appendChild(h("span", { class: "pgs-muted", text: "Nog geen collega’s." }));
       mine.forEach(function (c) {
-        listEl.appendChild(h("div", { class: "qws-person" }, [
-          h("span", { class: "qws-avatar", text: initials(c.name) }), h("span", { class: "qws-grow", text: c.name }),
+        listEl.appendChild(h("div", { class: "pgs-person" }, [
+          h("span", { class: "pgs-avatar", text: initials(c.name) }), h("span", { class: "pgs-grow", text: c.name }),
           btn("×", function () { s.colleagues = s.colleagues.filter(function (x) { return !sameId(x.id, c.id) || x.isMethod; }); save(); ui.sourcesDirty = true; renderColleagues(); }, "icon", { title: "Verwijderen", "aria-label": c.name + " verwijderen" })
         ]));
       });
     }
-    var search = h("input", { class: "qws-input dashed", type: "text", placeholder: "+ collega zoeken op naam…", "aria-label": "Collega zoeken" });
+    var search = h("input", { class: "pgs-input dashed", type: "text", placeholder: "+ collega zoeken op naam…", "aria-label": "Collega zoeken" });
     search.addEventListener("input", function () {
       results.innerHTML = "";
       var q = norm(search.value); if (!q) return;
       var hits = people.filter(function (p) { return norm(p.name).indexOf(q) > -1 && !sameId(p.id, ctx().ownerId) && !s.colleagues.some(function (c) { return sameId(c.id, p.id); }); }).slice(0, 8);
-      if (!hits.length) results.appendChild(h("span", { class: "qws-muted", text: people.length ? "Niemand gevonden." : "Collega’s laden…" }));
+      if (!hits.length) results.appendChild(h("span", { class: "pgs-muted", text: people.length ? "Niemand gevonden." : "Collega’s laden…" }));
       hits.forEach(function (p) {
         results.appendChild(btn(p.name, function () { s.colleagues.push({ id: p.id, name: p.name }); save(); ui.sourcesDirty = true; search.value = ""; results.innerHTML = ""; renderColleagues(); }, "ghost result"));
       });
@@ -508,10 +509,10 @@
     if (!people.length) P.fetchPeople().then(function (ps) { people = ps || []; try { P.view.people = people; } catch (e) {} });
     renderColleagues();
 
-    var methList = h("div", { class: "qws-stack" }, [h("span", { class: "qws-muted", text: "Methodes laden…" })]);
+    var methList = h("div", { class: "pgs-stack" }, [h("span", { class: "pgs-muted", text: "Methodes laden…" })]);
     P.fetchMethods().then(function (methods) {
       methList.innerHTML = "";
-      if (!methods.length) { methList.appendChild(h("span", { class: "qws-muted", text: "Geen methodes beschikbaar voor je school." })); return; }
+      if (!methods.length) { methList.appendChild(h("span", { class: "pgs-muted", text: "Geen methodes beschikbaar voor je school." })); return; }
       methods.sort(function (a, b) { return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true }); });
       methods.forEach(function (m) {
         var chk = h("input", { type: "checkbox" });
@@ -522,10 +523,10 @@
           save(); ui.sourcesDirty = true;
         });
         var sub = ((m.publisher && m.publisher.name) ? m.publisher.name : "") + ((m.grades || []).length ? " · " + m.grades.join(", ") : "");
-        methList.appendChild(h("label", { class: "qws-check" }, [chk, h("span", { class: "qws-grow", text: m.name }), h("span", { class: "qws-muted", text: sub })]));
+        methList.appendChild(h("label", { class: "pgs-check" }, [chk, h("span", { class: "pgs-grow", text: m.name }), h("span", { class: "pgs-muted", text: sub })]));
       });
     });
-    body.appendChild(h("div", { class: "qws-two even" }, [
+    body.appendChild(h("div", { class: "pgs-two even" }, [
       card([cardTitle("Collega’s", "Hun gedeelde lesfiches verschijnen in de lijst met lesfiches."), listEl, search, results]),
       card([cardTitle("Methodes van de school", "Aangevinkte methodes kan je in Plannen naar een lesuur slepen."), methList,
         note("Methodevoortgang volg je apart, in het Methodes-paneel.")])
@@ -547,7 +548,7 @@
     ]));
   }
   function secAfdrukken(body) {
-    var holder = h("div", { class: "qws-two even" }, [h("span", { class: "qws-muted", text: "Laden…" })]);
+    var holder = h("div", { class: "pgs-two even" }, [h("span", { class: "pgs-muted", text: "Laden…" })]);
     body.appendChild(holder);
     Promise.all([storeGet(PRINT_KEY), storeGet(XHIDE_KEY)]).then(function (r) {
       var prefs = Object.assign({}, PRINT_DEFAULTS, r[0] || {}), hidden = Object.keys(r[1] || {}).length;
@@ -560,12 +561,12 @@
       holder.appendChild(card([cardTitle("Standaard bij openen", "Het afdrukvenster onthoudt ook zelf je laatste keuze."),
         field("Versie", selectEl([{ v: "plain", n: "Gewoon" }, { v: "goals1", n: "Lesdoelen · 1 A4" }, { v: "goals2", n: "Lesdoelen · 2 A4" }], prefs.mode, function (v) { put("mode", v); })),
         field("Labels bij lesdoelen", selectEl([{ v: "word", n: "WEET / KEN / KAN" }, { v: "icon", n: "Pictogrammen" }], prefs.tabs, function (v) { put("tabs", v); })),
-        h("label", { class: "qws-check" }, [legend, h("span", { text: "Vakkenlegende" })]),
-        h("label", { class: "qws-check" }, [hideEmpty, h("span", { text: "Lege doelen weglaten" })])
+        h("label", { class: "pgs-check" }, [legend, h("span", { text: "Vakkenlegende" })]),
+        h("label", { class: "pgs-check" }, [hideEmpty, h("span", { text: "Lege doelen weglaten" })])
       ]));
-      var hidMsg = h("span", { class: "qws-muted", text: hidden ? (hidden + " item(s) van andere agenda’s verborgen op de Lesdoelen-afdruk.") : "Geen verborgen items." });
+      var hidMsg = h("span", { class: "pgs-muted", text: hidden ? (hidden + " item(s) van andere agenda’s verborgen op de Lesdoelen-afdruk.") : "Geen verborgen items." });
       holder.appendChild(card([cardTitle("Andere agenda’s"),
-        h("p", { class: "qws-p", text: "Items die je in het afdrukvenster wegklikte, blijven verborgen (een terugkerend item in elke week)." }),
+        h("p", { class: "pgs-p", text: "Items die je in het afdrukvenster wegklikte, blijven verborgen (een terugkerend item in elke week)." }),
         hidMsg,
         hidden ? btn("Alles weer tonen", function () { confirmBox("Verborgen items tonen", [hidden + " verborgen item(s) worden weer afgedrukt."], "Weer tonen", function () { storeSet(XHIDE_KEY, {}); renderSection(); }); }, "ghost") : null
       ]));
@@ -700,10 +701,10 @@
     opts = opts || {};
     var imp = null;
     var fileInp = h("input", { type: "file", accept: ".json,application/json", style: "display:none" });
-    var drop = h("div", { class: "qws-drop", tabindex: "0", role: "button", "aria-label": "Kies een .json-bestand" }, [
+    var drop = h("div", { class: "pgs-drop", tabindex: "0", role: "button", "aria-label": "Kies een .json-bestand" }, [
       h("span", { text: "Sleep een .json hierheen of " }), h("u", { text: "kies een bestand" })
     ]);
-    var preview = h("div", { class: "qws-stack" });
+    var preview = h("div", { class: "pgs-stack" });
     drop.addEventListener("click", function () { fileInp.click(); });
     drop.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInp.click(); } });
     drop.addEventListener("dragover", function (e) { e.preventDefault(); drop.classList.add("over"); });
@@ -717,7 +718,7 @@
       rd.onload = function () {
         var data = null;
         try { data = JSON.parse(String(rd.result || "")); } catch (e) { showError("Dit bestand is geen geldige JSON."); return; }
-        if (!data || data.format !== EXPORT_FORMAT) { showError("Dit is geen PatchGoblin-instellingenbestand (veld ‘format’ ontbreekt of klopt niet)."); return; }
+        if (!data || (data.format !== EXPORT_FORMAT && OLD_EXPORT_FORMATS.indexOf(data.format) < 0)) { showError("Dit is geen PatchGoblin-instellingenbestand (veld ‘format’ ontbreekt of klopt niet)."); return; }
         if (typeof data.version !== "number") { showError("Dit bestand heeft geen schemaversie."); return; }
         var b = buildImport(data);
         imp = { name: f.name, data: data, rows: b.rows, byKey: b.byKey, parts: {} };
@@ -744,12 +745,12 @@
     function renderPreview() {
       preview.innerHTML = "";
       var d = imp.data;
-      preview.appendChild(h("div", { class: "qws-card-t", text: "Voorbeeld: " + imp.name }));
-      preview.appendChild(h("span", { class: "qws-muted", text: "Uit " + (d.tool || "?") + (d.from && d.from.school ? " · " + d.from.school : "") + (d.exported_at ? " · " + String(d.exported_at).slice(0, 10) : "") }));
+      preview.appendChild(h("div", { class: "pgs-card-t", text: "Voorbeeld: " + imp.name }));
+      preview.appendChild(h("span", { class: "pgs-muted", text: "Uit " + (d.tool || "?") + (d.from && d.from.school ? " · " + d.from.school : "") + (d.exported_at ? " · " + String(d.exported_at).slice(0, 10) : "") }));
       if (d.version > EXPORT_VERSION) preview.appendChild(note("Dit bestand komt uit een nieuwere versie (schema " + d.version + "). Onderdelen die deze versie niet kent, worden overgeslagen.", "warn"));
       // Tag mapping
       if (imp.rows.length) {
-        var map = h("div", { class: "qws-map" });
+        var map = h("div", { class: "pgs-map" });
         imp.rows.forEach(function (r) {
           var pool = poolFor(r, imp.byKey);
           var list = [{ v: "", n: "— niet koppelen —" }].concat(pool.map(function (t) { return { v: t.id, n: tagName(t) }; }));
@@ -765,12 +766,12 @@
           if (canCreate) {
             var c = h("input", { type: "checkbox" }); c.checked = !!r.create;
             c.addEventListener("change", function () { r.create = c.checked; renderPreview(); });
-            extra = h("label", { class: "qws-check small" }, [c, h("span", { text: "aanmaken in Questi" })]);
+            extra = h("label", { class: "pgs-check small" }, [c, h("span", { text: "aanmaken in Questi" })]);
           }
-          map.appendChild(h("div", { class: "qws-maprow" }, [
-            h("span", { class: "qws-swatch sm", style: "background:" + (r.ref.color || "#c7ccd1") }),
-            h("span", { class: "qws-mapfrom", text: refLabel(r.ref) }), h("span", { class: "qws-muted", text: "→" }), sel,
-            h("span", { class: "qws-chip " + chip[1], text: r.create ? "wordt aangemaakt" : chip[0] }), extra
+          map.appendChild(h("div", { class: "pgs-maprow" }, [
+            h("span", { class: "pgs-swatch sm", style: "background:" + (r.ref.color || "#c7ccd1") }),
+            h("span", { class: "pgs-mapfrom", text: refLabel(r.ref) }), h("span", { class: "pgs-muted", text: "→" }), sel,
+            h("span", { class: "pgs-chip " + chip[1], text: r.create ? "wordt aangemaakt" : chip[0] }), extra
           ]));
         });
         preview.appendChild(map);
@@ -778,17 +779,17 @@
         if (unmapped) preview.appendChild(note(unmapped + " vak(ken) niet gekoppeld: lesuren en thema’s met dat vak worden overgeslagen.", "warn"));
       }
       // Parts
-      var partsBox = h("div", { class: "qws-stack" }, [h("span", { class: "qws-field-l", text: "Wat overnemen?" })]);
+      var partsBox = h("div", { class: "pgs-stack" }, [h("span", { class: "pgs-field-l", text: "Wat overnemen?" })]);
       ["lesrooster", "vakken", "themas", "agenda", "afdrukken", "collegas"].forEach(function (p) {
         if (!partPresent(d, p)) return;
         var lab = partLabel(d, p), c = h("input", { type: "checkbox" }); c.checked = !!imp.parts[p];
         c.addEventListener("change", function () { imp.parts[p] = c.checked; });
-        partsBox.appendChild(h("label", { class: "qws-check" }, [c, h("span", { class: "qws-grow", text: lab[0] }), h("span", { class: "qws-muted", text: lab[1] })]));
+        partsBox.appendChild(h("label", { class: "pgs-check" }, [c, h("span", { class: "pgs-grow", text: lab[0] }), h("span", { class: "pgs-muted", text: lab[1] })]));
       });
       preview.appendChild(partsBox);
-      var result = h("div", { class: "qws-stack" });
-      preview.appendChild(h("div", { class: "qws-bar" }, [
-        h("span", { class: "qws-muted qws-grow", text: "Niets wordt overschreven tot je op Importeren klikt. Nieuwe tags vragen nog een bevestiging." }),
+      var result = h("div", { class: "pgs-stack" });
+      preview.appendChild(h("div", { class: "pgs-bar" }, [
+        h("span", { class: "pgs-muted pgs-grow", text: "Niets wordt overschreven tot je op Importeren klikt. Nieuwe tags vragen nog een bevestiging." }),
         btn("Importeren", function () { startApply(result); }, "primary")
       ]));
       preview.appendChild(result);
@@ -808,7 +809,7 @@
       if (creates.length) {
         confirmBox("Tags aanmaken in Questi", [
           "Deze tag(s) worden aangemaakt in je Questi-lesfiches:",
-          h("ul", { class: "qws-ul" }, creates.map(function (r) { return h("li", { text: refLabel(r.ref) }); })),
+          h("ul", { class: "pgs-ul" }, creates.map(function (r) { return h("li", { text: refLabel(r.ref) }); })),
           "Daarna worden de instellingen overgenomen. Verwijderen kan later in Lesfiches → Tags."
         ], "Aanmaken en importeren", go);
       } else go();
@@ -908,26 +909,26 @@
     var parts = {}; EXPORT_PARTS.forEach(function (p) { parts[p.id] = p.on; });
     var s = st();
     var counts = { lesrooster: Object.keys(s.settings || {}).length + " lesuren", vakken: "op naam + kleur", themas: Object.keys(s.themaVak || {}).length + "", agenda: "", afdrukken: "", collegas: "enkel namen" };
-    var expMsg = h("div", { class: "qws-stack" });
+    var expMsg = h("div", { class: "pgs-stack" });
     var exp = card([cardTitle("Exporteren", "Wat gaat er in het bestand?")].concat(EXPORT_PARTS.map(function (p) {
       var c = h("input", { type: "checkbox" }); c.checked = p.on;
       c.addEventListener("change", function () { parts[p.id] = c.checked; });
-      return h("label", { class: "qws-check" }, [c, h("span", { class: "qws-grow", text: p.n }), h("span", { class: "qws-muted", text: counts[p.id] })]);
+      return h("label", { class: "pgs-check" }, [c, h("span", { class: "pgs-grow", text: p.n }), h("span", { class: "pgs-muted", text: counts[p.id] })]);
     })).concat([
       btn("Exporteren (.json)", function () {
         exportSettings({ parts: parts }).then(function (r) {
-          var ok = downloadJson(r.data, "unquesti-instellingen-" + tsStamp() + ".json");
+          var ok = downloadJson(r.data, "patchgoblin-instellingen-" + tsStamp() + ".json");
           expMsg.innerHTML = "";
           expMsg.appendChild(note(ok ? "Bestand gedownload." : "Downloaden mislukt — zie console.", ok ? "ok" : "warn"));
           if (r.skipped.length) expMsg.appendChild(note("Niet in het bestand: " + r.skipped.join("; ") + ".", "warn"));
         });
       }, "primary"),
       expMsg,
-      h("span", { class: "qws-muted", text: "Vakken staan erin op naam en kleur, niet als Questi-nummer — zo werkt het bestand ook in het account van een collega." })
+      h("span", { class: "pgs-muted", text: "Vakken staan erin op naam en kleur, niet als Questi-nummer — zo werkt het bestand ook in het account van een collega." })
     ]));
     var imp = card([cardTitle("Importeren", "Van een collega of uit je eigen back-up.")]);
     importPanel(imp, { onApplied: function () { /* stay on the result; the nav re-renders on demand */ } });
-    body.appendChild(h("div", { class: "qws-two even" }, [exp, imp]));
+    body.appendChild(h("div", { class: "pgs-two even" }, [exp, imp]));
   }
 
   // ---------- Over ----------
@@ -937,20 +938,20 @@
     return 0;
   }
   function secOver(body) {
-    var verLine = h("span", { class: "qws-p", text: "Versie " + manifestVersion() + " · controleren…" });
+    var verLine = h("span", { class: "pgs-p", text: "Versie " + manifestVersion() + " · controleren…" });
     try {
-      chrome.runtime.sendMessage({ type: "QWP_CHECK_VERSION" }, function (r) {
+      chrome.runtime.sendMessage({ type: "PG_CHECK_VERSION" }, function (r) {
         void chrome.runtime.lastError;
         if (!r || !r.ok) { verLine.textContent = "Versie " + manifestVersion() + " · kon niet controleren of er een nieuwere is."; return; }
         verLine.textContent = "Versie " + manifestVersion() + " · " + (cmpVersion(r.latest, manifestSemver()) > 0 ? "nieuwe versie " + r.latest + " beschikbaar" : "up-to-date");
       });
     } catch (e) { verLine.textContent = "Versie " + manifestVersion(); }
-    var diagMsg = h("span", { class: "qws-muted" });
-    body.appendChild(h("div", { class: "qws-two even" }, [
+    var diagMsg = h("span", { class: "pgs-muted" });
+    body.appendChild(h("div", { class: "pgs-two even" }, [
       card([
-        h("span", { class: "qws-big", text: "PatchGoblin" }), verLine,
-        h("p", { class: "qws-p", text: "Bijwerken: dubbelklik update.bat in de map van de planner, laad de extensie opnieuw op chrome://extensions en herlaad daarna Questi. De planner meldt zelf wanneer er een nieuwe versie is." }),
-        h("div", { class: "qws-inline" }, [
+        h("span", { class: "pgs-big", text: "PatchGoblin" }), verLine,
+        h("p", { class: "pgs-p", text: "Bijwerken: dubbelklik update.bat in de map van de planner, laad de extensie opnieuw op chrome://extensions en herlaad daarna Questi. De planner meldt zelf wanneer er een nieuwe versie is." }),
+        h("div", { class: "pgs-inline" }, [
           btn("Zelftest openen", function () {
             if (!plannerShown()) { diagMsg.textContent = "Open eerst Plannen; de Zelftest draait daar."; return; }
             close(); S().openDiagnose();
@@ -958,10 +959,10 @@
           btn("Eerste installatie opnieuw", function () { openSetup(); }, "ghost")
         ]),
         diagMsg,
-        h("p", { class: "qws-p muted", text: "Werkt bovenop Questi zonder officiële koppeling. Je gegevens blijven in je browser en in je eigen Questi-account; er gaat niets naar een andere server. Enkel de versiecontrole leest een bestand van GitHub." })
+        h("p", { class: "pgs-p muted", text: "Werkt bovenop Questi zonder officiële koppeling. Je gegevens blijven in je browser en in je eigen Questi-account; er gaat niets naar een andere server. Enkel de versiecontrole leest een bestand van GitHub." })
       ]),
       card([cardTitle("Waar staan je instellingen?"),
-        h("p", { class: "qws-p", text: "In deze browser (chrome.storage van de extensie), niet in Questi. Op een andere computer begin je opnieuw — of je neemt ze mee via Delen & back-up." })])
+        h("p", { class: "pgs-p", text: "In deze browser (chrome.storage van de extensie), niet in Questi. Op een andere computer begin je opnieuw — of je neemt ze mee via Delen & back-up." })])
     ]));
   }
 
@@ -1017,42 +1018,42 @@
   }
   function renderSetup() {
     ui.root.innerHTML = "";
-    var steps = h("aside", { class: "qws-steps" }, [
-      h("div", { class: "qws-steps-k", text: "UNQUESTI" }),
-      h("div", { class: "qws-steps-t", text: "Eerste installatie" })
+    var steps = h("aside", { class: "pgs-steps" }, [
+      h("div", { class: "pgs-steps-k", text: "PATCHGOBLIN" }),
+      h("div", { class: "pgs-steps-t", text: "Eerste installatie" })
     ].concat(STEPS.map(function (s, i) {
       var cur = i === wz.step, done = i < wz.step;
       // Steps after Agenda only open via Afronden (that is where settings are saved).
       var reachable = i <= 3 || wz.result;
-      return h("button", { type: "button", class: "qws-step" + (cur ? " cur" : "") + (done ? " done" : ""), disabled: reachable ? null : "disabled",
+      return h("button", { type: "button", class: "pgs-step" + (cur ? " cur" : "") + (done ? " done" : ""), disabled: reachable ? null : "disabled",
         onclick: function () { if (!reachable) return; wz.step = i; wz.importing = false; renderSetup(); } }, [
-        h("span", { class: "qws-step-dot", text: done ? "✓" : String(i + 1) }),
-        h("span", { class: "qws-step-txt" }, [h("span", { class: "qws-step-t", text: s[0] }), h("span", { class: "qws-step-d", text: s[1] })])
+        h("span", { class: "pgs-step-dot", text: done ? "✓" : String(i + 1) }),
+        h("span", { class: "pgs-step-txt" }, [h("span", { class: "pgs-step-t", text: s[0] }), h("span", { class: "pgs-step-d", text: s[1] })])
       ]);
     })).concat([
-      h("div", { class: "qws-grow" }),
-      h("div", { class: "qws-steps-ft", text: "Er wordt niets in Questi aangepast, behalve een tag die je zelf bevestigt. Je vindt dit later terug in Instellingen → Over." })
+      h("div", { class: "pgs-grow" }),
+      h("div", { class: "pgs-steps-ft", text: "Er wordt niets in Questi aangepast, behalve een tag die je zelf bevestigt. Je vindt dit later terug in Instellingen → Over." })
     ]));
-    var content = h("div", { class: "qws-setup-body" });
+    var content = h("div", { class: "pgs-setup-body" });
     if (wz.imported) content.appendChild(note("Ingevuld vanuit " + wz.imported.name + ". Controleer elke stap.", "ok"));
     [stepWelkom, stepVakken, stepLesrooster, stepAgenda, stepKlaar][wz.step](content);
-    var ft = h("footer", { class: "qws-setup-ft" }, [
+    var ft = h("footer", { class: "pgs-setup-ft" }, [
       wz.step > 0 && wz.step < 4 ? btn("Terug", function () { wz.step--; renderSetup(); }, "ghost") : null,
-      h("span", { class: "qws-grow qws-muted", text: "Stap " + (wz.step + 1) + " van 5" }),
+      h("span", { class: "pgs-grow pgs-muted", text: "Stap " + (wz.step + 1) + " van 5" }),
       wz.step < 4 ? btn("Later", function () { close(); }, "ghost", { title: "Sluiten zonder te bewaren — je vindt dit terug in Instellingen → Over" }) : null,
       wz.step > 0 && wz.step < 4 ? btn(wz.step === 3 ? "Afronden" : "Volgende", function () {
         if (wz.step === 3) applyWizard();
         wz.step++; renderSetup();
       }, "primary") : null
     ]);
-    ui.root.appendChild(h("div", { class: "qws-setup" }, [steps, h("main", { class: "qws-setup-main" }, [content, ft])]));
+    ui.root.appendChild(h("div", { class: "pgs-setup" }, [steps, h("main", { class: "pgs-setup-main" }, [content, ft])]));
   }
   function stepWelkom(c) {
     var x = ctx(), P = S(), first = String(x.ownerName || "").split(" ")[0];
     var gsrc = ""; try { gsrc = chrome.runtime.getURL("icons/goblin-full.png"); } catch (e) {}
-    if (gsrc) c.appendChild(h("img", { class: "qws-goblin", src: gsrc, alt: "", "aria-hidden": "true" }));
-    c.appendChild(h("h1", { class: "qws-h1", text: "Welkom" + (first ? ", " + first : "") }));
-    c.appendChild(h("p", { class: "qws-lead", text: "De planner heeft je Questi-account gelezen. Alles hieronder komt rechtstreeks uit Questi — je hoeft niets in te typen." }));
+    if (gsrc) c.appendChild(h("img", { class: "pgs-goblin", src: gsrc, alt: "", "aria-hidden": "true" }));
+    c.appendChild(h("h1", { class: "pgs-h1", text: "Welkom" + (first ? ", " + first : "") }));
+    c.appendChild(h("p", { class: "pgs-lead", text: "De planner heeft je Questi-account gelezen. Alles hieronder komt rechtstreeks uit Questi — je hoeft niets in te typen." }));
     var tops = subjectTops(), subs = ownTags().filter(function (t) { return t.parent != null && t.parent !== 0; }).length;
     var cal = (x.calendars || []).filter(function (cc) { return sameId(cc.id, x.calendarId); })[0];
     var lesuren = plannerLoaded() ? P.view.slots.filter(function (s) { return !s.isFullday && s.idCalendar !== "cal_holidays" && s.weekIdx === 0; }).length : 0;
@@ -1065,11 +1066,11 @@
       ["Eigen tags", tops.length ? tops.length + " hoofdtags, " + subs + " subtags" : null],
       ["Eigen lesfiches", own && own.items ? own.items.length + " fiches" : null]
     ];
-    c.appendChild(h("div", { class: "qws-checks" }, checks.map(function (k) {
+    c.appendChild(h("div", { class: "pgs-checks" }, checks.map(function (k) {
       var ok = k[1] != null;
-      return h("div", { class: "qws-ctxcheck" + (ok ? "" : " warn") }, [
-        h("span", { class: "qws-ctxdot", text: ok ? "✓" : "?" }),
-        h("span", { class: "qws-step-txt" }, [h("span", { class: "qws-muted", text: k[0] }), h("span", { class: "qws-ctxv", text: ok ? k[1] : (k[0] === "Klas" ? "onbekend — normaal in vakanties" : "niet gevonden") })])
+      return h("div", { class: "pgs-ctxcheck" + (ok ? "" : " warn") }, [
+        h("span", { class: "pgs-ctxdot", text: ok ? "✓" : "?" }),
+        h("span", { class: "pgs-step-txt" }, [h("span", { class: "pgs-muted", text: k[0] }), h("span", { class: "pgs-ctxv", text: ok ? k[1] : (k[0] === "Klas" ? "onbekend — normaal in vakanties" : "niet gevonden") })])
       ]);
     })));
     if (!plannerLoaded()) c.appendChild(note("Je lesrooster wordt uit de week in Plannen gelezen. Open Plannen op een week met lesuren voor stap 3.", "warn"));
@@ -1084,17 +1085,17 @@
       c.appendChild(btn("← Toch zelf instellen", function () { wz.importing = false; wz.step = 1; renderSetup(); }, "ghost"));
       return;
     }
-    c.appendChild(h("div", { class: "qws-choices" }, [
-      h("button", { type: "button", class: "qws-choice primary", onclick: function () { wz.step = 1; renderSetup(); } }, [
-        h("span", { class: "qws-choice-t", text: "Zelf instellen" }), h("span", { class: "qws-muted", text: "± 3 minuten · vakken kiezen en je lesrooster aanduiden" })]),
-      h("button", { type: "button", class: "qws-choice", onclick: function () { wz.importing = true; renderSetup(); } }, [
-        h("span", { class: "qws-choice-t", text: "Overnemen van een collega" }), h("span", { class: "qws-muted", text: "Kies het .json-bestand dat een collega exporteerde. Vakken worden op naam gekoppeld aan jouw tags." })])
+    c.appendChild(h("div", { class: "pgs-choices" }, [
+      h("button", { type: "button", class: "pgs-choice primary", onclick: function () { wz.step = 1; renderSetup(); } }, [
+        h("span", { class: "pgs-choice-t", text: "Zelf instellen" }), h("span", { class: "pgs-muted", text: "± 3 minuten · vakken kiezen en je lesrooster aanduiden" })]),
+      h("button", { type: "button", class: "pgs-choice", onclick: function () { wz.importing = true; renderSetup(); } }, [
+        h("span", { class: "pgs-choice-t", text: "Overnemen van een collega" }), h("span", { class: "pgs-muted", text: "Kies het .json-bestand dat een collega exporteerde. Vakken worden op naam gekoppeld aan jouw tags." })])
     ]));
   }
   function stepVakken(c) {
-    c.appendChild(h("h1", { class: "qws-h1", text: "Welke van je tags zijn vakken?" }));
-    c.appendChild(h("p", { class: "qws-lead", text: "Een vak is een hoofdtag die je kiest voor een lesuur. Je tags blijven gewoon bestaan — je duidt enkel aan welke een vak zijn." }));
-    var tops = vakTops(true), list = h("div", { class: "qws-card qws-taglist" });
+    c.appendChild(h("h1", { class: "pgs-h1", text: "Welke van je tags zijn vakken?" }));
+    c.appendChild(h("p", { class: "pgs-lead", text: "Een vak is een hoofdtag die je kiest voor een lesuur. Je tags blijven gewoon bestaan — je duidt enkel aan welke een vak zijn." }));
+    var tops = vakTops(true), list = h("div", { class: "pgs-card pgs-taglist" });
     if (!tops.length) list.appendChild(note("Geen eigen hoofdtags gevonden. Maak hieronder een vak aan.", "warn"));
     tops.forEach(function (t) {
       var on = isVakId(t.id, wz.vakTags), chk = h("input", { type: "checkbox" }); chk.checked = on;
@@ -1104,13 +1105,13 @@
         wz.vakTags = compactVakTags(cur); wz.guesses = null; renderSetup();
       });
       var n = childrenOf(t.id).length;
-      list.appendChild(h("label", { class: "qws-tagrow" + (on ? "" : " off") }, [chk, h("span", { class: "qws-swatch sm", style: "background:" + tagHex(t) }),
-        h("span", { class: "qws-step-txt" }, [h("span", { class: "qws-vakname", text: tagName(t) }), h("span", { class: "qws-muted", text: n ? n + " subtags" : "geen subtags" })])]));
+      list.appendChild(h("label", { class: "pgs-tagrow" + (on ? "" : " off") }, [chk, h("span", { class: "pgs-swatch sm", style: "background:" + tagHex(t) }),
+        h("span", { class: "pgs-step-txt" }, [h("span", { class: "pgs-vakname", text: tagName(t) }), h("span", { class: "pgs-muted", text: n ? n + " subtags" : "geen subtags" })])]));
     });
-    var nameInp = h("input", { class: "qws-input", type: "text", placeholder: "bv. Lichamelijke opvoeding" });
-    var colorInp = h("input", { class: "qws-color", type: "color", value: "#c9d2d7", "aria-label": "Kleur" });
-    var msg = h("span", { class: "qws-muted", text: wz.msg || "" }); wz.msg = "";
-    list.appendChild(h("div", { class: "qws-addrow foot" }, [h("span", { class: "qws-grow qws-p", text: "Ontbreekt er een vak?" }), nameInp, colorInp, btn("Vak aanmaken…", function () {
+    var nameInp = h("input", { class: "pgs-input", type: "text", placeholder: "bv. Lichamelijke opvoeding" });
+    var colorInp = h("input", { class: "pgs-color", type: "color", value: "#c9d2d7", "aria-label": "Kleur" });
+    var msg = h("span", { class: "pgs-muted", text: wz.msg || "" }); wz.msg = "";
+    list.appendChild(h("div", { class: "pgs-addrow foot" }, [h("span", { class: "pgs-grow pgs-p", text: "Ontbreekt er een vak?" }), nameInp, colorInp, btn("Vak aanmaken…", function () {
       var title = (nameInp.value || "").trim(); if (!title) { msg.textContent = "Geef een naam op."; return; }
       if (subjectTops().some(function (t) { return norm(t.title) === norm(title); })) { msg.textContent = "Die tag bestaat al."; return; }
       confirmBox("Nieuwe tag in Questi", ["Dit maakt de hoofdtag “" + title + "” aan in je Questi-lesfiches. Het is de enige wijziging die de installatie in Questi doet.", "Verwijderen kan later in Lesfiches → Tags."], "Aanmaken", function () {
@@ -1124,8 +1125,8 @@
     c.appendChild(list);
   }
   function stepLesrooster(c) {
-    c.appendChild(h("h1", { class: "qws-h1", text: "Welk vak geef je wanneer?" }));
-    c.appendChild(h("p", { class: "qws-lead", text: "Dit zijn de vaste lesuren uit je Questi-agenda. Gestippelde vakjes zijn een voorstel op basis van je agenda — kies of bevestig ze (✓). Een voorstel dat je niet bevestigt, wordt niet bewaard." }));
+    c.appendChild(h("h1", { class: "pgs-h1", text: "Welk vak geef je wanneer?" }));
+    c.appendChild(h("p", { class: "pgs-lead", text: "Dit zijn de vaste lesuren uit je Questi-agenda. Gestippelde vakjes zijn een voorstel op basis van je agenda — kies of bevestig ze (✓). Een voorstel dat je niet bevestigt, wordt niet bewaard." }));
     if (!timeRows().length) {
       c.appendChild(note(plannerLoaded() ? "Geen lesuren in de geladen week (vakantie?). Je kan dit later invullen in Instellingen → Lesrooster." : "Open eerst Plannen op een week met lesuren; je kan dit ook later invullen in Instellingen → Lesrooster.", "warn"));
       return;
@@ -1133,8 +1134,8 @@
     if (!wz.guesses) wz.guesses = computeGuesses();
     var g = wz.guesses;
     var nGuess = Object.keys(g).filter(function (k) { return wz.settings[k] == null; }).length;
-    if (nGuess) c.appendChild(h("div", { class: "qws-bar" }, [
-      h("span", { class: "qws-grow qws-p", text: nGuess + " voorstel(len) nog niet bevestigd." }),
+    if (nGuess) c.appendChild(h("div", { class: "pgs-bar" }, [
+      h("span", { class: "pgs-grow pgs-p", text: nGuess + " voorstel(len) nog niet bevestigd." }),
       btn("Alle voorstellen bevestigen", function () { Object.keys(g).forEach(function (k) { if (wz.settings[k] == null) wz.settings[k] = g[k].id; }); renderSetup(); }, "ghost")
     ]));
     c.appendChild(card([slotGrid({
@@ -1146,10 +1147,10 @@
     })]));
     var cells = 0; timeRows().forEach(function (t) { for (var d = 0; d < 5; d++) if (!S().isNoSchool(d, t)) cells++; });
     var filled = Object.keys(wz.settings).length;
-    c.appendChild(h("div", { class: "qws-muted", text: filled + " van " + cells + " lesuren hebben een vak." }));
+    c.appendChild(h("div", { class: "pgs-muted", text: filled + " van " + cells + " lesuren hebben een vak." }));
   }
   function stepAgenda(c) {
-    c.appendChild(h("h1", { class: "qws-h1", text: "Hoe schrijft de planner in je agenda?" }));
+    c.appendChild(h("h1", { class: "pgs-h1", text: "Hoe schrijft de planner in je agenda?" }));
     c.appendChild(toggle(wz.writeDesc, "Vak als beschrijving in de agenda zetten · optioneel",
       "Handig als je klaswebsite (bv. Enderklas) de beschrijving toont als vak. Staat dit uit, dan laat de planner de beschrijving van je lesuren volledig met rust.",
       function (on) { wz.writeDesc = on; renderSetup(); }));
@@ -1189,31 +1190,31 @@
   }
   function stepKlaar(c) {
     var r = wz.result || { vakken: 0, filled: 0, desc: false, dropped: 0 };
-    c.appendChild(h("h1", { class: "qws-h1", text: "Klaar om te plannen" }));
-    c.appendChild(h("div", { class: "qws-stats" }, [
-      h("div", { class: "qws-card" }, [h("div", { class: "qws-stat", text: String(r.vakken) }), h("div", { class: "qws-muted", text: "vakken" })]),
-      h("div", { class: "qws-card" }, [h("div", { class: "qws-stat", text: String(r.filled) }), h("div", { class: "qws-muted", text: "lesuren met een vak" })]),
-      h("div", { class: "qws-card" }, [h("div", { class: "qws-stat", text: r.desc ? "aan" : "uit" }), h("div", { class: "qws-muted", text: "vak in beschrijving" })])
+    c.appendChild(h("h1", { class: "pgs-h1", text: "Klaar om te plannen" }));
+    c.appendChild(h("div", { class: "pgs-stats" }, [
+      h("div", { class: "pgs-card" }, [h("div", { class: "pgs-stat", text: String(r.vakken) }), h("div", { class: "pgs-muted", text: "vakken" })]),
+      h("div", { class: "pgs-card" }, [h("div", { class: "pgs-stat", text: String(r.filled) }), h("div", { class: "pgs-muted", text: "lesuren met een vak" })]),
+      h("div", { class: "pgs-card" }, [h("div", { class: "pgs-stat", text: r.desc ? "aan" : "uit" }), h("div", { class: "pgs-muted", text: "vak in beschrijving" })])
     ]));
     if (r.dropped) c.appendChild(note(r.dropped + " voorstel(len) niet bevestigd — niet bewaard. Vul ze aan in Instellingen → Lesrooster.", "warn"));
     if (r.calNote) c.appendChild(note(r.calNote));
-    var exMsg = h("span", { class: "qws-muted" });
-    c.appendChild(h("div", { class: "qws-inline" }, [
+    var exMsg = h("span", { class: "pgs-muted" });
+    c.appendChild(h("div", { class: "pgs-inline" }, [
       btn("Naar Plannen", function () { close(); }, "primary big"),
       btn("Instellingen exporteren voor collega’s (.json)", function () {
-        exportSettings({}).then(function (x) { exMsg.textContent = downloadJson(x.data, "unquesti-instellingen-" + tsStamp() + ".json") ? "Bestand gedownload." : "Downloaden mislukt."; });
+        exportSettings({}).then(function (x) { exMsg.textContent = downloadJson(x.data, "patchgoblin-instellingen-" + tsStamp() + ".json") ? "Bestand gedownload." : "Downloaden mislukt."; });
       }, "ghost big"),
       exMsg
     ]));
-    c.appendChild(h("p", { class: "qws-p muted", text: "De export bewaart vakken op naam en kleur, niet als Questi-nummers — zo werkt ze ook in het account van een collega." }));
+    c.appendChild(h("p", { class: "pgs-p muted", text: "De export bewaart vakken op naam en kleur, niet als Questi-nummers — zo werkt ze ook in het account van een collega." }));
   }
 
   // Auto-open once for a brand-new user: no slot settings yet and the wizard never shown.
-  document.addEventListener("qwp:loaded", function () {
+  document.addEventListener("pg:loaded", function () {
     var P = S(); if (!P || !P.state) return;
     var s = P.state;
     if (s.setupDone || Object.keys(s.settings || {}).length) return;
-    if (ui.root && ui.root.classList.contains("qws-show")) return;
+    if (ui.root && ui.root.classList.contains("pgs-show")) return;
     openSetup();
   });
 
@@ -1257,13 +1258,13 @@
         settings: settings, settingsSkipped: r.skipped.map(red),
         errors: (P.recentApiErrors ? P.recentApiErrors() : []).map(function (e) { return { at: e.at, kind: e.kind, id: e.id, status: e.status, msg: red(e.msg) }; })
       };
-      var ok = downloadJson(payload, "unquesti-zelftest-" + tsStamp() + ".json");
+      var ok = downloadJson(payload, "patchgoblin-zelftest-" + tsStamp() + ".json");
       try { P.setStatus(ok ? "Zelftest opgeslagen als .json." : "Opslaan als .json mislukt — zie console."); } catch (e) {}
       return ok;
     });
   }
 
-  window.__UQ_SETTINGS = {
+  window.__PG_SETTINGS = {
     open: open, openSetup: openSetup, close: close,
     exportSettings: exportSettings, saveDebugJson: saveDebugJson,
     vakTops: function (includeNonVak) { return vakTops(!!includeNonVak); }

@@ -1,4 +1,4 @@
-/* Questi Week Planner (QWP) — planner.js
+/* PatchGoblin for Questi — planner.js
  * FULLSCREEN planning page for the Questi calendar.
  *
  * NO account-specific constants are baked in. schoolId, schoolyear, ownerId,
@@ -22,8 +22,8 @@
  */
 (function () {
   "use strict";
-  if (window.__QWP_PLANNER_LOADED) return;
-  window.__QWP_PLANNER_LOADED = true;
+  if (window.__PG_PLANNER_LOADED) return;
+  window.__PG_PLANNER_LOADED = true;
 
   // Beta channel: a sideloaded copy whose manifest name contains "BETA" (see content.js). Only
   // labels the UI; the beta/stable coexistence rules live in content.js and background.js.
@@ -62,7 +62,7 @@
       if (hit) map[v.id] = hit.id;
     });
     view.vakTagMap = map;
-    console.log("[QWP] vak→tag map:", map);
+    console.log("[PG] vak→tag map:", map);
   }
   // Instellingen used to store a VAKKEN string per slot ("taal"); it now stores a
   // live top-tag id. Convert any legacy values once the vak→tag map is built.
@@ -80,19 +80,14 @@
   }
 
   // ---------- Storage ----------
-  var STORE_KEY = "qwp_state_v6";
+  var STORE_KEY = "pg_state_v6";
   function mkPanel(vak, sort) { return { source: "self", sortDir: sort || "az", filterVak: vak || null, filterTagId: null, hideUsed: false, gradeFilter: null }; }
   var state = { colleagues: [], settings: {}, weeks: 1, panelCount: 2, pickerView: "list", splitRatio: 0.58, sideCollapsed: null, workingCalendarId: null, manualSchoolId: null, manualSchoolyear: null, manualOwnTagId: null, themaVak: {}, slotVak: {}, saveThrottleMs: 250, mainMode: "plan", filterOpen: false, doelenWeek: 0, panels: [mkPanel(null, "az"), mkPanel(null, "az"), mkPanel(null, "az")] };
   function loadState() {
     return new Promise(function (res) {
       function done() { applyTheme(); res(state); }
       try {
-        if (chrome && chrome.storage && chrome.storage.local) {
-          chrome.storage.local.get([STORE_KEY], function (o) { if (o && o[STORE_KEY]) { try { mergeState(o[STORE_KEY]); } catch (e) {} } done(); });
-        } else {
-          try { var s = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); if (s) mergeState(s); } catch (e) {}
-          done();
-        }
+        storeGet(STORE_KEY).then(function (s) { if (s) { try { mergeState(s); } catch (e) {} } done(); }, done);
       } catch (e) { done(); }
     });
   }
@@ -159,14 +154,36 @@
   function saveState() { storeSet(STORE_KEY, state); }
   // Generic key/value store shared with the other modules — same chrome.storage.local
   // path as the planner's own state, with the same localStorage fallback.
+  // v2.0 renamed every key qwp_* → pg_* (PatchGoblin). Migration is per key and automatic: a pg_*
+  // key that does not exist yet is read from its old name, copied to the new one and used. The old
+  // copy is left in place as a safety net (going back to v1.x still finds its settings).
+  var OLD_STORE_KEYS = {
+    pg_state_v6: "qwp_state_v6", pg_ctx_v1: "qwp_ctx_v1", pg_lessons_v1: "qwp_lessons_v1",
+    pg_methodes_v1: "qwp_methodes_v1", pg_goals_v1: "qwp_goals_v1", pg_threads_v1: "qwp_threads_v1",
+    pg_goalcache_v1: "qwp_goalcache_v1", pg_print_v1: "qwp_print_v1", pg_xhide_v1: "qwp_xhide_v1"
+  };
+  var _migrated = [];   // keys copied in this session — the status line and Zelftest say so
   function storeGet(key) {
+    var old = OLD_STORE_KEYS[key] || null;
     return new Promise(function (res) {
+      function found(v, fromOld) {
+        if (v != null && fromOld) { storeSet(key, v); _migrated.push(key); try { console.info("[PG] instellingen overgezet: " + old + " → " + key); } catch (e) {} }
+        res(v != null ? v : null);
+      }
       try {
-        if (chrome && chrome.storage && chrome.storage.local) chrome.storage.local.get([key], function (o) { res((o && o[key]) || null); });
-        else res(JSON.parse(localStorage.getItem(key) || "null"));
+        if (chrome && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.get(old ? [key, old] : [key], function (o) {
+            o = o || {};
+            if (o[key] != null) found(o[key], false); else found(old ? o[old] : null, true);
+          });
+        } else {
+          var v = JSON.parse(localStorage.getItem(key) || "null");
+          if (v == null && old) found(JSON.parse(localStorage.getItem(old) || "null"), true); else found(v, false);
+        }
       } catch (e) { res(null); }
     });
   }
+  function migratedKeys() { return _migrated.slice(); }
   // A failed save is never silent: it goes into the Zelftest error list and the status line says it
   // (at most once per 10 s). The usual cause is "Extension context invalidated" — the extension was
   // reloaded or updated while this tab stayed open, so this old copy can no longer save.
@@ -181,7 +198,7 @@
   var _storeWarnAt = 0;
   function storageFailed(key, msg) {
     msg = String(msg || "onbekende fout");
-    try { console.warn("[QWP] bewaren mislukt (" + key + "):", msg); } catch (e) {}
+    try { console.warn("[PG] bewaren mislukt (" + key + "):", msg); } catch (e) {}
     noteApiError("storage", key, 0, msg);
     if (Date.now() - _storeWarnAt < 10000) return;
     _storeWarnAt = Date.now();
@@ -287,18 +304,18 @@
   }
   function resolveOwnTag(tags) {
     var sniffed = sniffOwnLessonTag();
-    if (sniffed != null) { ctx.ownDefaultTagId = sniffed; console.log("[QWP] own default tag →", sniffed, "(via sniff)"); return Promise.resolve(); }
+    if (sniffed != null) { ctx.ownDefaultTagId = sniffed; console.log("[PG] own default tag →", sniffed, "(via sniff)"); return Promise.resolve(); }
     // Prefer the /lessons/tags?filter=own list — it cleanly carries the id-5 "Alle
     // eigen lesfiches" default tag. Fall back to possible-settings / unfiltered / manual.
     return fetchOwnTags().then(function (ownTags) {
       var fromOwn = resolveOwnDefaultTagFromTags(ownTags);
-      if (fromOwn != null) { ctx.ownDefaultTagId = fromOwn; console.log("[QWP] own default tag →", fromOwn, "(via filter=own)"); return; }
+      if (fromOwn != null) { ctx.ownDefaultTagId = fromOwn; console.log("[PG] own default tag →", fromOwn, "(via filter=own)"); return; }
       return bootPossibleSettings().then(function (ps) {
-        if (ps != null) { ctx.ownDefaultTagId = ps; console.log("[QWP] own default tag →", ps, "(via possible-settings)"); return; }
+        if (ps != null) { ctx.ownDefaultTagId = ps; console.log("[PG] own default tag →", ps, "(via possible-settings)"); return; }
         var fromTags = resolveOwnDefaultTagFromTags(tags);
-        if (fromTags != null) { ctx.ownDefaultTagId = fromTags; console.log("[QWP] own default tag →", fromTags, "(via tags list)"); return; }
-        if (state.manualOwnTagId != null) { ctx.ownDefaultTagId = state.manualOwnTagId; console.log("[QWP] own default tag →", state.manualOwnTagId, "(via manual)"); return; }
-        console.error("[QWP] own default tag could NOT be resolved — fiches will not load. Set it manually.");
+        if (fromTags != null) { ctx.ownDefaultTagId = fromTags; console.log("[PG] own default tag →", fromTags, "(via tags list)"); return; }
+        if (state.manualOwnTagId != null) { ctx.ownDefaultTagId = state.manualOwnTagId; console.log("[PG] own default tag →", state.manualOwnTagId, "(via manual)"); return; }
+        console.error("[PG] own default tag could NOT be resolved — fiches will not load. Set it manually.");
       });
     });
   }
@@ -342,8 +359,8 @@
   //  2. Accept a range that isn't a week. The span check below is the structural guard — a future
   //     month/term-scoped endpoint cannot be mistaken for a week even if the path check slips.
   //  3. Read our OWN fetches. apiItems hits the same endpoint (detectContext even fires one before
-  //     this runs), so they carry QWP_MARK and are skipped here.
-  var QWP_MARK = "qwp=1";
+  //     this runs), so they carry PG_MARK and are skipped here.
+  var PG_MARK = "patchgoblin=1";
   function detectViewedWeekStart() {
     try {
       var best = null, bt = -1, es = performance.getEntriesByType("resource");
@@ -351,7 +368,7 @@
       for (var i = 0; i < es.length; i++) {
         var n = es[i].name || "";
         if (!/\/cal\/items\?/.test(n)) continue;          // the week endpoint only — not /count, not /{id}
-        if (n.indexOf(QWP_MARK) > -1) continue;             // our own request, not Questi's
+        if (n.indexOf(PG_MARK) > -1) continue;             // our own request, not Questi's
         var ms = /[?&]startdate=(\d{4}-\d{2}-\d{2})/.exec(n); if (!ms) continue;
         var me = /[?&]enddate=(\d{4}-\d{2}-\d{2})/.exec(n);
         // A viewed week spans at most 7 days (the planner itself may load 2 → allow 14).
@@ -428,13 +445,13 @@
   }
   function calIdOf(c) { return c && (c.id != null ? c.id : (c.calendarId != null ? c.calendarId : c.id_calendar)); }
 
-  // Detected context per Questi user, saved under qwp_ctx_v1: { "<user id>": { schoolId, schoolyear,
+  // Detected context per Questi user, saved under pg_ctx_v1: { "<user id>": { schoolId, schoolyear,
   // school, calendars, calendarId, groupId, ownDefaultTagId, savedAt } }. School, calendar, class and
   // own tag barely ever change, yet detecting them is a chain of 5–6 dependent requests. So a known
   // user starts from the saved context after ONE request (/users/me) and the full detection runs in
   // the background; if it finds something different the context is corrected and the status says so.
   // Keyed by user id, so another teacher logging in on the same browser never inherits a context.
-  var CTX_KEY = "qwp_ctx_v1";
+  var CTX_KEY = "pg_ctx_v1";
   var CTX_FIELDS = ["schoolId", "schoolyear", "school", "calendars", "calendarId", "groupId", "ownDefaultTagId"];
   function ctxSnapshot() { var o = {}; CTX_FIELDS.forEach(function (k) { o[k] = ctx[k]; }); return o; }
   function saveCtxCache(userId) {
@@ -457,13 +474,13 @@
       if (state.workingCalendarId != null && (ctx.calendars || []).some(function (c) { return String(c.id) === String(state.workingCalendarId); })) ctx.calendarId = state.workingCalendarId;
       ctx.ready = true;
       ctx.fromCache = true;
-      console.log("[QWP] context from cache (user " + me + ") — verifying in the background:", ctxSnapshot());
+      console.log("[PG] context from cache (user " + me + ") — verifying in the background:", ctxSnapshot());
       var before = ctxKey(cached);
       detectContextFull().then(function () {
         ctx.fromCache = false;
         saveCtxCache(ctx.ownerId);
         if (ctxKey(ctxSnapshot()) !== before) {
-          console.warn("[QWP] cached context was stale → corrected:", ctxSnapshot());
+          console.warn("[PG] cached context was stale → corrected:", ctxSnapshot());
           setStatus("Let op: je Questi-context is gewijzigd (school, agenda of klas). Herlaad de week voor je wegschrijft.");
         }
       });
@@ -480,11 +497,11 @@
       var me = r[0], schools = r[1];
       if (me != null) ctx.ownerId = me;
       var school = pickSchool(schools, hintSchoolId);
-      if (school) { ctx.schoolId = school.id; ctx.school = { name: school.name || "", address: school.address || "", zip: school.zip || "", city: school.city || "" }; var sy = extractSchoolyear(school.current_schoolyear); if (sy) ctx.schoolyear = sy; console.log("[QWP] current_schoolyear raw:", school.current_schoolyear, "→", sy); }
+      if (school) { ctx.schoolId = school.id; ctx.school = { name: school.name || "", address: school.address || "", zip: school.zip || "", city: school.city || "" }; var sy = extractSchoolyear(school.current_schoolyear); if (sy) ctx.schoolyear = sy; console.log("[PG] current_schoolyear raw:", school.current_schoolyear, "→", sy); }
       else if (hintSchoolId != null) ctx.schoolId = hintSchoolId;
       if (!ctx.schoolyear) ctx.schoolyear = net.schoolyear || scr.schoolyear || cook.schoolyear || state.manualSchoolyear || defaultSchoolyear();
-      console.log("[QWP] bootstrap → users/me id:", me, "| schools:", schools.length, "chosen schoolId:", ctx.schoolId, "schoolyear:", ctx.schoolyear);
-      if (ctx.schoolId == null) { console.error("[QWP] schoolId null after /api/schools — use manual field."); return null; }
+      console.log("[PG] bootstrap → users/me id:", me, "| schools:", schools.length, "chosen schoolId:", ctx.schoolId, "schoolyear:", ctx.schoolyear);
+      if (ctx.schoolId == null) { console.error("[PG] schoolId null after /api/schools — use manual field."); return null; }
       return bootCalendars();
     }).then(function (cals) {
       if (!cals) return null;
@@ -493,7 +510,7 @@
       // working-calendar picker (Feature 5). Field names are best-effort — read defensively.
       ctx.calendars = (cals || []).map(function (c) { return { id: calIdOf(c), name: c.name || c.title || String(calIdOf(c)), color: c.color || c.colour || c.hex || null }; })
         .filter(function (c) { return c.id && c.id !== "cal_holidays"; });
-      console.log("[QWP] /cal/calendars →", ids);
+      console.log("[PG] /cal/calendars →", ids);
       if (!ctx.calendarId && ids.length) ctx.calendarId = ids[0];
       var wr = thisWeekRange();
       var calList = (ids.length ? ids : (ctx.calendarId ? [ctx.calendarId] : [])).concat(["cal_holidays"]);
@@ -505,15 +522,15 @@
       // makes the tool portable (multiple own calendars / colleague calendars), not name-dependent.
       if (state.workingCalendarId != null && (ctx.calendars || []).some(function (c) { return String(c.id) === String(state.workingCalendarId); })) {
         ctx.calendarId = state.workingCalendarId;
-        console.log("[QWP] working calendar override →", ctx.calendarId);
+        console.log("[PG] working calendar override →", ctx.calendarId);
       }
-      console.log("[QWP] derived from " + ((items || []).length) + " agenda items →", { schoolId: ctx.schoolId, calendarId: ctx.calendarId, groupId: ctx.groupId });
+      console.log("[PG] derived from " + ((items || []).length) + " agenda items →", { schoolId: ctx.schoolId, calendarId: ctx.calendarId, groupId: ctx.groupId });
       // List items carry empty groups; the real group id lives in item DETAIL. If not
       // yet known, fetch one editable item's detail to resolve it (writes need it).
       var groupProm = Promise.resolve();
       if (ctx.groupId == null) {
         var sample = (items || []).filter(function (x) { return x && x.id_calendar !== "cal_holidays" && x.is_editable !== false; })[0] || (items || [])[0];
-        if (sample) groupProm = fetchItemDetail(sample.id).then(function (d) { if (d && d.groups && d.groups.length) { ctx.groupId = firstGroupId(d.groups); console.log("[QWP] groupId resolved from detail →", ctx.groupId); } }).catch(function () {});
+        if (sample) groupProm = fetchItemDetail(sample.id).then(function (d) { if (d && d.groups && d.groups.length) { ctx.groupId = firstGroupId(d.groups); console.log("[PG] groupId resolved from detail →", ctx.groupId); } }).catch(function () {});
       }
       return groupProm.then(function () {
         return fetchTags().then(function (tags) {
@@ -523,9 +540,9 @@
       });
     }).then(function () {
       ctx.ready = !!ctx.schoolId;
-      console.log("[QWP] DETECTED CONTEXT:", { schoolId: ctx.schoolId, schoolyear: ctx.schoolyear, ownerId: ctx.ownerId, calendarId: ctx.calendarId, groupId: ctx.groupId });
+      console.log("[PG] DETECTED CONTEXT:", { schoolId: ctx.schoolId, schoolyear: ctx.schoolyear, ownerId: ctx.ownerId, calendarId: ctx.calendarId, groupId: ctx.groupId });
       return ctx;
-    }).catch(function (e) { console.error("[QWP] detectContext error:", e); return ctx; });
+    }).catch(function (e) { console.error("[PG] detectContext error:", e); return ctx; });
   }
 
   // ---------- API ----------
@@ -547,9 +564,9 @@
   function apiItems(startISO, endISO, calendars) {
     // No schoolyear param — the live app omits it for calendar reads, and a
     // non-primitive value (current_schoolyear can be an object) 500s the call.
-    // qwp:1 marks this as OUR read, so detectViewedWeekStart skips it and only ever sees
+    // patchgoblin=1 marks this as OUR read, so detectViewedWeekStart skips it and only ever sees
     // requests Questi's own SPA fired. Questi ignores the unknown param.
-    var q = { schoolId: ctx.schoolId, startdate: startISO, enddate: endISO, qwp: 1 };
+    var q = { schoolId: ctx.schoolId, startdate: startISO, enddate: endISO, patchgoblin: 1 };
     if (calendars && calendars.length) q.calendars = calendars;
     return jget(API + "/items?" + qs(q)).then(function (j) { return (j && j.result) || []; });
   }
@@ -596,7 +613,7 @@
     return jget(url).then(function (j) {
       var items = ((j && j.result) || []).map(function (f) { f.__method = true; f.__methodOwner = ownerId; view.methodFicheIds[String(f.id)] = true; return f; });
       return { items: items, total: items.length };
-    }).catch(function (err) { console.error("[QWP] /methods lessons failed:", err); return { items: [], total: 0 }; });
+    }).catch(function (err) { console.error("[PG] /methods lessons failed:", err); return { items: [], total: 0 }; });
   }
 
   // Same endpoint as fetchMethodFiches, but addressed by key instead of by a pseudo-colleague
@@ -604,7 +621,7 @@
   function fetchMethodLessons(key, isCluster) {
     var url = API + "/methods/" + encodeURIComponent(key) + "/lessons?" + qs({ is_cluster: !!isCluster, schoolId: ctx.schoolId });
     return jget(url).then(function (j) { return (j && j.result) || []; })
-      .catch(function (err) { console.error("[QWP] /methods lessons failed:", err); return []; });
+      .catch(function (err) { console.error("[PG] /methods lessons failed:", err); return []; });
   }
 
   function fetchFiches(ownerId, offset, num) {
@@ -614,18 +631,18 @@
     if (own) {
       // Own fetch requires the user's PERSONAL default tag (tag 8 is only valid
       // for shared_userId fetches → 1203). Never fire a guaranteed-400 call.
-      if (ctx.ownDefaultTagId == null) { setStatus("Kon je eigen lesfiche-tag niet bepalen — vul die handmatig in via 'Vernieuwen' bij de context-fout."); console.error("[QWP] fetchFiches(own) aborted — ctx.ownDefaultTagId is null."); return Promise.resolve({ items: [], total: 0 }); }
+      if (ctx.ownDefaultTagId == null) { setStatus("Kon je eigen lesfiche-tag niet bepalen — vul die handmatig in via 'Vernieuwen' bij de context-fout."); console.error("[PG] fetchFiches(own) aborted — ctx.ownDefaultTagId is null."); return Promise.resolve({ items: [], total: 0 }); }
       params.default_tagId = ctx.ownDefaultTagId;
     } else {
       // Prefer the colleague's own top tag; fall back to the universal bucket (8).
       params.shared_userId = ownerId; params.default_tagId = colleagueDefaultTag(ownerId);
     }
     return lessonsGet(params).then(function (res) {
-      if (res.status < 400) { var r = lessonsResult(res); console.log("[QWP] /lessons ok:", res.url, "→", r.items.length, "of", r.total); return r; }
-      console.error("[QWP] /lessons HTTP " + res.status + " URL:", res.url, "body:", JSON.stringify(res.j));
+      if (res.status < 400) { var r = lessonsResult(res); console.log("[PG] /lessons ok:", res.url, "→", r.items.length, "of", r.total); return r; }
+      console.error("[PG] /lessons HTTP " + res.status + " URL:", res.url, "body:", JSON.stringify(res.j));
       noteApiError("GET lessons", ownerId, res.status, (res.j && (res.j.error_msg || res.j.message)) || ("HTTP " + res.status));
       return { items: [], total: 0 };
-    }).catch(function (err) { console.error("[QWP] /lessons failed:", err); return { items: [], total: 0 }; });
+    }).catch(function (err) { console.error("[PG] /lessons failed:", err); return { items: [], total: 0 }; });
   }
   function fetchAllFiches(ownerId) {
     return fetchFiches(ownerId, 0, 100).then(function (first) {
@@ -650,10 +667,10 @@
     if (isDefaultBucketTag(ownerId, tagId)) params.default_tagId = tagId; else params.user_tagId = tagId;
     return lessonsGet(params).then(function (res) {
       if (res.status < 400) return lessonsResult(res);
-      console.error("[QWP] /lessons(tag " + tagId + ") HTTP " + res.status + " URL:", res.url, "body:", JSON.stringify(res.j));
+      console.error("[PG] /lessons(tag " + tagId + ") HTTP " + res.status + " URL:", res.url, "body:", JSON.stringify(res.j));
       noteApiError("GET lessons(tag)", tagId, res.status, (res.j && (res.j.error_msg || res.j.message)) || ("HTTP " + res.status));
       return { items: [], total: 0 };
-    }).catch(function (err) { console.error("[QWP] /lessons(tag) failed:", err); return { items: [], total: 0 }; });
+    }).catch(function (err) { console.error("[PG] /lessons(tag) failed:", err); return { items: [], total: 0 }; });
   }
   function fetchAllFichesByTag(ownerId, tagId) {
     return fetchFichesByTag(ownerId, tagId, 0, 100).then(function (first) {
@@ -732,7 +749,7 @@
       // them as a warning — a red console.error clutters chrome://extensions "Fouten" and alarms
       // non-technical users for something the tool already recovers from. Real errors stay red.
       var gw = (r.status === 502 || r.status === 503 || r.status === 504 || r.status === 408 || r.status === 524 || r.status === 0);
-      (gw ? console.warn : console.error)("[QWP] " + kind + " " + id + (gw ? " gateway-timeout (wordt geverifieerd):" : " failed:"), msg, "| body:", JSON.stringify(j), "| sent:", JSON.stringify(sent));
+      (gw ? console.warn : console.error)("[PG] " + kind + " " + id + (gw ? " gateway-timeout (wordt geverifieerd):" : " failed:"), msg, "| body:", JSON.stringify(j), "| sent:", JSON.stringify(sent));
       noteApiError(kind, id, r.status, msg);
       var err = new Error(msg); err.httpStatus = r.status; throw err;
     });
@@ -1184,7 +1201,7 @@
   function usedChip(f) {
     if (!usedThisYear(f)) return null;
     var iso = String(f.last_used_date).slice(0, 10);
-    return h("span", { class: "qwp-used", title: "Laatst gebruikt op " + iso.split("-").reverse().join("/"), text: "gebruikt " + ddmm(iso, 0) });
+    return h("span", { class: "pg-used", title: "Laatst gebruikt op " + iso.split("-").reverse().join("/"), text: "gebruikt " + ddmm(iso, 0) });
   }
 
   // ---------- Hydrate ----------
@@ -1368,7 +1385,7 @@
     return e;
   }
   function elId(id) { return document.getElementById(id); }
-  function setStatus(t) { var s = elId("qwp-status"); if (s) s.textContent = t; }
+  function setStatus(t) { var s = elId("pg-status"); if (s) s.textContent = t; }
   function groupFor(ownerId) { return view.ficheGroups.filter(function (g) { return String(g.ownerId) === String(ownerId); })[0]; }
   function ownerName(id) { if (String(id) === String(myId())) return "Ik"; var c = state.colleagues.filter(function (x) { return String(x.id) === String(id); })[0]; if (c && c.isMethod) return "Methode: " + c.name; return c ? c.name : ("#" + id); }
 
@@ -1399,7 +1416,7 @@
   function actBtn(id, icon, label, onclick, extraCls, title) {
     // Compact bar: Alles/Instellingen/Debug are icon buttons (name in the tooltip and for screen
     // readers); only the primary Controleer shows its label (CSS hides the others' text).
-    return h("button", { class: "qwp-actbtn" + (extraCls ? " " + extraCls : ""), id: id, title: title || label, "aria-label": label, onclick: onclick }, [svgIcon(icon, 18, icon === "check" ? "2" : "1.8"), h("span", { class: "qwp-actlbl", text: label })]);
+    return h("button", { class: "pg-actbtn" + (extraCls ? " " + extraCls : ""), id: id, title: title || label, "aria-label": label, onclick: onclick }, [svgIcon(icon, 18, icon === "check" ? "2" : "1.8"), h("span", { class: "pg-actlbl", text: label })]);
   }
   // The three tabs, drawn at the top of whichever sidebar is showing (Plannen's or Afdrukken's).
   // Plannen and Afdrukken swap the window's two columns (showTab); Lesfiches opens the manager.
@@ -1412,12 +1429,12 @@
   function tabsNav(active) {
     function tab(id, label, title, fn) {
       var on = id === active;
-      return h("button", { class: "qwp-tab" + (on ? " active" : ""), "data-tab": id, "aria-current": on ? "page" : null, title: on ? null : title, text: label, onclick: fn });
+      return h("button", { class: "pg-tab" + (on ? " active" : ""), "data-tab": id, "aria-current": on ? "page" : null, title: on ? null : title, text: label, onclick: fn });
     }
     // The whole goblin (tape and wrench included) stands in front of the tabs.
-    return h("div", { class: "qwp-tabrow" }, [
-      goblinImg("goblin-full.png", "qwp-goblin-head"),
-      h("nav", { class: "qwp-tabs", "aria-label": "Onderdelen" }, [
+    return h("div", { class: "pg-tabrow" }, [
+      goblinImg("goblin-full.png", "pg-goblin-head"),
+      h("nav", { class: "pg-tabs", "aria-label": "Onderdelen" }, [
         tab("plan", "Plannen", "Terug naar de weekplanning", function () { goTab("plan"); }),
         tab("lesfiches", "Lesfiches", "Lesfiche-manager openen", function () { goTab("lesfiches"); }),
         tab("print", "Afdrukken", "Afdrukken: de opgeslagen planning van een week", function () { goTab("print"); })
@@ -1426,104 +1443,104 @@
   }
   function buildShell() {
     var tabs = tabsNav("plan");
-    var sortSel = h("select", { class: "qwp-fsel", id: "qwp-sort-0", onchange: function (e) {
+    var sortSel = h("select", { class: "pg-fsel", id: "pg-sort-0", onchange: function (e) {
       var v = e.target.value, p = view.panels[0]; p.sortDir = (v === "za" || v === "recent") ? v : "az"; state.panels[0].sortDir = p.sortDir; saveState(); renderPickList(0);
     } }, [h("option", { value: "recent", text: "Laatst bewerkt" }), h("option", { value: "az", text: "Titel A → Z" }), h("option", { value: "za", text: "Titel Z → A" })]);
-    var hideChk = h("input", { type: "checkbox", id: "qwp-hideused-0", onchange: function (e) {
+    var hideChk = h("input", { type: "checkbox", id: "pg-hideused-0", onchange: function (e) {
       var p = view.panels[0]; p.hideUsed = !!e.target.checked; state.panels[0].hideUsed = p.hideUsed; saveState(); renderPickList(0);
     } });
-    var filter = h("div", { class: "qwp-filter qwp-plan-only", id: "qwp-filter" }, [
-      h("label", { class: "qwp-flbl" }, ["Leerjaar", h("select", { class: "qwp-fsel", id: "qwp-grade-0", onchange: function (e) {
+    var filter = h("div", { class: "pg-filter pg-plan-only", id: "pg-filter" }, [
+      h("label", { class: "pg-flbl" }, ["Leerjaar", h("select", { class: "pg-fsel", id: "pg-grade-0", onchange: function (e) {
         var p = view.panels[0]; p.gradeFilter = e.target.value || null; state.panels[0].gradeFilter = p.gradeFilter; saveState(); renderPickList(0);
       } })]),
-      h("label", { class: "qwp-flbl" }, ["Sorteren", sortSel]),
-      h("label", { class: "qwp-fchk wide" }, [hideChk, h("span", { text: "Verberg al gebruikt dit schooljaar" })])
+      h("label", { class: "pg-flbl" }, ["Sorteren", sortSel]),
+      h("label", { class: "pg-fchk wide" }, [hideChk, h("span", { text: "Verberg al gebruikt dit schooljaar" })])
     ]);
-    var filterBtn = h("button", { class: "qwp-filterbtn", id: "qwp-filterbtn", "aria-expanded": "false", "aria-label": "Filter: leerjaar, sorteren, verberg gebruikt", onclick: toggleFilter }, [svgIcon("filter", 15, "2"), h("span", { class: "qwp-filterdot", id: "qwp-filterbtn-t" })]);
+    var filterBtn = h("button", { class: "pg-filterbtn", id: "pg-filterbtn", "aria-expanded": "false", "aria-label": "Filter: leerjaar, sorteren, verberg gebruikt", onclick: toggleFilter }, [svgIcon("filter", 15, "2"), h("span", { class: "pg-filterdot", id: "pg-filterbtn-t" })]);
     // One row under the vakken: owner · Alle (all own fiches) · text search · filter icon.
-    var allBtn = h("button", { class: "qwp-allbtn", id: "qwp-allbtn-0", type: "button", title: "Alle eigen lesfiches, elk vak", text: "Alle" });
-    var searchInp = h("input", { class: "qwp-finp qwp-rowsearch", id: "qwp-search-0", type: "search", placeholder: "Zoek…", "aria-label": "Zoek in de titels", oninput: function (e) { view.panels[0].search = e.target.value; renderPickList(0); } });
-    var side = h("aside", { class: "qwp-side", id: "qwp-side" }, [
-      h("div", { class: "qwp-side-top" }, [
+    var allBtn = h("button", { class: "pg-allbtn", id: "pg-allbtn-0", type: "button", title: "Alle eigen lesfiches, elk vak", text: "Alle" });
+    var searchInp = h("input", { class: "pg-finp pg-rowsearch", id: "pg-search-0", type: "search", placeholder: "Zoek…", "aria-label": "Zoek in de titels", oninput: function (e) { view.panels[0].search = e.target.value; renderPickList(0); } });
+    var side = h("aside", { class: "pg-side", id: "pg-side" }, [
+      h("div", { class: "pg-side-top" }, [
         tabs,
-        h("div", { class: "qwp-vaktoggle qwp-plan-only", id: "qwp-vaktoggle-0" }),
+        h("div", { class: "pg-vaktoggle pg-plan-only", id: "pg-vaktoggle-0" }),
         // Subtags of the chosen vak (blok 1, blok 2 …): always in view, never folded into Filter.
-        h("div", { class: "qwp-subcats qwp-plan-only", id: "qwp-subcats-0", role: "group", "aria-label": "Subtags" }),
-        h("div", { class: "qwp-ownerrow qwp-plan-only" }, [h("div", { class: "qwp-ownerseg", id: "qwp-source-0", role: "group", "aria-label": "Eigenaar" }), allBtn, searchInp, filterBtn]),
+        h("div", { class: "pg-subcats pg-plan-only", id: "pg-subcats-0", role: "group", "aria-label": "Subtags" }),
+        h("div", { class: "pg-ownerrow pg-plan-only" }, [h("div", { class: "pg-ownerseg", id: "pg-source-0", role: "group", "aria-label": "Eigenaar" }), allBtn, searchInp, filterBtn]),
         filter
       ]),
-      // Lesfiches tab: lessons.js mounts its tag tree here (setTab → __QWP_LESSONS.mount).
-      h("div", { class: "qwp-lf-side qwp-lf-only", id: "qwp-lf-side" }),
-      h("div", { class: "qwp-picker qwp-plan-only", id: "qwp-picker-0" }, [
-        h("div", { class: "qwp-picker-list", id: "qwp-picker-list-0" }),
-        h("div", { class: "qwp-selbar", id: "qwp-selbar", style: "display:none" }, [
-          h("span", { class: "qwp-pick-count", id: "qwp-pick-count-0", text: "0 geselecteerd" }),
-          h("span", { class: "qwp-spacer" }),
-          h("button", { class: "qwp-btn qwp-ghost qwp-sm", id: "qwp-clearsel-0", onclick: function () { view.panels[0].picked = {}; renderPickList(0); }, text: "Wis" }),
-          h("button", { class: "qwp-btn qwp-sm", id: "qwp-addsel-0", title: "Zet de aangevinkte fiches in lege lesuren (eerst de gekozen doel-lesuren)", onclick: function () { openMassAdd(0); }, text: "Toevoegen aan rooster" })
+      // Lesfiches tab: lessons.js mounts its tag tree here (setTab → __PG_LESSONS.mount).
+      h("div", { class: "pg-lf-side pg-lf-only", id: "pg-lf-side" }),
+      h("div", { class: "pg-picker pg-plan-only", id: "pg-picker-0" }, [
+        h("div", { class: "pg-picker-list", id: "pg-picker-list-0" }),
+        h("div", { class: "pg-selbar", id: "pg-selbar", style: "display:none" }, [
+          h("span", { class: "pg-pick-count", id: "pg-pick-count-0", text: "0 geselecteerd" }),
+          h("span", { class: "pg-spacer" }),
+          h("button", { class: "pg-btn pg-ghost pg-sm", id: "pg-clearsel-0", onclick: function () { view.panels[0].picked = {}; renderPickList(0); }, text: "Wis" }),
+          h("button", { class: "pg-btn pg-sm", id: "pg-addsel-0", title: "Zet de aangevinkte fiches in lege lesuren (eerst de gekozen doel-lesuren)", onclick: function () { openMassAdd(0); }, text: "Toevoegen aan rooster" })
         ])
       ]),
-      h("nav", { class: "qwp-actions", "aria-label": "Acties" }, [
-        actBtn("qwp-alles", "alles", "Alles", function (e) { openAlles(e.currentTarget); }, null, "Alle hulpmiddelen"),
-        actBtn("qwp-inst", "inst", "Instellingen", openSettings, null, "Instellingen"),
-        actBtn("qwp-debug", "debug", "Debug", openDiagnose, null, "Zelftest voor ontwikkelaars"),
+      h("nav", { class: "pg-actions", "aria-label": "Acties" }, [
+        actBtn("pg-alles", "alles", "Alles", function (e) { openAlles(e.currentTarget); }, null, "Alle hulpmiddelen"),
+        actBtn("pg-inst", "inst", "Instellingen", openSettings, null, "Instellingen"),
+        actBtn("pg-debug", "debug", "Debug", openDiagnose, null, "Zelftest voor ontwikkelaars"),
         (function () {
-          var b = actBtn("qwp-review", "check", "Controleer", openReview, "primary", "Controleer de wijzigingen en schrijf ze weg");
-          b.appendChild(h("span", { class: "qwp-actbadge", id: "qwp-review-n", style: "display:none" }));
+          var b = actBtn("pg-review", "check", "Controleer", openReview, "primary", "Controleer de wijzigingen en schrijf ze weg");
+          b.appendChild(h("span", { class: "pg-actbadge", id: "pg-review-n", style: "display:none" }));
           return b;
         })(),
         // Hidden arming target kept for doCommit's lock/unlock bookkeeping.
-        h("button", { class: "qwp-btn qwp-commit", id: "qwp-commit", disabled: "true", onclick: doCommit, text: "Wegschrijven", style: "display:none" })
+        h("button", { class: "pg-btn pg-commit", id: "pg-commit", disabled: "true", onclick: doCommit, text: "Wegschrijven", style: "display:none" })
       ])
     ]);
-    side.querySelector("#qwp-alles").setAttribute("data-menu", "qwp-allesmenu");
+    side.querySelector("#pg-alles").setAttribute("data-menu", "pg-allesmenu");
 
-    var header = h("header", { class: "qwp-mhdr" }, [
-      h("button", { class: "qwp-navarrow", "aria-label": "Vorige week", title: "Een week terug", onclick: prevWeek, text: "←" }),
-      h("div", { class: "qwp-range", id: "qwp-range" }),
-      h("button", { class: "qwp-navarrow", "aria-label": "Volgende week", title: "Een week verder", onclick: nextWeek, text: "→" }),
-      h("button", { class: "qwp-navbtn", onclick: thisWeek, title: "Deze week en volgende week", text: "Vandaag" }),
-      h("span", { class: "qwp-spacer" }),
-      h("span", { class: "qwp-goalcount", id: "qwp-goalcount", style: "display:none" }),
-      h("div", { class: "qwp-modeseg", id: "qwp-modeseg", role: "group", "aria-label": "Modus" }, [
+    var header = h("header", { class: "pg-mhdr" }, [
+      h("button", { class: "pg-navarrow", "aria-label": "Vorige week", title: "Een week terug", onclick: prevWeek, text: "←" }),
+      h("div", { class: "pg-range", id: "pg-range" }),
+      h("button", { class: "pg-navarrow", "aria-label": "Volgende week", title: "Een week verder", onclick: nextWeek, text: "→" }),
+      h("button", { class: "pg-navbtn", onclick: thisWeek, title: "Deze week en volgende week", text: "Vandaag" }),
+      h("span", { class: "pg-spacer" }),
+      h("span", { class: "pg-goalcount", id: "pg-goalcount", style: "display:none" }),
+      h("div", { class: "pg-modeseg", id: "pg-modeseg", role: "group", "aria-label": "Modus" }, [
         h("button", { "data-m": "plan", onclick: function () { setMainMode("plan"); }, text: "Plannen" }),
         h("button", { "data-m": "doelen", onclick: function () { setMainMode("doelen"); }, title: "Lesdoelen per lesuur (alleen lezen)", text: "Doelen" })
       ]),
-      h("div", { class: "qwp-fitseg", id: "qwp-fitseg", role: "group", "aria-label": "Weergave" }, [
+      h("div", { class: "pg-fitseg", id: "pg-fitseg", role: "group", "aria-label": "Weergave" }, [
         h("button", { "data-f": "fit", onclick: function () { setWeekFit("fit"); }, title: "Beide weken passend op het scherm (verkleint indien nodig)", text: "Passend" }),
         h("button", { "data-f": "scroll", onclick: function () { setWeekFit("scroll"); }, title: "Ware grootte, met een schuifbalk als het niet past", text: "Ruim" })
       ]),
-      h("button", { class: "qwp-staged", id: "qwp-staged", style: "display:none", title: "Nog niet weggeschreven — klik om te controleren", onclick: openReview }),
+      h("button", { class: "pg-staged", id: "pg-staged", style: "display:none", title: "Nog niet weggeschreven — klik om te controleren", onclick: openReview }),
       betaPill(),
-      h("button", { class: "qwp-topx", onclick: hide, title: "Sluiten", text: "✕" })
+      h("button", { class: "pg-topx", onclick: hide, title: "Sluiten", text: "✕" })
     ]);
-    var content = h("main", { class: "qwp-content qwp-plan-only" }, [header, h("div", { class: "qwp-ttwrap", id: "qwp-ttwrap" })]);
+    var content = h("main", { class: "pg-content pg-plan-only" }, [header, h("div", { class: "pg-ttwrap", id: "pg-ttwrap" })]);
     // Lesfiches tab: lessons.js mounts its header, table and side sheet here.
-    var lfMain = h("main", { class: "qwp-lf-main qwp-lf-only", id: "qwp-lf-main" });
+    var lfMain = h("main", { class: "pg-lf-main pg-lf-only", id: "pg-lf-main" });
 
     var pp = buildPrintPanel();
     // Status strip: one thin line under whichever main column is showing (all three tabs), so the
-    // sidebar keeps its height for the fiche list. Keeps the qwp-side-status class (retry button).
-    var statusStrip = h("div", { class: "qwp-side-status qwp-statusbar", role: "status" }, [
-      h("div", { class: "qwp-side-note", id: "qwp-side-note", text: "" }),
-      h("div", { class: "qwp-status", id: "qwp-status", text: "Laden…" })
+    // sidebar keeps its height for the fiche list. Keeps the pg-side-status class (retry button).
+    var statusStrip = h("div", { class: "pg-side-status pg-statusbar", role: "status" }, [
+      h("div", { class: "pg-side-note", id: "pg-side-note", text: "" }),
+      h("div", { class: "pg-status", id: "pg-status", text: "Laden…" })
     ]);
-    var right = h("div", { class: "qwp-right" }, [content, lfMain, pp.main, statusStrip]);
+    var right = h("div", { class: "pg-right" }, [content, lfMain, pp.main, statusStrip]);
     side.appendChild(sideResizer()); pp.side.appendChild(sideResizer());
-    var main = h("div", { class: "qwp-main", id: "qwp-mainwrap" }, [side, pp.side, right]);
+    var main = h("div", { class: "pg-main", id: "pg-mainwrap" }, [side, pp.side, right]);
 
-    var page = h("div", { class: "qwp-page", id: "qwp-page" }, [main]);
-    var overlay = h("div", { class: "qwp-overlay", id: "qwp-overlay" }, [page]);
+    var page = h("div", { class: "pg-page", id: "pg-page" }, [main]);
+    var overlay = h("div", { class: "pg-overlay", id: "pg-overlay" }, [page]);
     els.root = overlay; els.page = page;
     // Menus close on any press outside them (their own opener toggles instead) and on Escape.
     document.addEventListener("mousedown", function (e) {
-      ["qwp-allesmenu", "qwp-srcmenu"].forEach(function (id) {
+      ["pg-allesmenu", "pg-srcmenu"].forEach(function (id) {
         var m = elId(id); if (!m || m.contains(e.target)) return;
         if (e.target && e.target.closest && e.target.closest('[data-menu="' + id + '"]')) return;
         m.remove();
       });
     }, true);
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu"); } });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeMenu("pg-allesmenu"); closeMenu("pg-srcmenu"); } });
     return overlay;
   }
   // The single tab switch. Plannen and Lesfiches share the Plannen column pair (setTab mounts the
@@ -1537,9 +1554,9 @@
   // Plannen | Afdrukken: one window, two column pairs; only the visible pair is shown.
   function showTab(name) {
     view.tab = name === "print" ? "print" : "plan";
-    var m = elId("qwp-mainwrap"); if (m) m.classList.toggle("tab-print", view.tab === "print");
-    closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu");
-    var pop = elId("qwp-pop"); if (pop) pop.remove();
+    var m = elId("pg-mainwrap"); if (m) m.classList.toggle("tab-print", view.tab === "print");
+    closeMenu("pg-allesmenu"); closeMenu("pg-srcmenu");
+    var pop = elId("pg-pop"); if (pop) pop.remove();
     if (view.tab === "print") enterPrintTab();
     else refreshStaged();
   }
@@ -1555,7 +1572,7 @@
   }
   // Per-subject (top-level tag) filled-slot tally + planned/empty totals.
   function renderBalance() {
-    var el = elId("qwp-balance"); if (!el) return; el.innerHTML = "";
+    var el = elId("pg-balance"); if (!el) return; el.innerHTML = "";
     var counts = {}, filled = 0, empty = 0;
     view.slots.forEach(function (s) {
       if (s.idCalendar === "cal_holidays" || s.isFullday) return;
@@ -1574,20 +1591,20 @@
       } else if (isTargetable(s)) empty++;
     });
     var keys = Object.keys(counts).sort(function (a, b) { return counts[b].n - counts[a].n || a.localeCompare(b); });
-    if (!keys.length && !empty) { el.appendChild(h("div", { class: "qwp-balance-empty", text: "Nog niets gepland." })); return; }
+    if (!keys.length && !empty) { el.appendChild(h("div", { class: "pg-balance-empty", text: "Nog niets gepland." })); return; }
     keys.forEach(function (k) {
       // Colour the label by the subject's questi tag colour.
-      var vak = h("span", { class: "qwp-balance-vak", text: k });
+      var vak = h("span", { class: "pg-balance-vak", text: k });
       if (counts[k].color) vak.style.color = counts[k].color;
-      el.appendChild(h("div", { class: "qwp-balance-row" }, [vak, h("span", { class: "qwp-balance-n", text: String(counts[k].n) })]));
+      el.appendChild(h("div", { class: "pg-balance-row" }, [vak, h("span", { class: "pg-balance-n", text: String(counts[k].n) })]));
     });
-    el.appendChild(h("div", { class: "qwp-side-sep" }));
-    el.appendChild(h("div", { class: "qwp-balance-tot", text: "Gepland " + filled + " · Leeg " + empty }));
+    el.appendChild(h("div", { class: "pg-side-sep" }));
+    el.appendChild(h("div", { class: "pg-balance-tot", text: "Gepland " + filled + " · Leeg " + empty }));
   }
 
   // ---------- Modes, filter fold, staged count ----------
   // Plannen = both loaded weeks stacked; Doelen = one week with WEET/KEN/KAN per card, the other
-  // week folded to a bar. The choice and the filter fold live in qwp_state_v6 (mainMode, filterOpen).
+  // week folded to a bar. The choice and the filter fold live in pg_state_v6 (mainMode, filterOpen).
   function mainMode() { return state.mainMode === "doelen" ? "doelen" : "plan"; }
   function doelenWeek() { return Math.max(0, Math.min(view.weeks - 1, +state.doelenWeek || 0)); }
   function setMainMode(m) {
@@ -1596,27 +1613,27 @@
   }
   // ---- Sidebar width + week fit (state.sideWidth px | null, state.weekFit "fit" | "scroll") ----
   // The sidebar is dragged wider/narrower by its right edge (double-click = back to default); the
-  // width lives in --qwp-side-w on the overlay, so Plannen, Lesfiches and Afdrukken share it.
+  // width lives in --pg-side-w on the overlay, so Plannen, Lesfiches and Afdrukken share it.
   var SIDE_MIN = 260, SIDE_MAX = 760;
   function applySideWidth() {
     if (!els.root) return;
-    if (state.sideWidth) els.root.style.setProperty("--qwp-side-w", state.sideWidth + "px");
-    else els.root.style.removeProperty("--qwp-side-w");
+    if (state.sideWidth) els.root.style.setProperty("--pg-side-w", state.sideWidth + "px");
+    else els.root.style.removeProperty("--pg-side-w");
   }
   function sideResizer() {
-    var hd = h("div", { class: "qwp-sizer", role: "separator", "aria-orientation": "vertical", "aria-label": "Breedte zijbalk", title: "Sleep om de zijbalk breder of smaller te maken · dubbelklik = standaard" });
+    var hd = h("div", { class: "pg-sizer", role: "separator", "aria-orientation": "vertical", "aria-label": "Breedte zijbalk", title: "Sleep om de zijbalk breder of smaller te maken · dubbelklik = standaard" });
     hd.addEventListener("mousedown", function (e) {
       if (e.button !== 0) return;
       e.preventDefault();
       var left = hd.parentNode.getBoundingClientRect().left, w = null;
-      els.root.classList.add("qwp-resizing");
+      els.root.classList.add("pg-resizing");
       function move(ev) {
         w = Math.round(Math.max(SIDE_MIN, Math.min(Math.min(SIDE_MAX, window.innerWidth * 0.6), ev.clientX - left)));
-        els.root.style.setProperty("--qwp-side-w", w + "px");
+        els.root.style.setProperty("--pg-side-w", w + "px");
       }
       function up() {
         document.removeEventListener("mousemove", move, true); document.removeEventListener("mouseup", up, true);
-        els.root.classList.remove("qwp-resizing");
+        els.root.classList.remove("pg-resizing");
         if (w != null) { state.sideWidth = w; saveState(); }
         fitWeeks(); if (view.tab === "print") fitPrintFrame();
       }
@@ -1630,11 +1647,11 @@
   function weekFit() { return state.weekFit === "scroll" ? "scroll" : "fit"; }
   function setWeekFit(v) { state.weekFit = v; saveState(); syncFitSeg(); fitWeeks(); }
   function syncFitSeg() {
-    var seg = elId("qwp-fitseg"); if (!seg) return;
+    var seg = elId("pg-fitseg"); if (!seg) return;
     Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("active", b.getAttribute("data-f") === weekFit()); });
   }
   function fitWeeks() {
-    var wrap = elId("qwp-ttwrap"), inner = elId("qwp-ttinner"); if (!wrap || !inner) return;
+    var wrap = elId("pg-ttwrap"), inner = elId("pg-ttinner"); if (!wrap || !inner) return;
     inner.style.zoom = "";
     syncFitSeg();
     if (weekFit() !== "fit") return;
@@ -1644,7 +1661,7 @@
   }
   window.addEventListener("resize", function () { fitWeeks(); });
   function syncModeSeg() {
-    var seg = elId("qwp-modeseg"); if (!seg) return;
+    var seg = elId("pg-modeseg"); if (!seg) return;
     Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("active", b.getAttribute("data-m") === mainMode()); });
   }
   function toggleFilter() { state.filterOpen = !state.filterOpen; saveState(); applyFilterFold(); }
@@ -1653,7 +1670,7 @@
     return !!(p.gradeFilter || p.hideUsed);
   }
   function applyFilterFold() {
-    var f = elId("qwp-filter"), b = elId("qwp-filterbtn"), t = elId("qwp-filterbtn-t"); if (!f || !b) return;
+    var f = elId("pg-filter"), b = elId("pg-filterbtn"), t = elId("pg-filterbtn-t"); if (!f || !b) return;
     var open = !!state.filterOpen, on = filterActive(view.panels[0]);
     f.style.display = open ? "" : "none";
     b.classList.toggle("open", open); b.classList.toggle("on", on && !open);
@@ -1699,10 +1716,10 @@
     return { slots: out, held: held };
   }
   // Everything the ONE Controleer writes: calendar changes plus the Lesfiche-manager's staged fiche
-  // edits and tags to create. The launcher badge (__QWP_PENDING_COUNT), the Controleer badge and the
+  // edits and tags to create. The launcher badge (__PG_PENDING_COUNT), the Controleer badge and the
   // header count all use this. Week navigation keeps using stagedCount — only calendar edits are
   // lost on a week reload; staged fiche edits live in lessons.js and survive it.
-  function lessonsApi() { var L = window.__QWP_LESSONS; return (L && typeof L.pendingSummary === "function") ? L : null; }
+  function lessonsApi() { var L = window.__PG_LESSONS; return (L && typeof L.pendingSummary === "function") ? L : null; }
   function totalStagedCount() {
     var n = stagedCount(), L = lessonsApi();
     if (L) { try { n += L.pendingCount() || 0; } catch (e) {} }
@@ -1710,16 +1727,16 @@
   }
   function refreshStaged() {
     var n = totalStagedCount();
-    var badge = elId("qwp-review-n"); if (badge) { badge.textContent = String(n); badge.style.display = n ? "" : "none"; }
+    var badge = elId("pg-review-n"); if (badge) { badge.textContent = String(n); badge.style.display = n ? "" : "none"; }
     // Controleer waits until every lesuur's detail is in (see hydrateRangeLive) — and says why.
-    var nLoad = hydratePending(), rv = elId("qwp-review");
+    var nLoad = hydratePending(), rv = elId("pg-review");
     if (rv) {
-      rv.classList.toggle("qwp-wait", nLoad > 0);
+      rv.classList.toggle("pg-wait", nLoad > 0);
       rv.title = nLoad ? loadingReason(nLoad) : "Controleer de wijzigingen en schrijf ze weg";
     }
-    var st = elId("qwp-staged"); if (!st) return;
+    var st = elId("pg-staged"); if (!st) return;
     st.style.display = n ? "" : "none"; st.innerHTML = "";
-    st.appendChild(h("span", { class: "qwp-staged-dot" }));
+    st.appendChild(h("span", { class: "pg-staged-dot" }));
     var away = offscreenStaged().length;
     st.appendChild(document.createTextNode(n + (n === 1 ? " wijziging" : " wijzigingen") + (away ? " (" + away + " in andere weken)" : "")));
   }
@@ -1742,11 +1759,11 @@
   }
   function weekNoOf(w) { var d = addDays(view.weekStart, w * 7); return d ? isoWeekNo(isoDate(d)) : ""; }
   function renderRange() {
-    var el = elId("qwp-range"); if (!el || !view.weekStart) return;
+    var el = elId("pg-range"); if (!el || !view.weekStart) return;
     var doel = mainMode() === "doelen", wa = doel ? doelenWeek() : 0, wb = doel ? wa : view.weeks - 1;
     el.innerHTML = "";
     el.appendChild(document.createTextNode("Week " + weekNoOf(wa) + (wb !== wa ? " – " + weekNoOf(wb) : "")));
-    el.appendChild(h("span", { class: "qwp-range-sub", text: " · " + shortRange(wa, wb) }));
+    el.appendChild(h("span", { class: "pg-range-sub", text: " · " + shortRange(wa, wb) }));
   }
 
   // ---------- Menus (Alles, Collega) ----------
@@ -1754,7 +1771,7 @@
   // A fixed-position menu next to its opener (above it when the opener sits low on the screen).
   function showMenu(id, anchor, kids, cls) {
     closeMenu(id);
-    var m = h("div", { class: "qwp-menu" + (cls ? " " + cls : ""), id: id, role: "menu" }, kids);
+    var m = h("div", { class: "pg-menu" + (cls ? " " + cls : ""), id: id, role: "menu" }, kids);
     var r = anchor.getBoundingClientRect();
     if (r.top > window.innerHeight / 2) { m.style.bottom = Math.round(window.innerHeight - r.top + 8) + "px"; m.style.left = "12px"; }
     else { m.style.top = Math.round(r.bottom + 6) + "px"; m.style.left = Math.round(r.left) + "px"; }
@@ -1763,20 +1780,20 @@
   }
   function menuItem(ico, name, desc, tag, fn, disabled) {
     var write = tag === "via Controleer";
-    return h("button", { class: "qwp-mi" + (disabled ? " off" : ""), role: "menuitem", disabled: disabled ? "true" : null, onclick: function () { closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu"); fn(); } }, [
-      ico != null ? h("span", { class: "qwp-mi-ico", text: ico }) : null,
-      h("span", { class: "qwp-mi-txt" }, [h("span", { class: "qwp-mi-n", text: name }), desc ? h("span", { class: "qwp-mi-d", text: desc }) : null]),
-      tag ? h("span", { class: "qwp-mi-tag" + (write ? " write" : ""), title: write ? "Wordt pas weggeschreven na Controleer" : null, text: tag }) : null
+    return h("button", { class: "pg-mi" + (disabled ? " off" : ""), role: "menuitem", disabled: disabled ? "true" : null, onclick: function () { closeMenu("pg-allesmenu"); closeMenu("pg-srcmenu"); fn(); } }, [
+      ico != null ? h("span", { class: "pg-mi-ico", text: ico }) : null,
+      h("span", { class: "pg-mi-txt" }, [h("span", { class: "pg-mi-n", text: name }), desc ? h("span", { class: "pg-mi-d", text: desc }) : null]),
+      tag ? h("span", { class: "pg-mi-tag" + (write ? " write" : ""), title: write ? "Wordt pas weggeschreven na Controleer" : null, text: tag }) : null
     ]);
   }
   // Open one of the planner's popovers fresh (the old ones toggle, which would just close another).
-  function freshPop(fn) { var ex = elId("qwp-pop"); if (ex) ex.remove(); fn(); }
+  function freshPop(fn) { var ex = elId("pg-pop"); if (ex) ex.remove(); fn(); }
   function openAlles(anchor) {
-    if (closeMenu("qwp-allesmenu")) return;
+    if (closeMenu("pg-allesmenu")) return;
     var nUndo = view.undoStack.length, ver = "";
     try { ver = chrome.runtime.getManifest().version || ""; } catch (e) {}
-    function grp(t) { return h("div", { class: "qwp-mgrp", text: t }); }
-    showMenu("qwp-allesmenu", anchor, [
+    function grp(t) { return h("div", { class: "pg-mgrp", text: t }); }
+    showMenu("pg-allesmenu", anchor, [
       grp("Deze weken"),
       menuItem("⧉", "Kopieer vorige week", "fiches van vorige week in deze week zetten", "via Controleer", openCopyPrevWeek),
       menuItem("T", "Titels opschonen", "verwijdert Questi’s “* … (1)” uit titels", "via Controleer", cleanDecoratedTitles),
@@ -1790,43 +1807,43 @@
       menuItem("C", "Lesfiches van collega’s", "kiezen wiens fiches je in de lijst ziet", "", function () { freshPop(openColleaguePopover); }),
       menuItem("▤", "Methodes", "Questi-methodebibliotheken tonen", "", function () { freshPop(openMethodesPopover); }),
       grp("Overzicht"),
-      menuItem("▦", "Methodevoortgang", "welke lessen van een methode al gegeven zijn", "", function () { if (window.__QWP_METHODES) window.__QWP_METHODES.open(); else setStatus("Methodevoortgang is niet geladen."); }),
-      h("div", { class: "qwp-mfoot" }, [h("span", { text: "PatchGoblin" + (ver ? " v" + ver : "") }), betaPill()])
-    ], "qwp-alles-menu");
+      menuItem("▦", "Methodevoortgang", "welke lessen van een methode al gegeven zijn", "", function () { if (window.__PG_METHODES) window.__PG_METHODES.open(); else setStatus("Methodevoortgang is niet geladen."); }),
+      h("div", { class: "pg-mfoot" }, [h("span", { text: "PatchGoblin" + (ver ? " v" + ver : "") }), betaPill()])
+    ], "pg-alles-menu");
   }
   function openSourceMenu(pi, anchor) {
-    if (closeMenu("qwp-srcmenu")) return;
+    if (closeMenu("pg-srcmenu")) return;
     var kids = state.colleagues.map(function (c) {
       return menuItem(null, ownerName(c.id), c.isMethod ? "methode (alleen lezen)" : "collega", "", function () { setPanelSource(pi, c.id); });
     });
-    if (!kids.length) kids.push(h("div", { class: "qwp-menu-empty", text: "Nog geen collega’s of methodes gekozen." }));
-    kids.push(h("div", { class: "qwp-msep" }));
+    if (!kids.length) kids.push(h("div", { class: "pg-menu-empty", text: "Nog geen collega’s of methodes gekozen." }));
+    kids.push(h("div", { class: "pg-msep" }));
     kids.push(menuItem(null, "Collega’s kiezen…", "", "", function () { freshPop(openColleaguePopover); }));
     kids.push(menuItem(null, "Methodes kiezen…", "", "", function () { freshPop(openMethodesPopover); }));
-    showMenu("qwp-srcmenu", anchor, kids, "qwp-src-menu");
+    showMenu("pg-srcmenu", anchor, kids, "pg-src-menu");
   }
   // Small titled popover in the same slot as the colleague/methode pickers.
   function simplePop(title, body) {
-    var pop = h("div", { class: "qwp-pop qwp-pop-wide", id: "qwp-pop" }, [
-      h("div", { class: "qwp-pop-hd" }, [h("span", { text: title }), h("button", { class: "qwp-pop-x", title: "Sluiten", text: "×", onclick: function () { pop.remove(); } })]),
+    var pop = h("div", { class: "pg-pop pg-pop-wide", id: "pg-pop" }, [
+      h("div", { class: "pg-pop-hd" }, [h("span", { text: title }), h("button", { class: "pg-pop-x", title: "Sluiten", text: "×", onclick: function () { pop.remove(); } })]),
       body
     ]);
     els.page.appendChild(pop);
     return pop;
   }
   function openBalancePop() {
-    simplePop("Balans deze weken", h("div", { class: "qwp-pop-body" }, [h("div", { class: "qwp-balance", id: "qwp-balance" })]));
+    simplePop("Balans deze weken", h("div", { class: "pg-pop-body" }, [h("div", { class: "pg-balance", id: "pg-balance" })]));
     renderBalance();
   }
   function openGlobalSearchPop() {
-    simplePop("Zoek in alle lesfiches", h("div", { class: "qwp-pop-body" }, [buildGlobalSearch()]));
+    simplePop("Zoek in alle lesfiches", h("div", { class: "pg-pop-body" }, [buildGlobalSearch()]));
     renderGlobalOwners();
-    var inp = elId("qwp-gsearch-inp"); if (inp) setTimeout(function () { inp.focus(); }, 0);
+    var inp = elId("pg-gsearch-inp"); if (inp) setTimeout(function () { inp.focus(); }, 0);
   }
   // Instellingen belong to the shared settings module when it is loaded; the planner's own
   // modal stays as the fallback so nothing is lost while that module is absent.
   function openSettings() {
-    if (window.__UQ_SETTINGS && typeof window.__UQ_SETTINGS.open === "function") { window.__UQ_SETTINGS.open(); return; }
+    if (window.__PG_SETTINGS && typeof window.__PG_SETTINGS.open === "function") { window.__PG_SETTINGS.open(); return; }
     openInstellingen();
   }
   // ---------- Custom print: a branded, time-aligned week (own window) ----------
@@ -2141,18 +2158,18 @@
     var doc = new DOMParser().parseFromString(s, "text/html");
     return (doc.body.textContent || "").replace(/\n{2,}/g, "\n").trim();
   }
-  // Local goals, saved in this browser under qwp_goals_v1: { "f:<fiche id>" | "i:<item id>": {weet, ken, kan, hide} }.
+  // Local goals, saved in this browser under pg_goals_v1: { "f:<fiche id>" | "i:<item id>": {weet, ken, kan, hide} }.
   // Since goals live in the fiche (WEET/KEN/KAN fields), this store keeps only: the per-fiche hide
   // flags, goals for fiche-less lesuren and methode fiches (nowhere else to put them), and goals typed
   // before — shown read-only on an own fiche until "Lokale doelen overnemen" moves them in.
-  var GOALS_STORE_KEY = "qwp_goals_v1", _goals = {}, _goalsSaveT = null;
+  var GOALS_STORE_KEY = "pg_goals_v1", _goals = {}, _goalsSaveT = null;
   var _goalsTab = "word";   // tab label: "word" (WEET/KEN/KAN, vertical) or "icon"; set per render
   var _goalsLegendOn = true; // vak legend in the Wednesday box; set per render
   var _goalsHideEmpty = false; // "Lege doelen weglaten": a kind with no text prints no label and no lines; set per render
-  // Other-agenda items hidden from the Lesdoelen print, saved under qwp_xhide_v1:
+  // Other-agenda items hidden from the Lesdoelen print, saved under pg_xhide_v1:
   // { "<calendar id>|r<id_repeat>" | "<calendar id>|i<item id>": true }. Keyed by the series when the
   // item recurs, so hiding a weekly moment for another class hides it in every week.
-  var XHIDE_KEY = "qwp_xhide_v1", _xHide = {}, _xShowHidden = false;
+  var XHIDE_KEY = "pg_xhide_v1", _xHide = {}, _xShowHidden = false;
   storeGet(XHIDE_KEY).then(function (v) { _xHide = v || {}; });
   function goalsXKey(it) { return it.cal + "|" + (it.rep ? "r" + it.rep : "i" + it.id); }
   var GOALS_DAY_ABBR = ["MA", "DI", "WO", "DO", "VR"];
@@ -2190,11 +2207,11 @@
       _ownFicheByTitle = map; return map;
     }).catch(function () { return {}; });
   }
-  // Fiche lineage, saved under qwp_threads_v1: { "<thread>": newest fiche id seen }. Every version of
+  // Fiche lineage, saved under pg_threads_v1: { "<thread>": newest fiche id seen }. Every version of
   // a fiche shares its edit view's `thread` (captured 2026-10-25), but the fiche LIST does not carry
   // it — so the newest version is learned from every edit view read or written here (goals mode reads
   // each fiche it shows). Lets print follow a fiche through renames; another browser falls back to title.
-  var THREADS_KEY = "qwp_threads_v1", _threads = {}, _threadsSaveT = null;
+  var THREADS_KEY = "pg_threads_v1", _threads = {}, _threadsSaveT = null;
   storeGet(THREADS_KEY).then(function (v) { _threads = Object.assign(v || {}, _threads); });
   function noteFicheThread(edit) {
     if (!edit || edit.thread == null || edit.id == null) return;
@@ -2231,9 +2248,9 @@
     var list = Object.keys(ids);
     if (!list.length) return Promise.resolve(false);
     list.forEach(function (id) { _printFicheGoals[id] = { goals: null, src: "loading" }; });
-    // At most 4 reads at a time, and a version the Lesfiche-manager already read (qwp_goalcache_v1 —
+    // At most 4 reads at a time, and a version the Lesfiche-manager already read (pg_goalcache_v1 —
     // a fiche id never changes content) costs none — keeps print from bursting Questi.
-    return storeGet("qwp_goalcache_v1").then(function (cache) {
+    return storeGet("pg_goalcache_v1").then(function (cache) {
       cache = cache || {};
       return mapLimit(list, 4, function (id) {
         var hit = cache[id] && cache[id].g, hg = {};
@@ -3063,27 +3080,27 @@
       h("button", { type: "button", class: "qpp-btn", text: "Bewaar als PDF", title: "Opent het afdrukvenster — kies daar ‘Opslaan als PDF’", onclick: function () { doPrintPanel(true); } }),
       h("button", { type: "button", class: "qpp-btn primary", text: "Afdrukken", onclick: function () { doPrintPanel(false); } })
     ]);
-    P.side = h("aside", { class: "qpp-side", id: "qwp-pside" }, [h("div", { class: "qpp-top" }, [tabsNav("print")]), body, P.hint, foot]);
+    P.side = h("aside", { class: "qpp-side", id: "pg-pside" }, [h("div", { class: "qpp-top" }, [tabsNav("print")]), body, P.hint, foot]);
     function pageBtn(v, label) {
       var b = h("button", { type: "button", text: label, onclick: function () { P.page = v; applyPrintPage(); } });
       P.pageBtns.push({ v: v, el: b }); return b;
     }
     P.pageSeg = h("div", { class: "qpp-seg qpp-pageseg", role: "group", "aria-label": "Pagina" }, [pageBtn("front", "Voorkant"), pageBtn("back", "Achterkant")]);
     P.sub = h("span", { class: "qpp-sub" });
-    P.main = h("main", { class: "qpp-main", id: "qwp-pmain" }, [
-      h("header", { class: "qwp-mhdr qpp-hdr" }, [
-        h("div", { class: "qpp-title", text: "Voorbeeld" }), P.sub, h("span", { class: "qwp-spacer" }), P.pageSeg,
-        betaPill(), h("button", { class: "qwp-topx", onclick: hide, title: "Sluiten", text: "✕" })
+    P.main = h("main", { class: "qpp-main", id: "pg-pmain" }, [
+      h("header", { class: "pg-mhdr qpp-hdr" }, [
+        h("div", { class: "qpp-title", text: "Voorbeeld" }), P.sub, h("span", { class: "pg-spacer" }), P.pageSeg,
+        betaPill(), h("button", { class: "pg-topx", onclick: hide, title: "Sluiten", text: "✕" })
       ]),
       h("div", { class: "qpp-preview" }, [P.frame, P.msg])
     ]);
     window.addEventListener("resize", function () { if (view.tab === "print") fitPrintFrame(); });
     return P;
   }
-  // qwp_print_v1 = { mode, tabs, legend, meta, hideEmpty } — shared with the Afdrukken section in settings.js.
-  function savePrintPrefs() { storeSet("qwp_print_v1", _pp.prefs); }
+  // pg_print_v1 = { mode, tabs, legend, meta, hideEmpty } — shared with the Afdrukken section in settings.js.
+  function savePrintPrefs() { storeSet("pg_print_v1", _pp.prefs); }
   function loadPrintPrefs() {
-    return storeGet("qwp_print_v1").then(function (v) {
+    return storeGet("pg_print_v1").then(function (v) {
       var p = _pp.prefs; v = v || {};
       if (PRINT_VERSIONS.some(function (x) { return x.v === v.mode; })) p.mode = v.mode;
       if (v.tabs === "word" || v.tabs === "icon") p.tabs = v.tabs;
@@ -3181,7 +3198,7 @@
   // "nu invullen": goals live in the fiche, so the Lesfiches tab is where they are typed. Without that
   // module, the planner's Doelen mode at least shows which lesuren still miss them.
   function openGoalsFix() {
-    if (window.__QWP_LESSONS && window.__QWP_LESSONS.open) { openLesfichesTab(); return; }
+    if (window.__PG_LESSONS && window.__PG_LESSONS.open) { openLesfichesTab(); return; }
     var P = _pp, w = (P.start && view.weekStart) ? Math.round((addDays(P.start, 0) - addDays(view.weekStart, 0)) / 604800000) : -1;
     if (w >= 0 && w < view.weeks) state.doelenWeek = w;
     goTab("plan"); setMainMode("doelen");
@@ -3228,7 +3245,7 @@
       return refreshPrintExtras();
     }).catch(function (e) {
       if (gen !== P.gen) return;
-      console.error("[QWP] print:", e);
+      console.error("[PG] print:", e);
       ppMsg("Deze week kon niet geladen worden.", true, { label: "Opnieuw", fn: function () { loadPrintWeek(start); } });
     });
   }
@@ -3264,7 +3281,7 @@
       catch (e) { ppMsg("Afdrukken mislukt — probeer opnieuw.", true); }
     }, pdf ? 60 : 0);
   }
-  // Toolbar "Afdrukken deze week" (window.__QWP_PRINT): the planner, opened on its Afdrukken tab.
+  // Toolbar "Afdrukken deze week" (window.__PG_PRINT): the planner, opened on its Afdrukken tab.
   function openPrintTab() {
     if (!els.root) { boot("print"); return; }
     show(); goTab("print");
@@ -3328,7 +3345,7 @@
   // one week is expanded (taller cards with goal lines); the other folds into a bar that swaps.
   var DAY_SHORT = ["Ma", "Di", "Wo", "Do", "Vr"];
   function renderTimetable() {
-    var wrap = elId("qwp-ttwrap"); if (!wrap) return;
+    var wrap = elId("pg-ttwrap"); if (!wrap) return;
     var keepScroll = wrap.scrollTop;
     wrap.innerHTML = "";
     // Re-run each paint: boot fetches tags and the week in parallel (same reason as ensureThemaKeys).
@@ -3337,8 +3354,8 @@
     computeTimeRows();
     renderRange(); syncModeSeg();
     var doel = mainMode() === "doelen";
-    wrap.classList.toggle("qwp-doelen", doel);
-    var keys = themaRowKeys(), inner = h("div", { class: "qwp-ttinner", id: "qwp-ttinner" });
+    wrap.classList.toggle("pg-doelen", doel);
+    var keys = themaRowKeys(), inner = h("div", { class: "pg-ttinner", id: "pg-ttinner" });
     wrap.appendChild(inner);
     for (var w = 0; w < view.weeks; w++) {
       if (view.weeks > 1 && isHolidayWeek(w)) inner.appendChild(holidayBar(w));
@@ -3355,63 +3372,63 @@
     if (doel && !hydratePending()) setTimeout(loadDoelenGoals, 0);   // after the item details: one 4-wide stream at a time
   }
   function weekSection(w, keys, doel) {
-    var grid = h("div", { class: "qwp-tt qwp-wkgrid" });
+    var grid = h("div", { class: "pg-tt pg-wkgrid" });
     grid.style.gridTemplateColumns = "52px repeat(5, minmax(0, 1fr))";
-    grid.appendChild(h("div", { class: "qwp-tt-wklbl", text: "Wk " + weekNoOf(w) }));
+    grid.appendChild(h("div", { class: "pg-tt-wklbl", text: "Wk " + weekNoOf(w) }));
     var today = isoDate(new Date());
     for (var d = 0; d < 5; d++) {
       var dt = addDays(view.weekStart, w * 7 + d);
       // "Maandag 26 oktober"; a narrow column switches to "ma 26 okt" (container query in CSS).
-      grid.appendChild(h("div", { class: "qwp-tt-dayhd" + (dt && isoDate(dt) === today ? " today" : ""), title: fullDateLabel(w * 7 + d) }, [
-        h("span", { class: "qwp-dh-long", text: DAY_NAMES[d] + (dt ? " " + dt.getDate() + " " + MONTH_NL[dt.getMonth()] : "") }),
-        h("span", { class: "qwp-dh-short", text: DAY_SHORT[d].toLowerCase() + (dt ? " " + dt.getDate() + " " + MONTH_NL_SHORT[dt.getMonth()] : "") })
+      grid.appendChild(h("div", { class: "pg-tt-dayhd" + (dt && isoDate(dt) === today ? " today" : ""), title: fullDateLabel(w * 7 + d) }, [
+        h("span", { class: "pg-dh-long", text: DAY_NAMES[d] + (dt ? " " + dt.getDate() + " " + MONTH_NL[dt.getMonth()] : "") }),
+        h("span", { class: "pg-dh-short", text: DAY_SHORT[d].toLowerCase() + (dt ? " " + dt.getDate() + " " + MONTH_NL_SHORT[dt.getMonth()] : "") })
       ]));
     }
     // Theme rows: one per whole-week item present in the loaded weeks, labelled by its live tag.
     keys.forEach(function (key) { appendThemaRow(grid, themaLabel(key, view.slots), key, w); });
     // Lesuur rows with pauze/speeltijd gap bands (both derived from live times).
     view.timeRows.forEach(function (t, idx) {
-      grid.appendChild(h("div", { class: "qwp-tt-timelbl", text: t }));
+      grid.appendChild(h("div", { class: "pg-tt-timelbl", text: t }));
       for (var dd = 0; dd < 5; dd++) {
         if (isNoSchool(dd, t)) grid.appendChild(noSchoolCell(dd, w));
         else grid.appendChild(cellFor(slotAt(w, dd, t), w, dd, t, doel));
       }
       var brk = breakLabelAfter(idx);
       if (brk) {
-        var band = h("div", { class: "qwp-tt-break" }, [h("span", { text: brk })]);
+        var band = h("div", { class: "pg-tt-break" }, [h("span", { text: brk })]);
         band.style.gridColumn = "1 / -1";
         grid.appendChild(band);
       }
     });
     if (!view.timeRows.length) {
-      var none = h("div", { class: "qwp-wk-empty", text: "Geen lesuren in deze week." });
+      var none = h("div", { class: "pg-wk-empty", text: "Geen lesuren in deze week." });
       none.style.gridColumn = "1 / -1"; grid.appendChild(none);
     }
-    return h("section", { class: "qwp-wk" + (doel ? " doelen" : "") }, [grid]);
+    return h("section", { class: "pg-wk" + (doel ? " doelen" : "") }, [grid]);
   }
   // Doelen mode: the week that is not expanded, as one bar. Clicking swaps the two.
   function weekBar(w) {
     var st = doelenStats(w);
     var sub = shortRange(w, w) + " · " + st.planned + (st.planned === 1 ? " lesuur" : " lesuren") + " gepland" +
       (st.known ? " · " + st.missing + " zonder doelen" : "");
-    return h("button", { class: "qwp-wkbar", onclick: function () { state.doelenWeek = w; saveState(); renderTimetable(); } }, [
-      h("span", { class: "qwp-wkbar-t", text: "Week " + weekNoOf(w) }),
-      h("span", { class: "qwp-wkbar-s", text: sub }),
-      h("span", { class: "qwp-spacer" }),
-      h("span", { class: "qwp-wkbar-go", text: "Toon deze week ▾" })
+    return h("button", { class: "pg-wkbar", onclick: function () { state.doelenWeek = w; saveState(); renderTimetable(); } }, [
+      h("span", { class: "pg-wkbar-t", text: "Week " + weekNoOf(w) }),
+      h("span", { class: "pg-wkbar-s", text: sub }),
+      h("span", { class: "pg-spacer" }),
+      h("span", { class: "pg-wkbar-go", text: "Toon deze week ▾" })
     ]);
   }
 
   function appendThemaRow(grid, label, key, w) {
     // Deliberately EMPTY: the 52px time column. The name lives in the band itself.
-    grid.appendChild(h("div", { class: "qwp-tt-themalbl", title: label }));
+    grid.appendChild(h("div", { class: "pg-tt-themalbl", title: label }));
     var all = weekThemaSlots(w, key), s = all[0];
     var cell;
     if (s) { cell = cellFor(s, w, 0, "thema", false); }
-    else { cell = h("div", { class: "qwp-cell empty thema-span", title: label + " — geen item deze week" }, [h("span", { class: "qwp-band-vak", text: label }), h("span", { class: "qwp-cell-empty-hint", text: "—" })]); }
+    else { cell = h("div", { class: "pg-cell empty thema-span", title: label + " — geen item deze week" }, [h("span", { class: "pg-band-vak", text: label }), h("span", { class: "pg-cell-empty-hint", text: "—" })]); }
     // Two whole-week items under the same tag in one week is ambiguous — show the first, but
     // say so rather than silently dropping the rest (which is what the old [0] did).
-    if (all.length > 1) cell.appendChild(h("span", { class: "qwp-thema-more", title: all.slice(1).map(function (x) { return x.origTitle; }).join(" · "), text: "+" + (all.length - 1) + " meer" }));
+    if (all.length > 1) cell.appendChild(h("span", { class: "pg-thema-more", title: all.slice(1).map(function (x) { return x.origTitle; }).join(" · "), text: "+" + (all.length - 1) + " meer" }));
     cell.classList.add("thema-span");
     cell.style.gridColumn = "span 5";
     grid.appendChild(cell);
@@ -3420,7 +3437,7 @@
   // No lesson-start here this day → a quiet blank cell (the shared time-axis means
   // a longer block on another day leaves a hole; don't shout "geen school").
   function noSchoolCell(dayIdx, weekIdx) {
-    return h("div", { class: "qwp-cell blank" });
+    return h("div", { class: "pg-cell blank" });
   }
 
   // ---------- Doelen mode (read-only goals per card) ----------
@@ -3446,7 +3463,7 @@
     return { planned: planned, missing: missing, known: loading === 0 };
   }
   function renderGoalCount() {
-    var el = elId("qwp-goalcount"); if (!el) return;
+    var el = elId("pg-goalcount"); if (!el) return;
     if (mainMode() !== "doelen" || !view.slots.length) { el.style.display = "none"; return; }
     var st = doelenStats(doelenWeek());
     el.style.display = "";
@@ -3460,7 +3477,7 @@
     var w = doelenWeek();
     loadPrintFicheGoals({ slots: view.slots.filter(function (s) { return s.weekIdx === w; }) })
       .then(function (got) { if (got && mainMode() === "doelen") renderTimetable(); })
-      .catch(function (e) { console.warn("[QWP] doelen laden:", e); });
+      .catch(function (e) { console.warn("[PG] doelen laden:", e); });
   }
   function goalsBlockFor(s) {
     var gk = goalsKeyFor(s), rec = goalsRecFor(gk), hide = rec.hide || {}, st = goalsStateOf(s);
@@ -3470,13 +3487,13 @@
       var t = rec[k.key] || "", ph = "";
       if (!t && first) ph = st === "loading" ? "doelen laden…" : (st === "missing" ? "nog geen doelen" : "");
       first = false;
-      return h("div", { class: "qwp-gl-row" + (t ? "" : " empty") }, [
-        h("span", { class: "qwp-gl-k", text: k.label.toUpperCase() }),
-        h("span", { class: "qwp-gl-t" + (ph ? " ph" : ""), text: t || ph })
+      return h("div", { class: "pg-gl-row" + (t ? "" : " empty") }, [
+        h("span", { class: "pg-gl-k", text: k.label.toUpperCase() }),
+        h("span", { class: "pg-gl-t" + (ph ? " ph" : ""), text: t || ph })
       ]);
     });
-    if (fg && fg.src === "newer") kids.push(h("div", { class: "qwp-gl-src", title: "Doelen uit een nieuwere versie van deze fiche — dit lesuur verwijst nog naar de oude versie.", text: "nieuwere versie" }));
-    return h("div", { class: "qwp-gl", title: goalsEditableFor(s) ? "Doelen voor een lesuur zonder eigen fiche typ je in Afdrukken → Lesdoelen." : "Doelen bewerk je in Lesfiches → Lesdoelen invullen." }, kids);
+    if (fg && fg.src === "newer") kids.push(h("div", { class: "pg-gl-src", title: "Doelen uit een nieuwere versie van deze fiche — dit lesuur verwijst nog naar de oude versie.", text: "nieuwere versie" }));
+    return h("div", { class: "pg-gl", title: goalsEditableFor(s) ? "Doelen voor een lesuur zonder eigen fiche typ je in Afdrukken → Lesdoelen." : "Doelen bewerk je in Lesfiches → Lesdoelen invullen." }, kids);
   }
 
   // A targetable slot = an editable, empty (no fiche/gym/thema) lesuur — the only
@@ -3492,7 +3509,7 @@
   }
   function clearTargets() { view.targetSlots = []; }
   function updateTargetHint() {
-    var el = elId("qwp-side-note"); if (!el) return;
+    var el = elId("pg-side-note"); if (!el) return;
     var n = view.targetSlots.length;
     el.textContent = n ? (n + " doel-lesu" + (n === 1 ? "ur" : "ren") + " gekozen — vink fiches aan in de lijst en klik 'Toevoegen aan rooster'.") : "";
   }
@@ -3500,19 +3517,19 @@
   // give slots whose Instellingen vak matches the dragged tag a stronger highlight.
   function startDragTargets(tagId) {
     if (!els.root) return;
-    els.root.classList.add("qwp-dragging");
+    els.root.classList.add("pg-dragging");
     view.dragVakTag = (tagId != null && tagId !== "") ? String(tagId) : null;
     if (view.dragVakTag) {
-      Array.prototype.forEach.call(els.root.querySelectorAll(".qwp-cell.slot-empty"), function (c) {
+      Array.prototype.forEach.call(els.root.querySelectorAll(".pg-cell.slot-empty"), function (c) {
         if (c.getAttribute("data-vak") === view.dragVakTag) c.classList.add("vak-match");
       });
     }
   }
   function endDragTargets() {
     if (!els.root) return;
-    els.root.classList.remove("qwp-dragging");
+    els.root.classList.remove("pg-dragging");
     view.dragVakTag = null;
-    Array.prototype.forEach.call(els.root.querySelectorAll(".qwp-cell.vak-match"), function (c) { c.classList.remove("vak-match"); });
+    Array.prototype.forEach.call(els.root.querySelectorAll(".pg-cell.vak-match"), function (c) { c.classList.remove("vak-match"); });
   }
 
   // A lesuur card in the Lesdoelen-print look: a top bar in the vak's own tag colour (auto ink),
@@ -3575,12 +3592,12 @@
   function cellFor(s, weekIdx, dayIdx, timeLabel, doel) {
     if (!s) {
       var empty = h("div", {
-        class: "qwp-cell empty",
+        class: "pg-cell empty",
         title: "Geen lesuur in je agenda op dit moment — klik om te zien waarom",
         onclick: function () { explainEmpty(weekIdx, dayIdx, timeLabel); },
         ondragover: function (e) { e.preventDefault(); },
         ondrop: function (e) { e.preventDefault(); endDragTargets(); explainEmpty(weekIdx, dayIdx, timeLabel); }
-      }, [h("div", { class: "qwp-cell-empty-hint", text: "leeg" })]);
+      }, [h("div", { class: "pg-cell-empty-hint", text: "leeg" })]);
       return empty;
     }
     var dirty = computeDirty(s);
@@ -3593,7 +3610,7 @@
     var themaBand = isThemaSlot(s);
     // "Planned" decides the solid vs dashed look only: a fiche, gym, or a real (typed/thema) title.
     var planned = !!(s.ficheContentId || s.isGym || themaBand || (s.title && !isLesuurPlaceholder(s.title)));
-    var cls = "qwp-cell";
+    var cls = "pg-cell";
     if (view.selectedSlotId === s.itemId) cls += " sel";
     if (dirty) cls += " dirty";
     if (s.origFicheContentId) cls += " hasexisting";
@@ -3614,13 +3631,13 @@
     // The fiche belongs to another vak than this lesuur — say so instead of showing the wrong subject.
     var mism = vakMismatch(s);
     if (mism) cls += " vakmismatch";
-    var mark = dirty ? h("span", { class: "qwp-cell-mark", title: "Nog niet weggeschreven — zie Controleer", text: "gewijzigd" }) : null;
+    var mark = dirty ? h("span", { class: "pg-cell-mark", title: "Nog niet weggeschreven — zie Controleer", text: "gewijzigd" }) : null;
     if (unread) mark = s._pending
-      ? h("span", { class: "qwp-cell-load", title: "Titel, omschrijving en fiche van dit lesuur worden nog gelezen", text: "laden…" })
-      : h("button", { class: "qwp-cell-load fail", type: "button", title: "Dit lesuur kon niet gelezen worden en blijft ongewijzigd — klik om opnieuw te proberen", text: "niet geladen · opnieuw",
+      ? h("span", { class: "pg-cell-load", title: "Titel, omschrijving en fiche van dit lesuur worden nog gelezen", text: "laden…" })
+      : h("button", { class: "pg-cell-load fail", type: "button", title: "Dit lesuur kon niet gelezen worden en blijft ongewijzigd — klik om opnieuw te proberen", text: "niet geladen · opnieuw",
           onclick: function (e) { e.stopPropagation(); e.preventDefault(); retryFailedDetails([s]); } });
     var warn = mism ? h("span", {
-      class: "qwp-vakwarn",
+      class: "pg-vakwarn",
       title: "Fiche hoort bij " + (mism.ficheVak || "?") + " · dit lesuur staat ingesteld als " + (mism.slotVak || "?"),
       text: "≠ " + (mism.ficheVak || "?")
     }) : null;
@@ -3637,17 +3654,17 @@
     var kids;
     if (themaBand) {
       // Same reading order as a lesuur: the vak in its own colour first, the fiche name after it on white.
-      var vakEl = h("span", { class: "qwp-band-vak", text: vakLbl || "thema" });
+      var vakEl = h("span", { class: "pg-band-vak", text: vakLbl || "thema" });
       if (color) { vakEl.style.background = color; vakEl.style.color = goalsInkOn(color); }
       kids = [
         vakEl,
-        themaUntagged ? h("span", { class: "qwp-thema-untagged", title: "Klik deze balk en kies een Vak om de rij te benoemen.", text: "geen vaktag" }) : null,
-        h("span", { class: "qwp-band-t", text: stripQuestiDecoration(stripThemaPrefix(shownTitle) || shownTitle) || "(leeg)" }),
+        themaUntagged ? h("span", { class: "pg-thema-untagged", title: "Klik deze balk en kies een Vak om de rij te benoemen.", text: "geen vaktag" }) : null,
+        h("span", { class: "pg-band-t", text: stripQuestiDecoration(stripThemaPrefix(shownTitle) || shownTitle) || "(leeg)" }),
         mark
       ];
     } else {
-      var bar = h("div", { class: "qwp-cell-bar" }, [
-        h("span", { class: "qwp-cell-vak", text: vakLbl || (s.isGym ? "Gym" : "") }),
+      var bar = h("div", { class: "pg-cell-bar" }, [
+        h("span", { class: "pg-cell-vak", text: vakLbl || (s.isGym ? "Gym" : "") }),
         warn, mark
       ]);
       if (planned && color) { bar.style.background = color; bar.style.color = goalsInkOn(color); }
@@ -3659,9 +3676,9 @@
         : "";
       kids = [
         bar,
-        h("div", { class: "qwp-cell-body" }, [
-          h("div", { class: "qwp-cell-title", text: shownTitle || "(leeg)" }),
-          sub ? h("div", { class: "qwp-cell-sub", text: sub }) : null
+        h("div", { class: "pg-cell-body" }, [
+          h("div", { class: "pg-cell-title", text: shownTitle || "(leeg)" }),
+          sub ? h("div", { class: "pg-cell-sub", text: sub }) : null
         ]),
         (doel && planned) ? goalsBlockFor(s) : null
       ];
@@ -3728,7 +3745,7 @@
   // ---------- Slot popup ----------
   function openSlotPopup(s) {
     view.selectedSlotId = s.itemId; renderTimetable();
-    var old = elId("qwp-modal"); if (old) old.remove();
+    var old = elId("pg-modal"); if (old) old.remove();
 
     // Vak dropdown = the user's LIVE top tags (server-side fetch by tag), so the
     // search only ever shows fiches actually under that tag — no title-regex leak.
@@ -3741,16 +3758,16 @@
     if (curTagId != null && !tops.some(function (t) { return String(t.id) === String(curTagId); })) {
       var curTag = anyTagById(curTagId); if (curTag) tops = tops.concat([curTag]);
     }
-    var vakSel = h("select", { class: "qwp-input", id: "qwp-pop-vak" },
+    var vakSel = h("select", { class: "pg-input", id: "pg-pop-vak" },
       [h("option", { value: "", text: "— kies vak —" })].concat(tops.map(function (t) { return h("option", { value: t.id, text: (t.title || "").trim(), selected: (String(curTagId) === String(t.id) ? "selected" : null) }); })));
-    var searchInp = h("input", { class: "qwp-input", id: "qwp-pop-search", placeholder: "Zoek in eigen lesfiches…", value: (s.ficheTitle || "") });
+    var searchInp = h("input", { class: "pg-input", id: "pg-pop-search", placeholder: "Zoek in eigen lesfiches…", value: (s.ficheTitle || "") });
 
     // Editable title — for things that must be planned in but need no fiche (toets, uitstap).
     // computeDirty/buildCommitPlan/doCommit already handle a title-only change: it becomes a single
     // PATCH with no attachment. `title` is in the undo snapshot, so Ctrl+Z works for free.
     var titleOrig = s.title || "";
-    var titleInp = h("input", { class: "qwp-input", id: "qwp-pop-title", placeholder: "Titel van dit lesuur", value: titleOrig });
-    var titleNote = h("div", { class: "qwp-pop-note" });
+    var titleInp = h("input", { class: "pg-input", id: "pg-pop-title", placeholder: "Titel van dit lesuur", value: titleOrig });
+    var titleNote = h("div", { class: "pg-pop-note" });
     function refreshTitleNote() {
       // Questi's attachment POST answers with its OWN decorated fiche title, and doCommit adopts
       // it — so on a slot WITH a fiche a hand-typed title does not survive the write. Say so
@@ -3777,8 +3794,8 @@
     });
     titleInp.addEventListener("blur", applyTitle);
 
-    var loRow = h("div", { class: "qwp-lorow" });
-    var results = h("div", { class: "qwp-results", id: "qwp-pop-results" });
+    var loRow = h("div", { class: "pg-lorow" });
+    var results = h("div", { class: "pg-results", id: "pg-pop-results" });
     var gymChk = h("input", { type: "checkbox" }); if (s.isGym) gymChk.checked = true;
 
     // A gym lesuur is "title only, no fiche", so its title IS the lesson. Offer both titles as one
@@ -3795,7 +3812,7 @@
       loRow.style.display = "";
       LO_TITLES.forEach(function (t) {
         loRow.appendChild(h("button", {
-          class: "qwp-lobtn" + ((s.title || "") === t ? " on" : ""),
+          class: "pg-lobtn" + ((s.title || "") === t ? " on" : ""),
           text: t, onclick: function () { setLoTitle(t); }
         }));
       });
@@ -3807,12 +3824,12 @@
       // No vak → search the full own library (loaded via tag 5); else the tag's fiches.
       var items = (noVak ? ((groupFor(myId()) || { items: [] }).items || []) : (view.ficheCache[cacheKey("self", curTagId)] || [])).slice();
       var term = searchInp.value.trim().toLowerCase();
-      if (noVak && !term) { results.appendChild(h("div", { class: "qwp-result", text: "Typ om in al je lesfiches te zoeken, of kies een vak." })); return; }
+      if (noVak && !term) { results.appendChild(h("div", { class: "pg-result", text: "Typ om in al je lesfiches te zoeken, of kies een vak." })); return; }
       if (term) items = items.filter(function (f) { return (f.subject || "").toLowerCase().indexOf(term) > -1; });
       items.sort(function (a, b) { return (a.subject || "").localeCompare(b.subject || "", undefined, { numeric: true }); });
       items.slice(0, 300).forEach(function (f) {
         results.appendChild(h("div", {
-          class: "qwp-result", onclick: function () {
+          class: "pg-result", onclick: function () {
             pushUndo("fiche toewijzen"); assignFiche(s, f); s.vak = (curTagId != null ? curTagId : (s.vak || ""));
             syncFicheVakken([s]);
             searchInp.value = f.subject || "";
@@ -3820,14 +3837,14 @@
             titleInp.value = s.title || ""; titleOrig = s.title || ""; titleDirty = false; refreshTitleNote();
             renderTimetable(); setStatus("Toegewezen: " + (f.subject || ""));
           }
-        }, [h("span", { class: "qwp-result-t", text: f.subject || "(zonder titel)" }), usedChip(f)]));
+        }, [h("span", { class: "pg-result-t", text: f.subject || "(zonder titel)" }), usedChip(f)]));
       });
-      if (!items.length) results.appendChild(h("div", { class: "qwp-result", text: noVak ? "Geen fiches gevonden." : "Geen fiches in dit vak." }));
+      if (!items.length) results.appendChild(h("div", { class: "pg-result", text: noVak ? "Geen fiches gevonden." : "Geen fiches in dit vak." }));
     }
     function refresh() {
       if (curTagId == null) { renderResults(); return; }
       if (view.ficheCache[cacheKey("self", curTagId)]) { renderResults(); return; }
-      results.innerHTML = ""; results.appendChild(h("div", { class: "qwp-result", text: "Laden…" }));
+      results.innerHTML = ""; results.appendChild(h("div", { class: "pg-result", text: "Laden…" }));
       ensureFiches("self", curTagId).then(renderResults);
     }
     vakSel.onchange = function () {
@@ -3871,19 +3888,19 @@
       refreshTitleNote(); refreshLoRow(); renderTimetable();
     };
 
-    var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
-      h("div", { class: "qwp-modal-box" }, [
-        h("div", { class: "qwp-modal-hd", text: (s.title || "Lesuur") + " · " + DAY_NAMES[s.dayIdx] + " " + (s.time || "") + " · week " + (s.weekIdx + 1) }),
-        h("div", { class: "qwp-modal-body" }, [
-          h("div", { class: "qwp-field" }, [h("label", { text: "Titel" }), titleInp, loRow, titleNote]),
-          h("div", { class: "qwp-field" }, [h("label", { text: "Vak" }), vakSel]),
-          h("div", { class: "qwp-field" }, [h("label", { text: "Lesfiche (titel / zoeken)" }), searchInp]),
-          h("div", { class: "qwp-field" }, [results]),
-          h("div", { class: "qwp-field" }, [h("label", { class: "qwp-check" }, [gymChk, h("span", { text: "Lichamelijke opvoeding / zwemmen (enkel titel, geen fiche)" })])])
+    var modal = h("div", { class: "pg-modal", id: "pg-modal" }, [
+      h("div", { class: "pg-modal-box" }, [
+        h("div", { class: "pg-modal-hd", text: (s.title || "Lesuur") + " · " + DAY_NAMES[s.dayIdx] + " " + (s.time || "") + " · week " + (s.weekIdx + 1) }),
+        h("div", { class: "pg-modal-body" }, [
+          h("div", { class: "pg-field" }, [h("label", { text: "Titel" }), titleInp, loRow, titleNote]),
+          h("div", { class: "pg-field" }, [h("label", { text: "Vak" }), vakSel]),
+          h("div", { class: "pg-field" }, [h("label", { text: "Lesfiche (titel / zoeken)" }), searchInp]),
+          h("div", { class: "pg-field" }, [results]),
+          h("div", { class: "pg-field" }, [h("label", { class: "pg-check" }, [gymChk, h("span", { text: "Lichamelijke opvoeding / zwemmen (enkel titel, geen fiche)" })])])
         ]),
-        h("div", { class: "qwp-modal-ft" }, [
-          h("button", { class: "qwp-btn qwp-ghost", text: "Leegmaken", title: "Verwijder fiche + titel + omschrijving", onclick: function () { pushUndo("lesuur leegmaken"); emptySlot(s); modal.remove(); renderTimetable(); } }),
-          h("button", { class: "qwp-btn", text: "Klaar", onclick: function () { modal.remove(); renderTimetable(); } })
+        h("div", { class: "pg-modal-ft" }, [
+          h("button", { class: "pg-btn pg-ghost", text: "Leegmaken", title: "Verwijder fiche + titel + omschrijving", onclick: function () { pushUndo("lesuur leegmaken"); emptySlot(s); modal.remove(); renderTimetable(); } }),
+          h("button", { class: "pg-btn", text: "Klaar", onclick: function () { modal.remove(); renderTimetable(); } })
         ])
       ])
     ]);
@@ -3937,15 +3954,15 @@
 
   // ---------- Global cross-owner search bar ----------
   function buildGlobalSearch() {
-    return h("div", { class: "qwp-gsearch", id: "qwp-globalsearch" }, [
-      h("input", { class: "qwp-gsearch-inp", id: "qwp-gsearch-inp", placeholder: "Zoek in alle lesfiches (ik + collega's)…", oninput: runGlobalSearch }),
-      h("select", { class: "qwp-select qwp-gsearch-owner", id: "qwp-gsearch-owner", onchange: runGlobalSearch }),
-      h("span", { class: "qwp-gsearch-hint", text: "sleep resultaat op een lesuur" }),
-      h("div", { class: "qwp-gsearch-results", id: "qwp-gsearch-results" })
+    return h("div", { class: "pg-gsearch", id: "pg-globalsearch" }, [
+      h("input", { class: "pg-gsearch-inp", id: "pg-gsearch-inp", placeholder: "Zoek in alle lesfiches (ik + collega's)…", oninput: runGlobalSearch }),
+      h("select", { class: "pg-select pg-gsearch-owner", id: "pg-gsearch-owner", onchange: runGlobalSearch }),
+      h("span", { class: "pg-gsearch-hint", text: "sleep resultaat op een lesuur" }),
+      h("div", { class: "pg-gsearch-results", id: "pg-gsearch-results" })
     ]);
   }
   function renderGlobalOwners() {
-    var sel = elId("qwp-gsearch-owner"); if (!sel) return;
+    var sel = elId("pg-gsearch-owner"); if (!sel) return;
     var cur = sel.value || "all"; sel.innerHTML = "";
     sel.appendChild(h("option", { value: "all", text: "Iedereen" }));
     sel.appendChild(h("option", { value: String(myId()), text: "Ik" }));
@@ -3958,16 +3975,16 @@
     if (view.allByOwner[key]) return Promise.resolve(view.allByOwner[key]);
     return fetchAllFiches(ownerId).then(function (r) { view.allByOwner[key] = r.items; return r.items; });
   }
-  function closeGlobalResults() { var r = elId("qwp-gsearch-results"); if (r) { r.innerHTML = ""; r.classList.remove("open"); } }
+  function closeGlobalResults() { var r = elId("pg-gsearch-results"); if (r) { r.innerHTML = ""; r.classList.remove("open"); } }
   function runGlobalSearch() {
-    var inp = elId("qwp-gsearch-inp"), res = elId("qwp-gsearch-results"); if (!inp || !res) return;
+    var inp = elId("pg-gsearch-inp"), res = elId("pg-gsearch-results"); if (!inp || !res) return;
     var term = inp.value.trim().toLowerCase();
     if (term.length < 2) { closeGlobalResults(); return; }
-    var ownerSel = (elId("qwp-gsearch-owner") || {}).value || "all";
+    var ownerSel = (elId("pg-gsearch-owner") || {}).value || "all";
     var owners = [];
     if (ownerSel === "all" || ownerSel === String(myId())) owners.push(myId());
     state.colleagues.forEach(function (c) { if (ownerSel === "all" || ownerSel === String(c.id)) owners.push(c.id); });
-    res.classList.add("open"); res.innerHTML = ""; res.appendChild(h("div", { class: "qwp-gsearch-msg", text: "Zoeken…" }));
+    res.classList.add("open"); res.innerHTML = ""; res.appendChild(h("div", { class: "pg-gsearch-msg", text: "Zoeken…" }));
     Promise.all(owners.map(ensureAllFiches)).then(function (lists) {
       // Guard against a stale async result if the term changed meanwhile.
       if (inp.value.trim().toLowerCase() !== term) return;
@@ -3975,25 +3992,25 @@
       owners.forEach(function (oid, i) { (lists[i] || []).forEach(function (f) { if ((f.subject || "").toLowerCase().indexOf(term) > -1) rows.push({ f: f, owner: oid }); }); });
       rows.sort(function (a, b) { return (a.f.subject || "").localeCompare(b.f.subject || "", undefined, { numeric: true }); });
       res.innerHTML = "";
-      if (!rows.length) { res.appendChild(h("div", { class: "qwp-gsearch-msg", text: "Geen resultaten." })); return; }
+      if (!rows.length) { res.appendChild(h("div", { class: "pg-gsearch-msg", text: "Geen resultaten." })); return; }
       rows.slice(0, 60).forEach(function (r) {
         // Global search spans all vakken/owners → no single reliable tag; leave the vak unset
         // (the target slot keeps its Instellingen-preset vak, if any). No title-guessing.
         var pickData = { id: r.f.id, subject: r.f.subject, tagId: null, owner: r.owner, isMethod: !!r.f.__method };
         var row = h("div", {
-          class: "qwp-gsearch-row", draggable: "true", title: r.f.subject || "",
+          class: "pg-gsearch-row", draggable: "true", title: r.f.subject || "",
           ondragstart: function (e) { e.dataTransfer.setData("text/plain", JSON.stringify(pickData)); startDragTargets(pickData.tagId); },
           ondragend: function () { endDragTargets(); },
           onclick: function () { assignFromGlobal(r.f); }
         }, [
-          h("span", { class: "qwp-gsearch-t", text: r.f.subject || "(zonder titel)" }),
-          (r.f.__method || view.methodFicheIds[String(r.f.id)]) ? h("span", { class: "qwp-mbadge", text: "methode" }) : null,
-          h("span", { class: "qwp-gsearch-badge" + ((r.f.__method || view.methodFicheIds[String(r.f.id)]) ? " method" : ""), text: ownerName(r.owner) })
+          h("span", { class: "pg-gsearch-t", text: r.f.subject || "(zonder titel)" }),
+          (r.f.__method || view.methodFicheIds[String(r.f.id)]) ? h("span", { class: "pg-mbadge", text: "methode" }) : null,
+          h("span", { class: "pg-gsearch-badge" + ((r.f.__method || view.methodFicheIds[String(r.f.id)]) ? " method" : ""), text: ownerName(r.owner) })
         ]);
         res.appendChild(row);
       });
-      if (rows.length > 60) res.appendChild(h("div", { class: "qwp-gsearch-msg", text: rows.length + " resultaten — verfijn je zoekterm (eerste 60 getoond)." }));
-    }).catch(function () { res.innerHTML = ""; res.appendChild(h("div", { class: "qwp-gsearch-msg", text: "Zoeken mislukt." })); });
+      if (rows.length > 60) res.appendChild(h("div", { class: "pg-gsearch-msg", text: rows.length + " resultaten — verfijn je zoekterm (eerste 60 getoond)." }));
+    }).catch(function () { res.innerHTML = ""; res.appendChild(h("div", { class: "pg-gsearch-msg", text: "Zoeken mislukt." })); });
   }
   function assignFromGlobal(f) {
     var s = view.selectedSlotId ? slotById(view.selectedSlotId) : null;
@@ -4014,7 +4031,7 @@
 
   // Tint the drawer with the active vak's tag color.
   function applyPanelAccent(pi) {
-    var el = elId("qwp-picker-" + pi); if (!el) return;
+    var el = elId("pg-picker-" + pi); if (!el) return;
     var p = view.panels[pi]; var c = tagColor(p.source, p.filterVak);
     el.style.setProperty("--vak-accent", c || "var(--line)");
   }
@@ -4041,7 +4058,7 @@
   function vakView() { var v = state.vakView; return v === "compact" || v === "select" ? v : "tiles"; }
   function setVakView(v) { state.vakView = v; saveState(); renderVakToggle(0); }
   function renderVakToggle(pi) {
-    var wrap = elId("qwp-vaktoggle-" + pi); if (!wrap) return; wrap.innerHTML = "";
+    var wrap = elId("pg-vaktoggle-" + pi); if (!wrap) return; wrap.innerHTML = "";
     var p = view.panels[pi], own = isOwnSource(p.source);
     var tops = panelTopTags(p.source);
     var allId = own && ctx.ownDefaultTagId != null ? ctx.ownDefaultTagId : null;
@@ -4055,8 +4072,8 @@
     }
     function tile(id, label, color, extra) {
       var on = String(p.filterVak) === String(id);
-      var b = h("button", { class: "qwp-vakbtn" + (on ? " active" : "") + (extra || ""), type: "button", "aria-pressed": on ? "true" : "false", title: label, onclick: function () { pick(id); } },
-        [h("span", { class: "qwp-vakname", text: label })]);
+      var b = h("button", { class: "pg-vakbtn" + (on ? " active" : "") + (extra || ""), type: "button", "aria-pressed": on ? "true" : "false", title: label, onclick: function () { pick(id); } },
+        [h("span", { class: "pg-vakname", text: label })]);
       // The tag colour IS the tile: full border, filled when chosen (ink picked for contrast).
       if (color) {
         b.style.borderColor = color;
@@ -4065,8 +4082,8 @@
       return b;
     }
     var mode = vakView();
-    wrap.className = "qwp-vaktoggle qwp-plan-only vv-" + mode;
-    var ab = elId("qwp-allbtn-" + pi);
+    wrap.className = "pg-vaktoggle pg-plan-only vv-" + mode;
+    var ab = elId("pg-allbtn-" + pi);
     if (ab) {
       ab.style.display = allId != null ? "" : "none";
       var allOn = allId != null && String(p.filterVak) === String(allId);
@@ -4074,13 +4091,13 @@
       ab.onclick = function () { if (allId != null) pick(allId); };
     }
     if (mode === "select") {
-      var sel = h("select", { class: "qwp-fsel qwp-vaksel", "aria-label": "Vak" },
+      var sel = h("select", { class: "pg-fsel pg-vaksel", "aria-label": "Vak" },
         (allId != null ? [h("option", { value: String(allId), text: "Alle vakken" })] : []).concat(tops.map(function (t) { return h("option", { value: String(t.id), text: capFirst(t.title) }); })));
       sel.value = p.filterVak != null ? String(p.filterVak) : "";
       sel.addEventListener("change", function () { pick(sel.value); });
       var cur = tops.filter(function (t) { return String(t.id) === String(p.filterVak); })[0];
-      var swatch = h("span", { class: "qwp-vaksw" }); if (cur && cur.color) swatch.style.background = cur.color;
-      wrap.appendChild(h("div", { class: "qwp-vakselrow" }, [swatch, sel]));
+      var swatch = h("span", { class: "pg-vaksw" }); if (cur && cur.color) swatch.style.background = cur.color;
+      wrap.appendChild(h("div", { class: "pg-vakselrow" }, [swatch, sel]));
     } else {
       tops.forEach(function (t) {
         var b = tile(t.id, mode === "compact" ? vakAbbr(t) : capFirst(t.title), t.color, "");
@@ -4093,11 +4110,11 @@
   // "Ik | Collega ▾": Ik = own fiches; the second half names the chosen colleague/methode and
   // opens a menu of the owners picked under Alles (state.colleagues, methodes included).
   function renderSource(pi) {
-    var wrap = elId("qwp-source-" + pi); if (!wrap) return; wrap.innerHTML = "";
+    var wrap = elId("pg-source-" + pi); if (!wrap) return; wrap.innerHTML = "";
     var p = view.panels[pi], mine = isOwnSource(p.source);
     wrap.appendChild(h("button", { class: mine ? "active" : "", text: "Ik", onclick: function () { if (!mine) setPanelSource(pi, myId()); } }));
-    var other = h("button", { class: "qwp-owner-other" + (mine ? "" : " active"), "data-menu": "qwp-srcmenu", title: "Lesfiches van een collega of methode", onclick: function (e) { openSourceMenu(pi, e.currentTarget); } }, [
-      h("span", { class: "qwp-owner-name", text: mine ? "Collega" : ownerName(p.source) }), h("span", { text: " ▾" })
+    var other = h("button", { class: "pg-owner-other" + (mine ? "" : " active"), "data-menu": "pg-srcmenu", title: "Lesfiches van een collega of methode", onclick: function (e) { openSourceMenu(pi, e.currentTarget); } }, [
+      h("span", { class: "pg-owner-name", text: mine ? "Collega" : ownerName(p.source) }), h("span", { text: " ▾" })
     ]);
     wrap.appendChild(other);
   }
@@ -4108,19 +4125,19 @@
   }
   // Tag with a slash: "fiches with no subtag".
   function NOTAG_ICON() {
-    var sp = h("span", { class: "qwp-notag" });
+    var sp = h("span", { class: "pg-notag" });
     sp.innerHTML = '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.2"/><path d="M3 21 21 3"/></svg>';
     return sp;
   }
   function renderSubcats(pi) {
-    var wrap = elId("qwp-subcats-" + pi); if (!wrap) return; wrap.innerHTML = "";
+    var wrap = elId("pg-subcats-" + pi); if (!wrap) return; wrap.innerHTML = "";
     var p = view.panels[pi];
     var subs = childTags(p.filterVak, p.source);
     if (!subs.length) { p.unionMode = false; p.filterTagId = p.filterVak; return; }
     // "Alle" = union (parent + all children); "Geen subtag" = parent-only; then each child.
-    wrap.appendChild(h("button", { class: "qwp-subchip" + (p.unionMode ? " active" : ""), onclick: function () { p.unionMode = true; renderSubcats(pi); loadAndRenderList(pi); }, text: "Alle" }));
-    wrap.appendChild(h("button", { class: "qwp-subchip" + ((!p.unionMode && String(p.filterTagId) === String(p.filterVak)) ? " active" : ""), onclick: function () { p.unionMode = false; p.filterTagId = p.filterVak; renderSubcats(pi); loadAndRenderList(pi); }, title: "Zonder subtag", "aria-label": "Zonder subtag" }, [NOTAG_ICON()]));
-    subs.forEach(function (t) { wrap.appendChild(h("button", { class: "qwp-subchip" + ((!p.unionMode && String(p.filterTagId) === String(t.id)) ? " active" : ""), onclick: function () { p.unionMode = false; p.filterTagId = t.id; renderSubcats(pi); loadAndRenderList(pi); }, text: (t.title || "").trim() })); });
+    wrap.appendChild(h("button", { class: "pg-subchip" + (p.unionMode ? " active" : ""), onclick: function () { p.unionMode = true; renderSubcats(pi); loadAndRenderList(pi); }, text: "Alle" }));
+    wrap.appendChild(h("button", { class: "pg-subchip" + ((!p.unionMode && String(p.filterTagId) === String(p.filterVak)) ? " active" : ""), onclick: function () { p.unionMode = false; p.filterTagId = p.filterVak; renderSubcats(pi); loadAndRenderList(pi); }, title: "Zonder subtag", "aria-label": "Zonder subtag" }, [NOTAG_ICON()]));
+    subs.forEach(function (t) { wrap.appendChild(h("button", { class: "pg-subchip" + ((!p.unionMode && String(p.filterTagId) === String(t.id)) ? " active" : ""), onclick: function () { p.unionMode = false; p.filterTagId = t.id; renderSubcats(pi); loadAndRenderList(pi); }, text: (t.title || "").trim() })); });
   }
   // Ensure the (source, tag) fiches are fetched, then render — with a loading state.
   function loadAndRenderList(pi) {
@@ -4174,7 +4191,7 @@
     return Object.keys(set).sort();
   }
   function renderGradeSelect(pi) {
-    var sel = elId("qwp-grade-" + pi); if (!sel) return;
+    var sel = elId("pg-grade-" + pi); if (!sel) return;
     var p = view.panels[pi], opts = panelGradeOptions(pi);
     sel.innerHTML = "";
     sel.appendChild(h("option", { value: "", text: "Alle leerjaren", selected: (p.gradeFilter ? null : "selected") }));
@@ -4225,28 +4242,28 @@
   }
   // No header line above the list (space): the count lives in the search field's placeholder.
   function renderListHead(pi, n) {
-    var el = elId("qwp-search-" + pi); if (!el) return;
+    var el = elId("pg-search-" + pi); if (!el) return;
     el.placeholder = n != null ? "Zoek in " + n + " fiche" + (n === 1 ? "" : "s") + "…" : "Zoek…";
   }
   function syncFilterControls(pi) {
     var p = view.panels[pi];
-    var so = elId("qwp-sort-" + pi); if (so) so.value = (p.sortDir === "za" || p.sortDir === "recent") ? p.sortDir : "az";
-    var hu = elId("qwp-hideused-" + pi); if (hu) hu.checked = !!p.hideUsed;
+    var so = elId("pg-sort-" + pi); if (so) so.value = (p.sortDir === "za" || p.sortDir === "recent") ? p.sortDir : "az";
+    var hu = elId("pg-hideused-" + pi); if (hu) hu.checked = !!p.hideUsed;
     renderGradeSelect(pi);
     applyFilterFold();
   }
   function renderPickList(pi) {
     var p = view.panels[pi];
     syncFilterControls(pi);
-    var list = elId("qwp-picker-list-" + pi); if (!list) return;
+    var list = elId("pg-picker-list-" + pi); if (!list) return;
     var keep = list.scrollTop;
     list.innerHTML = "";
     var planned = plannedFicheDates(); _plannedSig = plannedSig(planned);
-    if (p.loading) { renderListHead(pi, null); list.appendChild(h("div", { class: "qwp-empty", text: "Laden…" })); updatePickCount(pi); return; }
+    if (p.loading) { renderListHead(pi, null); list.appendChild(h("div", { class: "pg-empty", text: "Laden…" })); updatePickCount(pi); return; }
     var items = pickListItems(pi);
     renderListHead(pi, items.length);
     if (!items.length) {
-      list.appendChild(h("div", { class: "qwp-empty", text: (filterActive(p) || (p.search && p.search.trim())) ? "Geen lesfiches voor dit filter of deze zoekterm." : "Geen lesfiches in dit vak." }));
+      list.appendChild(h("div", { class: "pg-empty", text: (filterActive(p) || (p.search && p.search.trim())) ? "Geen lesfiches voor dit filter of deze zoekterm." : "Geen lesfiches in dit vak." }));
       updatePickCount(pi); return;
     }
     var col = tagColor(p.source, p.filterVak);
@@ -4255,18 +4272,18 @@
       var pickData = { id: f.id, subject: f.subject, tagId: p.filterVak, color: col, isMethod: !!f.__method };
       var di = ficheDateInfo(f, planned);
       var isMeth = !!(f.__method || view.methodFicheIds[String(f.id)]);
-      var sq = h("span", { class: "qwp-pfiche-sq" }); if (col) sq.style.background = col;
+      var sq = h("span", { class: "pg-pfiche-sq" }); if (col) sq.style.background = col;
       var row = h("label", {
-        class: "qwp-pfiche d-" + di.cls + (p.picked[f.id] ? " picked" : ""), draggable: "true", title: (f.subject || "") + " — sleep op een lesuur",
+        class: "pg-pfiche d-" + di.cls + (p.picked[f.id] ? " picked" : ""), draggable: "true", title: (f.subject || "") + " — sleep op een lesuur",
         ondragstart: function (e) { e.dataTransfer.setData("text/plain", JSON.stringify(pickData)); startDragTargets(pickData.tagId); },
         ondragend: function () { endDragTargets(); }
       }, [
-        h("span", { class: "qwp-pfiche-pick" }, [sq, chk]),
-        h("span", { class: "qwp-pfiche-main" }, [
-          h("span", { class: "qwp-pfiche-t", text: f.subject || "(zonder titel)" }),
-          isMeth ? h("span", { class: "qwp-pfiche-sub" }, [h("span", { class: "qwp-mbadge", text: "methode" })]) : null
+        h("span", { class: "pg-pfiche-pick" }, [sq, chk]),
+        h("span", { class: "pg-pfiche-main" }, [
+          h("span", { class: "pg-pfiche-t", text: f.subject || "(zonder titel)" }),
+          isMeth ? h("span", { class: "pg-pfiche-sub" }, [h("span", { class: "pg-mbadge", text: "methode" })]) : null
         ]),
-        h("span", { class: "qwp-pfiche-date", title: di.title || null, text: di.text })
+        h("span", { class: "pg-pfiche-date", title: di.title || null, text: di.text })
       ]);
       chk.onchange = function () { if (chk.checked) { p.picked[f.id] = pickData; } else { delete p.picked[f.id]; } row.classList.toggle("picked", chk.checked); updatePickCount(pi); };
       list.appendChild(row);
@@ -4276,9 +4293,9 @@
   }
   function updatePickCount(pi) {
     var n = Object.keys(view.panels[pi].picked).length;
-    var el = elId("qwp-pick-count-" + pi); if (el) el.textContent = n + " geselecteerd";
-    var bar = elId("qwp-selbar"); if (bar) bar.style.display = n ? "" : "none";
-    var list = elId("qwp-picker-list-" + pi); if (list) list.classList.toggle("picking", n > 0);
+    var el = elId("pg-pick-count-" + pi); if (el) el.textContent = n + " geselecteerd";
+    var bar = elId("pg-selbar"); if (bar) bar.style.display = n ? "" : "none";
+    var list = elId("pg-picker-list-" + pi); if (list) list.classList.toggle("picking", n > 0);
   }
 
   // ---------- Mass-add (per panel) ----------
@@ -4313,7 +4330,7 @@
     if (busyLoading()) return;
     var picks = Object.keys(view.panels[pi].picked).map(function (k) { return view.panels[pi].picked[k]; });
     if (!picks.length) { setStatus("Niets aangevinkt in de lijst."); return; }
-    var old = elId("qwp-modal"); if (old) old.remove();
+    var old = elId("pg-modal"); if (old) old.remove();
     var usingTargets = view.targetSlots.length > 0;
 
     var taken = {}, assign = [];
@@ -4324,7 +4341,7 @@
       assign.push({ pick: p, slotId: chosen ? chosen.itemId : null });
     });
 
-    var body = h("div", { class: "qwp-modal-body" });
+    var body = h("div", { class: "pg-modal-body" });
     var addBtn;
     function slotOptions(currentId) {
       var opts = [h("option", { value: "", text: "— geen slot —", selected: (currentId ? null : "selected") })];
@@ -4345,29 +4362,29 @@
       var dupes = dupeSlotIds();
       var miss = assign.filter(function (a) { return !a.slotId; }).length;
       var hasDupe = Object.keys(dupes).length > 0;
-      Array.prototype.forEach.call(body.querySelectorAll(".qwp-ma-row"), function (row, idx) {
+      Array.prototype.forEach.call(body.querySelectorAll(".pg-ma-row"), function (row, idx) {
         var a = assign[idx]; if (!a) return;
-        var sel = row.querySelector(".qwp-ma-slot");
+        var sel = row.querySelector(".pg-ma-slot");
         if (sel) sel.classList.toggle("dupe", !!(a.slotId && dupes[a.slotId]));
         row.classList.toggle("missing", !a.slotId);
       });
-      if (addBtn) { addBtn.disabled = hasDupe; addBtn.classList.toggle("qwp-disabled", hasDupe); }
-      var w = elId("qwp-ma-warn");
+      if (addBtn) { addBtn.disabled = hasDupe; addBtn.classList.toggle("pg-disabled", hasDupe); }
+      var w = elId("pg-ma-warn");
       if (w) w.textContent = hasDupe ? "Twee lessen wijzen naar hetzelfde lesuur (rood) — los op om te bewaren."
         : (miss ? (miss + " les(sen) hebben geen leeg lesuur gevonden.") : "");
     }
-    function subjectDot(a) { var d = h("span", { class: "qwp-ma-dot" }); if (a.pick.color) d.style.background = a.pick.color; return d; }
+    function subjectDot(a) { var d = h("span", { class: "pg-ma-dot" }); if (a.pick.color) d.style.background = a.pick.color; return d; }
     function rowFor(a, idx) {
-      var sel = h("select", { class: "qwp-select qwp-ma-slot" }, slotOptions(a.slotId));
+      var sel = h("select", { class: "pg-select pg-ma-slot" }, slotOptions(a.slotId));
       sel.onchange = function () { if (a.slotId) delete taken[a.slotId]; a.slotId = sel.value ? (+sel.value) : null; if (a.slotId) taken[a.slotId] = true; refreshState(); };
-      var grip = h("span", { class: "qwp-ma-grip", title: "Sleep om te herschikken", text: "⋮⋮" });
-      var row = h("div", { class: "qwp-ma-row", draggable: "true", "data-idx": idx }, [
+      var grip = h("span", { class: "pg-ma-grip", title: "Sleep om te herschikken", text: "⋮⋮" });
+      var row = h("div", { class: "pg-ma-row", draggable: "true", "data-idx": idx }, [
         subjectDot(a),
-        h("span", { class: "qwp-ma-fiche", title: a.pick.subject || "", text: a.pick.subject || "" }),
-        h("span", { class: "qwp-ma-arrow", text: "naar" }),
+        h("span", { class: "pg-ma-fiche", title: a.pick.subject || "", text: a.pick.subject || "" }),
+        h("span", { class: "pg-ma-arrow", text: "naar" }),
         sel,
         grip,
-        h("button", { class: "qwp-ma-x", title: "Verwijderen", onclick: function (ev) { ev.preventDefault(); if (a.slotId) delete taken[a.slotId]; assign = assign.filter(function (x) { return x !== a; }); rebuild(); }, text: "Verwijderen" })
+        h("button", { class: "pg-ma-x", title: "Verwijderen", onclick: function (ev) { ev.preventDefault(); if (a.slotId) delete taken[a.slotId]; assign = assign.filter(function (x) { return x !== a; }); rebuild(); }, text: "Verwijderen" })
       ]);
       // Drag-to-swap: reorder rows, then re-assign slots chronologically by new order.
       row.ondragstart = function (e) { e.dataTransfer.setData("text/plain", "row:" + idx); row.classList.add("dragging"); };
@@ -4390,15 +4407,15 @@
     }
     function rebuild() {
       body.innerHTML = "";
-      body.appendChild(h("p", { class: "qwp-note", text: usingTargets ? "Gekozen doel-lesuren worden op volgorde gevuld. Sleep rijen (⋮⋮) om te herschikken." : "Elke les krijgt een leeg lesuur (voorkeur: vak uit Instellingen). Sleep rijen (⋮⋮) om te herschikken." }));
+      body.appendChild(h("p", { class: "pg-note", text: usingTargets ? "Gekozen doel-lesuren worden op volgorde gevuld. Sleep rijen (⋮⋮) om te herschikken." : "Elke les krijgt een leeg lesuur (voorkeur: vak uit Instellingen). Sleep rijen (⋮⋮) om te herschikken." }));
       assign.forEach(function (a, i) { body.appendChild(rowFor(a, i)); });
-      body.appendChild(h("p", { class: "qwp-ma-warn", id: "qwp-ma-warn" }));
+      body.appendChild(h("p", { class: "pg-ma-warn", id: "pg-ma-warn" }));
       refreshState();
     }
     rebuild();
 
     addBtn = h("button", {
-      class: "qwp-btn qwp-approve", text: "Toevoegen aan rooster", onclick: function () {
+      class: "pg-btn pg-approve", text: "Toevoegen aan rooster", onclick: function () {
         if (addBtn.disabled) return;
         pushUndo("selectie toevoegen");
         var snapshot = [], done = 0;
@@ -4417,12 +4434,12 @@
       }
     });
 
-    var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
-      h("div", { class: "qwp-modal-box wide qwp-ma-modal" }, [
-        h("div", { class: "qwp-modal-hd", text: "Selectie toevoegen — " + picks.length + " les(sen)" + (usingTargets ? " → " + view.targetSlots.length + " doel(en)" : "") }),
+    var modal = h("div", { class: "pg-modal", id: "pg-modal" }, [
+      h("div", { class: "pg-modal-box wide pg-ma-modal" }, [
+        h("div", { class: "pg-modal-hd", text: "Selectie toevoegen — " + picks.length + " les(sen)" + (usingTargets ? " → " + view.targetSlots.length + " doel(en)" : "") }),
         body,
-        h("div", { class: "qwp-modal-ft" }, [
-          h("button", { class: "qwp-btn qwp-ghost", text: "Annuleren", onclick: function () { modal.remove(); } }),
+        h("div", { class: "pg-modal-ft" }, [
+          h("button", { class: "pg-btn pg-ghost", text: "Annuleren", onclick: function () { modal.remove(); } }),
           addBtn
         ])
       ])
@@ -4432,13 +4449,13 @@
 
   // ---------- Toast ----------
   function showToast(msg, actionLabel, onAction) {
-    var old = elId("qwp-toast"); if (old) old.remove();
+    var old = elId("pg-toast"); if (old) old.remove();
     var timer = null;
-    function close() { if (timer) clearTimeout(timer); var t = elId("qwp-toast"); if (t) t.remove(); }
-    var toast = h("div", { class: "qwp-toast", id: "qwp-toast" }, [
-      h("span", { class: "qwp-toast-msg", text: msg }),
-      (actionLabel && onAction) ? h("button", { class: "qwp-toast-act", text: actionLabel, onclick: function () { onAction(); close(); } }) : null,
-      h("button", { class: "qwp-toast-x", title: "Sluiten", text: "×", onclick: close })
+    function close() { if (timer) clearTimeout(timer); var t = elId("pg-toast"); if (t) t.remove(); }
+    var toast = h("div", { class: "pg-toast", id: "pg-toast" }, [
+      h("span", { class: "pg-toast-msg", text: msg }),
+      (actionLabel && onAction) ? h("button", { class: "pg-toast-act", text: actionLabel, onclick: function () { onAction(); close(); } }) : null,
+      h("button", { class: "pg-toast-x", title: "Sluiten", text: "×", onclick: close })
     ]);
     els.page.appendChild(toast);
     timer = setTimeout(close, 8000);
@@ -4455,11 +4472,11 @@
     return 0;
   }
   function showUpdateBanner(url) {
-    if (elId("qwp-banner")) return;
-    var banner = h("div", { class: "qwp-banner", id: "qwp-banner" }, [
+    if (elId("pg-banner")) return;
+    var banner = h("div", { class: "pg-banner", id: "pg-banner" }, [
       h("span", { text: "Nieuwe versie van de Questi Weekplanner beschikbaar — " }),
-      h("a", { class: "qwp-banner-link", href: url || "#", target: "_blank", rel: "noopener", text: "download hier" }),
-      h("button", { class: "qwp-banner-x", title: "Verbergen", text: "×", onclick: function () { banner.remove(); } })
+      h("a", { class: "pg-banner-link", href: url || "#", target: "_blank", rel: "noopener", text: "download hier" }),
+      h("button", { class: "pg-banner-x", title: "Verbergen", text: "×", onclick: function () { banner.remove(); } })
     ]);
     els.page.insertBefore(banner, els.page.firstChild);
   }
@@ -4469,7 +4486,7 @@
     try {
       if (!(chrome && chrome.runtime && chrome.runtime.sendMessage)) return;
       var installed = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || "0";
-      chrome.runtime.sendMessage({ type: "QWP_CHECK_VERSION" }, function (resp) {
+      chrome.runtime.sendMessage({ type: "PG_CHECK_VERSION" }, function (resp) {
         void chrome.runtime.lastError;
         if (resp && resp.ok && cmpVersion(resp.latest, installed) > 0) showUpdateBanner(resp.url);
       });
@@ -4494,22 +4511,22 @@
     renderTimetable(); refreshUndoBtn(); setStatus("Ongedaan: " + entry.label);
   }
   function refreshUndoBtn() {
-    var b = elId("qwp-undo"); if (!b) return;
+    var b = elId("pg-undo"); if (!b) return;
     var n = view.undoStack.length;
-    b.classList.toggle("qwp-disabled", n === 0);
+    b.classList.toggle("pg-disabled", n === 0);
     b.textContent = n ? ("Ongedaan maken (" + n + ")") : "Ongedaan maken";
   }
 
   // ---------- Blocking commit overlay (prevents edits mid-write) ----------
   function showCommitOverlay(total) {
     hideCommitOverlay();
-    var bar = h("div", { class: "qwp-progress-fill", id: "qwp-commit-bar" });
-    var lbl = h("div", { class: "qwp-commit-count", id: "qwp-commit-count", text: "0 / " + total });
-    var ov = h("div", { class: "qwp-commit-overlay", id: "qwp-commit-overlay" }, [
-      h("div", { class: "qwp-commit-card" }, [
-        goblinImg("goblin-full.png", "qwp-spinner qwp-goblin-work") || h("div", { class: "qwp-spinner" }),   // the goblin at work; replaced by the still one when done
-        h("div", { class: "qwp-commit-msg", id: "qwp-commit-msg", text: "Bezig met wegschrijven — even geduld, niet bewerken. Herhalende lesuren kunnen traag zijn." }),
-        h("div", { class: "qwp-progress" }, [bar]),
+    var bar = h("div", { class: "pg-progress-fill", id: "pg-commit-bar" });
+    var lbl = h("div", { class: "pg-commit-count", id: "pg-commit-count", text: "0 / " + total });
+    var ov = h("div", { class: "pg-commit-overlay", id: "pg-commit-overlay" }, [
+      h("div", { class: "pg-commit-card" }, [
+        goblinImg("goblin-full.png", "pg-spinner pg-goblin-work") || h("div", { class: "pg-spinner" }),   // the goblin at work; replaced by the still one when done
+        h("div", { class: "pg-commit-msg", id: "pg-commit-msg", text: "Bezig met wegschrijven — even geduld, niet bewerken. Herhalende lesuren kunnen traag zijn." }),
+        h("div", { class: "pg-progress" }, [bar]),
         lbl
       ])
     ]);
@@ -4517,7 +4534,7 @@
     // on the result buttons (e.g. "Sluiten"), or a failed commit would lock the UI.
     ["click", "mousedown", "keydown", "wheel", "dragstart"].forEach(function (ev) {
       ov.addEventListener(ev, function (e) {
-        if (e.target && e.target.closest && e.target.closest(".qwp-commit-card button")) return;
+        if (e.target && e.target.closest && e.target.closest(".pg-commit-card button")) return;
         e.stopPropagation(); if (ev === "keydown" || ev === "dragstart") e.preventDefault();
       }, true);
     });
@@ -4525,37 +4542,37 @@
     updateCommitOverlay(0, total);
   }
   function updateCommitOverlay(done, total) {
-    var bar = elId("qwp-commit-bar"), cnt = elId("qwp-commit-count");
+    var bar = elId("pg-commit-bar"), cnt = elId("pg-commit-count");
     var pct = total ? Math.round((done / total) * 100) : 0;
     if (bar) bar.style.width = pct + "%";
     if (cnt) cnt.textContent = done + " / " + total;
   }
   function commitOverlayResult(ok, fails) {
-    var ov = elId("qwp-commit-overlay"); if (!ov) return;
-    var msg = elId("qwp-commit-msg"); if (msg) { msg.textContent = ok + " weggeschreven, " + fails.length + " mislukt. Eerste fout: " + fails[0].error; msg.classList.add("err"); }
-    var card = ov.querySelector(".qwp-commit-card"); var sp = ov.querySelector(".qwp-spinner"); if (sp) sp.style.display = "none";
-    if (card) card.appendChild(h("button", { class: "qwp-btn", text: "Sluiten", onclick: hideCommitOverlay }));
+    var ov = elId("pg-commit-overlay"); if (!ov) return;
+    var msg = elId("pg-commit-msg"); if (msg) { msg.textContent = ok + " weggeschreven, " + fails.length + " mislukt. Eerste fout: " + fails[0].error; msg.classList.add("err"); }
+    var card = ov.querySelector(".pg-commit-card"); var sp = ov.querySelector(".pg-spinner"); if (sp) sp.style.display = "none";
+    if (card) card.appendChild(h("button", { class: "pg-btn", text: "Sluiten", onclick: hideCommitOverlay }));
   }
-  function hideCommitOverlay() { var ov = elId("qwp-commit-overlay"); if (ov) ov.remove(); }
+  function hideCommitOverlay() { var ov = elId("pg-commit-overlay"); if (ov) ov.remove(); }
   // Debug → "Laadscherm testen": the real write screen with fake progress. Writes nothing, reloads
   // nothing — it only plays the overlay (working goblin, tape bar, still goblin) and closes it.
   function demoCommitOverlay() {
     var total = 8, done = 0;
     showCommitOverlay(total);
-    var m = elId("qwp-commit-msg"); if (m) m.textContent = "Voorbeeld — er wordt niets naar Questi geschreven.";
+    var m = elId("pg-commit-msg"); if (m) m.textContent = "Voorbeeld — er wordt niets naar Questi geschreven.";
     var t = setInterval(function () {
       done++; updateCommitOverlay(done, total);
       if (done < total) return;
       clearInterval(t);
       msg2("Klaar — (voorbeeld, niets weggeschreven)");
-      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner");
-      if (sp) { var gob = goblinImg("goblin-full.png", "qwp-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
+      var sp = document.querySelector("#pg-commit-overlay .pg-spinner");
+      if (sp) { var gob = goblinImg("goblin-full.png", "pg-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
       setTimeout(hideCommitOverlay, 2200);
     }, 450);
   }
 
   // ---------- Diagnose / Zelftest (READ-ONLY — never writes, never mutates state) ----------
-  var TOOL_VERSION = "qwp-2026-07-04";
+  var TOOL_VERSION = "pg-2026-07-04";
   // Known-good write shapes captured from a real successful write (blueprint scrape).
   var REF_PATCH_KEYS = ["calendarId", "title", "description", "is_fullday_item", "startdate", "enddate", "starttime", "endtime", "is_published_students", "is_published_parents", "groups", "participants"];
   var REF_ATTACH_KEYS = ["schoolId", "visible_parents", "visible_students", "students", "groups", "id", "typeId"];
@@ -4577,39 +4594,39 @@
   function has(o, k) { return o && Object.prototype.hasOwnProperty.call(o, k) && o[k] != null; }
 
   function openDiagnose() {
-    var old = elId("qwp-modal"); if (old) old.remove();
-    var list = h("div", { class: "qwp-diag-list", id: "qwp-diag-list" });
+    var old = elId("pg-modal"); if (old) old.remove();
+    var list = h("div", { class: "pg-diag-list", id: "pg-diag-list" });
     var rows = [];
     var STAT = { OK: "OK", WARN: "WARN", FAIL: "FAIL", SKIP: "SKIP" };
-    function statusPill(s) { return h("span", { class: "qwp-diag-pill " + s.toLowerCase(), text: s }); }
+    function statusPill(s) { return h("span", { class: "pg-diag-pill " + s.toLowerCase(), text: s }); }
     function rowEl(row) {
-      return h("div", { class: "qwp-diag-row" }, [
-        h("div", { class: "qwp-diag-row-hd" }, [statusPill(row.status), h("span", { class: "qwp-diag-name", text: row.name })]),
-        (row.expected || row.found) ? h("div", { class: "qwp-diag-detail", text: "verwacht: " + (row.expected || "—") + "  ·  gevonden: " + (row.found || "—") }) : null,
-        (row.status !== STAT.OK && row.next) ? h("div", { class: "qwp-diag-next", text: "→ " + row.next }) : null
+      return h("div", { class: "pg-diag-row" }, [
+        h("div", { class: "pg-diag-row-hd" }, [statusPill(row.status), h("span", { class: "pg-diag-name", text: row.name })]),
+        (row.expected || row.found) ? h("div", { class: "pg-diag-detail", text: "verwacht: " + (row.expected || "—") + "  ·  gevonden: " + (row.found || "—") }) : null,
+        (row.status !== STAT.OK && row.next) ? h("div", { class: "pg-diag-next", text: "→ " + row.next }) : null
       ]);
     }
     function addRow(row) { rows.push(row); list.appendChild(rowEl(row)); list.scrollTop = list.scrollHeight; }
     var omitChk = h("input", { type: "checkbox" });
 
-    var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
-      h("div", { class: "qwp-modal-box wide qwp-diag-modal" }, [
-        h("div", { class: "qwp-modal-hd", text: "Zelftest — leest alleen, schrijft nooit" }),
-        h("div", { class: "qwp-modal-body" }, [
-          h("p", { class: "qwp-note", text: "Controleert of de live Questi-API nog overeenkomt met wat de tool verwacht. Elke regel: OK / WARN / FAIL met een concrete volgende stap." }),
+    var modal = h("div", { class: "pg-modal", id: "pg-modal" }, [
+      h("div", { class: "pg-modal-box wide pg-diag-modal" }, [
+        h("div", { class: "pg-modal-hd", text: "Zelftest — leest alleen, schrijft nooit" }),
+        h("div", { class: "pg-modal-body" }, [
+          h("p", { class: "pg-note", text: "Controleert of de live Questi-API nog overeenkomt met wat de tool verwacht. Elke regel: OK / WARN / FAIL met een concrete volgende stap." }),
           list
         ]),
-        h("div", { class: "qwp-modal-ft" }, [
+        h("div", { class: "pg-modal-ft" }, [
           // "Opslaan als .json": one file with rows + ctx + settings + recent errors, built by
           // settings.js (it owns the settings export). Never cookies, xsrf token or session.
-          h("label", { class: "qwp-note", style: "margin-right:auto;display:inline-flex;align-items:center;gap:6px", title: "Laat namen van lesfiches en lesuren weg uit het .json-bestand" }, [omitChk, h("span", { text: "titels van lesfiches weglaten" })]),
-          h("button", { class: "qwp-btn qwp-ghost", text: "Opslaan als .json", onclick: function () {
-            if (window.__UQ_SETTINGS && window.__UQ_SETTINGS.saveDebugJson) window.__UQ_SETTINGS.saveDebugJson(rows, { omitTitles: omitChk.checked, toolVersion: TOOL_VERSION });
+          h("label", { class: "pg-note", style: "margin-right:auto;display:inline-flex;align-items:center;gap:6px", title: "Laat namen van lesfiches en lesuren weg uit het .json-bestand" }, [omitChk, h("span", { text: "titels van lesfiches weglaten" })]),
+          h("button", { class: "pg-btn pg-ghost", text: "Opslaan als .json", onclick: function () {
+            if (window.__PG_SETTINGS && window.__PG_SETTINGS.saveDebugJson) window.__PG_SETTINGS.saveDebugJson(rows, { omitTitles: omitChk.checked, toolVersion: TOOL_VERSION });
             else setStatus("Opslaan als .json kan niet: de instellingen-module (settings.js) is niet geladen.");
           } }),
-          h("button", { class: "qwp-btn qwp-ghost", text: "Rapport kopiëren", onclick: function () { copyDiagReport(rows); } }),
-          h("button", { class: "qwp-btn qwp-ghost", text: "Laadscherm testen", title: "Speelt het wegschrijf-scherm af met nepvoortgang — er gaat niets naar Questi", onclick: function () { modal.remove(); demoCommitOverlay(); } }),
-          h("button", { class: "qwp-btn", text: "Sluiten", onclick: function () { modal.remove(); } })
+          h("button", { class: "pg-btn pg-ghost", text: "Rapport kopiëren", onclick: function () { copyDiagReport(rows); } }),
+          h("button", { class: "pg-btn pg-ghost", text: "Laadscherm testen", title: "Speelt het wegschrijf-scherm af met nepvoortgang — er gaat niets naar Questi", onclick: function () { modal.remove(); demoCommitOverlay(); } }),
+          h("button", { class: "pg-btn", text: "Sluiten", onclick: function () { modal.remove(); } })
         ])
       ])
     ]);
@@ -4831,27 +4848,27 @@
   // Superseded by settings.js (Instellingen → Lesrooster/Agenda). The body below is the legacy
   // fallback for when that module is not loaded; delete it once the new planner shell lands.
   function openInstellingen() {
-    if (window.__UQ_SETTINGS && window.__UQ_SETTINGS.open) { window.__UQ_SETTINGS.open("lesrooster"); return; }
-    var old = elId("qwp-modal"); if (old) old.remove();
+    if (window.__PG_SETTINGS && window.__PG_SETTINGS.open) { window.__PG_SETTINGS.open("lesrooster"); return; }
+    var old = elId("pg-modal"); if (old) old.remove();
     computeTimeRows();
     if (!view.timeRows.length) { setStatus("Geen rooster geladen — open eerst een week met lesuren."); return; }
     var rows = view.timeRows;
     // Vak options come from the user's LIVE top-level tag hierarchy, not a fixed list.
     var tops = panelTopTags("self");
-    var grid = h("div", { class: "qwp-inst" });
+    var grid = h("div", { class: "pg-inst" });
     grid.appendChild(h("div", {}));
-    for (var d = 0; d < 5; d++) grid.appendChild(h("div", { class: "qwp-inst-hd", text: DAY_NAMES[d].slice(0, 2).toUpperCase() }));
-    grid.appendChild(h("div", { class: "qwp-inst-time", text: "thema" }));
-    for (var dt = 0; dt < 5; dt++) grid.appendChild(h("div", { class: "qwp-inst-cell" }, [h("div", { class: "qwp-cell-vak", text: "WO" })]));
+    for (var d = 0; d < 5; d++) grid.appendChild(h("div", { class: "pg-inst-hd", text: DAY_NAMES[d].slice(0, 2).toUpperCase() }));
+    grid.appendChild(h("div", { class: "pg-inst-time", text: "thema" }));
+    for (var dt = 0; dt < 5; dt++) grid.appendChild(h("div", { class: "pg-inst-cell" }, [h("div", { class: "pg-cell-vak", text: "WO" })]));
     rows.forEach(function (t) {
-      grid.appendChild(h("div", { class: "qwp-inst-time", text: t }));
+      grid.appendChild(h("div", { class: "pg-inst-time", text: t }));
       for (var d2 = 0; d2 < 5; d2++) {
         (function (day, time) {
-          if (isNoSchool(day, time)) { grid.appendChild(h("div", { class: "qwp-inst-cell qwp-inst-noschool", text: "—" })); return; }
+          if (isNoSchool(day, time)) { grid.appendChild(h("div", { class: "pg-inst-cell pg-inst-noschool", text: "—" })); return; }
           var key = slotKeyStd(day, time);
           var sel = h("select", {}, [h("option", { value: "", text: "—", selected: (state.settings[key] ? null : "selected") })].concat(tops.map(function (v) { return h("option", { value: v.id, text: (v.title || "").trim(), selected: (String(state.settings[key]) === String(v.id) ? "selected" : null) }); })));
           sel.onchange = function () { if (sel.value) state.settings[key] = +sel.value; else delete state.settings[key]; (state.rosterTouched || (state.rosterTouched = {}))[key] = true; };
-          grid.appendChild(h("div", { class: "qwp-inst-cell" }, [sel]));
+          grid.appendChild(h("div", { class: "pg-inst-cell" }, [sel]));
         })(d2, t);
       }
     });
@@ -4859,29 +4876,29 @@
     // Werkagenda (Feature 5): which calendar the planner loads + writes to. Only useful with >1.
     var calSel = null, calField = null;
     if ((ctx.calendars || []).length > 1) {
-      calSel = h("select", { class: "qwp-input", style: "width:100%" },
+      calSel = h("select", { class: "pg-input", style: "width:100%" },
         [h("option", { value: "", text: "— automatisch —", selected: (state.workingCalendarId == null ? "selected" : null) })].concat(
           ctx.calendars.map(function (c) { return h("option", { value: String(c.id), text: c.name, selected: (String(state.workingCalendarId) === String(c.id) ? "selected" : null) }); })));
-      calField = h("div", { class: "qwp-field", style: "margin-top:16px;border-top:1px solid var(--line-soft);padding-top:14px" }, [
+      calField = h("div", { class: "pg-field", style: "margin-top:16px;border-top:1px solid var(--line-soft);padding-top:14px" }, [
         h("label", { text: "Werkagenda (lezen + schrijven)" }),
         calSel,
-        h("div", { class: "qwp-note", style: "margin-top:6px", text: "Welke agenda de weekplanner toont en naar wegschrijft. 'Automatisch' kiest de agenda met de meeste lesitems. Stel dit in als je meerdere agenda's hebt of een collega-agenda plant." })
+        h("div", { class: "pg-note", style: "margin-top:6px", text: "Welke agenda de weekplanner toont en naar wegschrijft. 'Automatisch' kiest de agenda met de meeste lesitems. Stel dit in als je meerdere agenda's hebt of een collega-agenda plant." })
       ]);
     }
 
-    var throttleInp = h("input", { class: "qwp-input", type: "number", min: "0", max: "10000", step: "50", style: "width:130px", value: String(state.saveThrottleMs != null ? state.saveThrottleMs : 250) });
-    var throttleField = h("div", { class: "qwp-field", style: "margin-top:16px;border-top:1px solid var(--line-soft);padding-top:14px" }, [
+    var throttleInp = h("input", { class: "pg-input", type: "number", min: "0", max: "10000", step: "50", style: "width:130px", value: String(state.saveThrottleMs != null ? state.saveThrottleMs : 250) });
+    var throttleField = h("div", { class: "pg-field", style: "margin-top:16px;border-top:1px solid var(--line-soft);padding-top:14px" }, [
       h("label", { text: "Vertraging tussen opgeslagen lesuren (ms)" }),
       throttleInp,
-      h("div", { class: "qwp-note", style: "margin-top:6px", text: "Basisvertraging + toevallige spreiding, zodat het opslaan niet als een machine oogt. Verhoog dit (bv. 2000) als Questi klaagt dat je te snel opslaat. Standaard 250." })
+      h("div", { class: "pg-note", style: "margin-top:6px", text: "Basisvertraging + toevallige spreiding, zodat het opslaan niet als een machine oogt. Verhoog dit (bv. 2000) als Questi klaagt dat je te snel opslaat. Standaard 250." })
     ]);
-    var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
-      h("div", { class: "qwp-modal-box qwp-inst-modal" }, [
-        h("div", { class: "qwp-modal-hd", text: "Instellingen — vast vak per lesuur" }),
-        h("div", { class: "qwp-modal-body" }, [h("p", { class: "qwp-note", text: "Dit is de standaard die elke week geldt. Ze bepaalt welk vak 'Toevoegen aan rooster' automatisch in een leeg lesuur plaatst." }), grid, calField, throttleField]),
-        h("div", { class: "qwp-modal-ft" }, [
-          h("button", { class: "qwp-btn qwp-ghost", text: "Sluiten", onclick: function () { modal.remove(); } }),
-          h("button", { class: "qwp-btn qwp-approve", text: "Bewaren", onclick: function () {
+    var modal = h("div", { class: "pg-modal", id: "pg-modal" }, [
+      h("div", { class: "pg-modal-box pg-inst-modal" }, [
+        h("div", { class: "pg-modal-hd", text: "Instellingen — vast vak per lesuur" }),
+        h("div", { class: "pg-modal-body" }, [h("p", { class: "pg-note", text: "Dit is de standaard die elke week geldt. Ze bepaalt welk vak 'Toevoegen aan rooster' automatisch in een leeg lesuur plaatst." }), grid, calField, throttleField]),
+        h("div", { class: "pg-modal-ft" }, [
+          h("button", { class: "pg-btn pg-ghost", text: "Sluiten", onclick: function () { modal.remove(); } }),
+          h("button", { class: "pg-btn pg-approve", text: "Bewaren", onclick: function () {
             var tv = parseInt(throttleInp.value, 10); state.saveThrottleMs = (isNaN(tv) || tv < 0) ? 250 : Math.min(tv, 10000);
             // Werkagenda change: apply + reload the grid from the chosen calendar.
             var calChanged = false;
@@ -4939,7 +4956,7 @@
   function openCopyPrevWeek() {
     if (busyLoading()) return;
     if (!view.weekStart) { setStatus("Geen week geladen."); return; }
-    var old = elId("qwp-modal"); if (old) old.remove();
+    var old = elId("pg-modal"); if (old) old.remove();
     var span = 7;   // the week before the first loaded week, copied into that week
     var prevStart = isoDate(addDays(view.weekStart, -span)), prevEnd = isoDate(addDays(view.weekStart, -1));
     setStatus("Vorige week laden…");
@@ -4951,34 +4968,34 @@
         var tgt = currentSlotForDayTime(ps.dayIdx, ps.time);
         return { ps: ps, target: tgt, chk: false };
       });
-      var body = h("div", { class: "qwp-modal-body" });
+      var body = h("div", { class: "pg-modal-body" });
       function rowVak(ps) { return ps.vak ? ((tagTitle("self", ps.vak) || "").trim()) : (ps.isGym ? "gym" : ""); }
       // Readable day×time grid: each prior filled lesuur is a click-to-toggle tile.
       function render() {
         body.innerHTML = "";
-        body.appendChild(h("p", { class: "qwp-note", text: "Klik de lesuren die je wil overnemen (blauw = gekozen). Enkel lege lesuren op hetzelfde moment worden gevuld." }));
+        body.appendChild(h("p", { class: "pg-note", text: "Klik de lesuren die je wil overnemen (blauw = gekozen). Enkel lege lesuren op hetzelfde moment worden gevuld." }));
         var times = []; rows.forEach(function (r) { var t = r.ps.time || ""; if (times.indexOf(t) < 0) times.push(t); });
         times.sort(function (a, b) { return String(a).localeCompare(String(b), undefined, { numeric: true }); });
         function cellFor(day, time) { return rows.filter(function (r) { return r.ps.dayIdx === day && (r.ps.time || "") === time; })[0]; }
-        var grid = h("div", { class: "qwp-copy-grid" });
+        var grid = h("div", { class: "pg-copy-grid" });
         grid.style.gridTemplateColumns = "58px repeat(5, minmax(0, 1fr))";
-        grid.appendChild(h("div", { class: "qwp-copy-corner", text: "uur" }));
-        for (var d0 = 0; d0 < 5; d0++) grid.appendChild(h("div", { class: "qwp-copy-dayhd", text: DAY_NAMES[d0] }));
+        grid.appendChild(h("div", { class: "pg-copy-corner", text: "uur" }));
+        for (var d0 = 0; d0 < 5; d0++) grid.appendChild(h("div", { class: "pg-copy-dayhd", text: DAY_NAMES[d0] }));
         times.forEach(function (t) {
-          grid.appendChild(h("div", { class: "qwp-copy-timelbl", text: t }));
+          grid.appendChild(h("div", { class: "pg-copy-timelbl", text: t }));
           for (var d = 0; d < 5; d++) {
             (function (day) {
               var r = cellFor(day, t);
-              if (!r) { grid.appendChild(h("div", { class: "qwp-copy-cell empty" })); return; }
+              if (!r) { grid.appendChild(h("div", { class: "pg-copy-cell empty" })); return; }
               var avail = !!(r.target && isTargetable(r.target));
               var tile = h("div", {
-                class: "qwp-copy-cell tile" + (avail ? "" : " disabled") + (r.chk && avail ? " sel" : ""),
+                class: "pg-copy-cell tile" + (avail ? "" : " disabled") + (r.chk && avail ? " sel" : ""),
                 title: avail ? "Klik om te (de)selecteren" : (!r.target ? "geen lesuur deze week" : "al ingevuld"),
                 onclick: function () { if (!avail) return; r.chk = !r.chk; render(); }
               }, [
-                h("div", { class: "qwp-copy-t", text: r.ps.isGym ? (r.ps.title || "Gym") : (r.ps.ficheTitle || r.ps.title || "(les)") }),
-                rowVak(r.ps) ? h("div", { class: "qwp-copy-vak", text: rowVak(r.ps) }) : null,
-                !avail ? h("div", { class: "qwp-copy-x", text: !r.target ? "geen lesuur" : "al ingevuld" }) : null
+                h("div", { class: "pg-copy-t", text: r.ps.isGym ? (r.ps.title || "Gym") : (r.ps.ficheTitle || r.ps.title || "(les)") }),
+                rowVak(r.ps) ? h("div", { class: "pg-copy-vak", text: rowVak(r.ps) }) : null,
+                !avail ? h("div", { class: "pg-copy-x", text: !r.target ? "geen lesuur" : "al ingevuld" }) : null
               ]);
               grid.appendChild(tile);
             })(d);
@@ -4987,18 +5004,18 @@
         body.appendChild(grid);
       }
       function setAll(fn) { rows.forEach(function (r) { var avail = r.target && isTargetable(r.target); r.chk = avail && fn(r); }); render(); }
-      var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
-        h("div", { class: "qwp-modal-box wide qwp-copy-modal" }, [
-          h("div", { class: "qwp-modal-hd", text: "Kopieer vorige week — " + filled.length + " ingevulde lesuren" }),
+      var modal = h("div", { class: "pg-modal", id: "pg-modal" }, [
+        h("div", { class: "pg-modal-box wide pg-copy-modal" }, [
+          h("div", { class: "pg-modal-hd", text: "Kopieer vorige week — " + filled.length + " ingevulde lesuren" }),
           body,
-          h("div", { class: "qwp-modal-ft" }, [
-            h("button", { class: "qwp-btn qwp-ghost qwp-sm", text: "Alles", onclick: function () { setAll(function () { return true; }); } }),
-            h("button", { class: "qwp-btn qwp-ghost qwp-sm", text: "Enkel WO/thema", onclick: function () { setAll(function (r) { return THEMA_RE.test(r.ps.title || "") || r.ps.themaFiche; }); } }),
-            h("button", { class: "qwp-btn qwp-ghost qwp-sm", text: "Wis", onclick: function () { setAll(function () { return false; }); } }),
-            h("span", { class: "qwp-spacer" }),
-            h("button", { class: "qwp-btn qwp-ghost", text: "Annuleren", onclick: function () { modal.remove(); } }),
+          h("div", { class: "pg-modal-ft" }, [
+            h("button", { class: "pg-btn pg-ghost pg-sm", text: "Alles", onclick: function () { setAll(function () { return true; }); } }),
+            h("button", { class: "pg-btn pg-ghost pg-sm", text: "Enkel WO/thema", onclick: function () { setAll(function (r) { return THEMA_RE.test(r.ps.title || "") || r.ps.themaFiche; }); } }),
+            h("button", { class: "pg-btn pg-ghost pg-sm", text: "Wis", onclick: function () { setAll(function () { return false; }); } }),
+            h("span", { class: "pg-spacer" }),
+            h("button", { class: "pg-btn pg-ghost", text: "Annuleren", onclick: function () { modal.remove(); } }),
             h("button", {
-              class: "qwp-btn qwp-approve", text: "Kopieer selectie", onclick: function () {
+              class: "pg-btn pg-approve", text: "Kopieer selectie", onclick: function () {
                 var chosen = rows.filter(function (r) { return r.chk && r.target && isTargetable(r.target); });
                 if (!chosen.length) { setStatus("Niets aangevinkt."); return; }
                 pushUndo("kopieer vorige week");
@@ -5022,26 +5039,26 @@
 
   // ---------- Colleague popover ----------
   function openColleaguePopover() {
-    var ex = elId("qwp-pop"); if (ex) { ex.remove(); return; }
+    var ex = elId("pg-pop"); if (ex) { ex.remove(); return; }
     var selectedIds = state.colleagues.map(function (c) { return c.id; });
-    var listWrap = h("div", { class: "qwp-pop-list" });
+    var listWrap = h("div", { class: "pg-pop-list" });
     function renderList(filter) {
       listWrap.innerHTML = "";
       view.people.filter(function (p) { return !filter || p.name.toLowerCase().indexOf(filter.toLowerCase()) > -1; }).forEach(function (p) {
         var checked = selectedIds.indexOf(p.id) > -1;
-        var row = h("label", { class: "qwp-pop-row" }, [h("input", { type: "checkbox", onchange: function (e) { if (e.target.checked) { if (selectedIds.indexOf(p.id) < 0) selectedIds.push(p.id); } else selectedIds = selectedIds.filter(function (x) { return x !== p.id; }); } }), h("span", { text: p.name })]);
+        var row = h("label", { class: "pg-pop-row" }, [h("input", { type: "checkbox", onchange: function (e) { if (e.target.checked) { if (selectedIds.indexOf(p.id) < 0) selectedIds.push(p.id); } else selectedIds = selectedIds.filter(function (x) { return x !== p.id; }); } }), h("span", { text: p.name })]);
         if (checked) row.querySelector("input").checked = true;
         listWrap.appendChild(row);
       });
     }
     renderList("");
-    var pop = h("div", { class: "qwp-pop", id: "qwp-pop" }, [
-      h("div", { class: "qwp-pop-hd", text: "Kies collega's" }),
-      h("input", { class: "qwp-pop-search", placeholder: "Zoek collega…", oninput: function (e) { renderList(e.target.value); } }),
+    var pop = h("div", { class: "pg-pop", id: "pg-pop" }, [
+      h("div", { class: "pg-pop-hd", text: "Kies collega's" }),
+      h("input", { class: "pg-pop-search", placeholder: "Zoek collega…", oninput: function (e) { renderList(e.target.value); } }),
       listWrap,
-      h("div", { class: "qwp-pop-ft" }, [
-        h("button", { class: "qwp-btn", text: "Laden", onclick: function () { var methods = state.colleagues.filter(function (c) { return c.isMethod; }); state.colleagues = methods.concat(view.people.filter(function (p) { return selectedIds.indexOf(p.id) > -1; }).map(function (p) { return { id: p.id, name: p.name }; })); saveState(); pop.remove(); loadColleagueFiches(); } }),
-        h("button", { class: "qwp-btn qwp-ghost", text: "Annuleren", onclick: function () { pop.remove(); } })
+      h("div", { class: "pg-pop-ft" }, [
+        h("button", { class: "pg-btn", text: "Laden", onclick: function () { var methods = state.colleagues.filter(function (c) { return c.isMethod; }); state.colleagues = methods.concat(view.people.filter(function (p) { return selectedIds.indexOf(p.id) > -1; }).map(function (p) { return { id: p.id, name: p.name }; })); saveState(); pop.remove(); loadColleagueFiches(); } }),
+        h("button", { class: "pg-btn pg-ghost", text: "Annuleren", onclick: function () { pop.remove(); } })
       ])
     ]);
     els.page.appendChild(pop);
@@ -5052,33 +5069,33 @@
   // owner selectors + panels + global search. Their fiches are read-only vendor content
   // and are badged "methode" everywhere.
   function openMethodesPopover() {
-    var ex = elId("qwp-pop"); if (ex) { ex.remove(); return; }
+    var ex = elId("pg-pop"); if (ex) { ex.remove(); return; }
     var chosen = {}; state.colleagues.filter(function (c) { return c.isMethod; }).forEach(function (c) { chosen[c.methodKey] = c; });
-    var pop = h("div", { class: "qwp-pop", id: "qwp-pop" }, [
-      h("div", { class: "qwp-pop-hd", text: "Kies methodes" }),
-      h("div", { class: "qwp-pop-list", id: "qwp-meth-list" }, [h("div", { class: "qwp-empty", text: "Methodes laden…" })]),
-      h("div", { class: "qwp-pop-ft" }, [
-        h("button", { class: "qwp-btn", text: "Laden", onclick: function () {
+    var pop = h("div", { class: "pg-pop", id: "pg-pop" }, [
+      h("div", { class: "pg-pop-hd", text: "Kies methodes" }),
+      h("div", { class: "pg-pop-list", id: "pg-meth-list" }, [h("div", { class: "pg-empty", text: "Methodes laden…" })]),
+      h("div", { class: "pg-pop-ft" }, [
+        h("button", { class: "pg-btn", text: "Laden", onclick: function () {
           var others = state.colleagues.filter(function (c) { return !c.isMethod; });
           state.colleagues = others.concat(Object.keys(chosen).map(function (k) { return chosen[k]; }));
           saveState(); pop.remove(); loadColleagueFiches();
         } }),
-        h("button", { class: "qwp-btn qwp-ghost", text: "Annuleren", onclick: function () { pop.remove(); } })
+        h("button", { class: "pg-btn pg-ghost", text: "Annuleren", onclick: function () { pop.remove(); } })
       ])
     ]);
     els.page.appendChild(pop);
     fetchMethods().then(function (methods) {
-      var listWrap = elId("qwp-meth-list"); if (!listWrap) return; listWrap.innerHTML = "";
-      if (!methods.length) { listWrap.appendChild(h("div", { class: "qwp-empty", text: "Geen methodes beschikbaar." })); return; }
+      var listWrap = elId("pg-meth-list"); if (!listWrap) return; listWrap.innerHTML = "";
+      if (!methods.length) { listWrap.appendChild(h("div", { class: "pg-empty", text: "Geen methodes beschikbaar." })); return; }
       methods.sort(function (a, b) { return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true }); });
       methods.forEach(function (mth) {
         var sub = ((mth.publisher && mth.publisher.name) ? mth.publisher.name + " · " : "") + ((mth.grades || []).join(", "));
-        var row = h("label", { class: "qwp-pop-row" }, [
+        var row = h("label", { class: "pg-pop-row" }, [
           h("input", { type: "checkbox", onchange: function (e) {
             if (e.target.checked) chosen[mth.id] = { id: METHOD_PREFIX + mth.id, name: mth.name, isMethod: true, methodKey: mth.id, isCluster: !!mth.is_cluster };
             else delete chosen[mth.id];
           } }),
-          h("span", {}, [h("span", { text: mth.name }), h("span", { class: "qwp-pop-sub", text: sub ? ("  (" + sub + ")") : "" })])
+          h("span", {}, [h("span", { text: mth.name }), h("span", { class: "pg-pop-sub", text: sub ? ("  (" + sub + ")") : "" })])
         ]);
         if (chosen[mth.id]) row.querySelector("input").checked = true;
         listWrap.appendChild(row);
@@ -5099,46 +5116,46 @@
     return "rv-same";
   }
   function reviewCellContent(s, mode) {
-    if (!s) return h("div", { class: "qwp-cell-empty-hint", text: "leeg" });
+    if (!s) return h("div", { class: "pg-cell-empty-hint", text: "leeg" });
     var title = mode === "old" ? s.origTitle : s.title;
     var fiche;
     if (mode === "old") fiche = s.origFicheTitle || (stripHtml(s.origDescription) === "Zie themafiche." ? "Zie themafiche." : "");
     else fiche = s.isGym ? "(gym)" : (themaShowsLiteral(s) ? "Zie themafiche." : stripThemaPrefix(s.ficheTitle || ""));
     var overwrote = mode === "new" && s.origFicheContentId && s.ficheContentId && String(s.origFicheContentId) !== String(s.ficheContentId);
-    return h("div", { class: "qwp-rv-cellbody" }, [
-      h("div", { class: "qwp-cell-title", text: (overwrote ? "⚠ " : "") + (title || "(leeg)") }),
-      fiche ? h("div", { class: "qwp-cell-fiche qwp-rv-fiche", text: fiche }) : null
+    return h("div", { class: "pg-rv-cellbody" }, [
+      h("div", { class: "pg-cell-title", text: (overwrote ? "⚠ " : "") + (title || "(leeg)") }),
+      fiche ? h("div", { class: "pg-cell-fiche pg-rv-fiche", text: fiche }) : null
     ]);
   }
   // A read-only, full timetable grid (OLD or NEW state) for the review modal.
   // showHeaders=false skips the date-header row (the NEW grid reuses the OLD one's).
   function buildReviewGrid(mode, showHeaders) {
     computeTimeRows();
-    var grid = h("div", { class: "qwp-tt qwp-rv-tt" });
+    var grid = h("div", { class: "pg-tt pg-rv-tt" });
     grid.style.gridTemplateColumns = "64px repeat(" + (5 * view.weeks) + ", minmax(0, 1fr))";
     if (showHeaders) {
-      grid.appendChild(h("div", { class: "qwp-tt-corner" }, [h("span", { class: "qwp-tt-corner-lbl", text: "uur" })]));
+      grid.appendChild(h("div", { class: "pg-tt-corner" }, [h("span", { class: "pg-tt-corner-lbl", text: "uur" })]));
       for (var wh = 0; wh < view.weeks; wh++) {
-        for (var dh = 0; dh < 5; dh++) grid.appendChild(h("div", { class: "qwp-tt-dayhd" + (dh === 0 && wh > 0 ? " wk-sep" : "") }, [h("span", { class: "qwp-tt-daydate", text: fullDateLabel(wh * 7 + dh) })]));
+        for (var dh = 0; dh < 5; dh++) grid.appendChild(h("div", { class: "pg-tt-dayhd" + (dh === 0 && wh > 0 ? " wk-sep" : "") }, [h("span", { class: "pg-tt-daydate", text: fullDateLabel(wh * 7 + dh) })]));
       }
     }
     themaRowKeys().forEach(function (key) {
       var lbl = themaLabel(key, view.slots);
-      grid.appendChild(h("div", { class: "qwp-tt-themalbl", title: lbl }));   // empty, as in the grid
+      grid.appendChild(h("div", { class: "pg-tt-themalbl", title: lbl }));   // empty, as in the grid
       for (var w = 0; w < view.weeks; w++) {
         var ts = weekThemaSlot(w, key);
-        var tc = h("div", { class: "qwp-cell thema-span qwp-rv-cell" + (w > 0 ? " wk-sep" : "") }, [reviewCellContent(ts, mode)]);
+        var tc = h("div", { class: "pg-cell thema-span pg-rv-cell" + (w > 0 ? " wk-sep" : "") }, [reviewCellContent(ts, mode)]);
         tc.style.gridColumn = "span 5"; grid.appendChild(tc);
       }
     });
     view.timeRows.forEach(function (t) {
-      grid.appendChild(h("div", { class: "qwp-tt-timelbl", text: t }));
+      grid.appendChild(h("div", { class: "pg-tt-timelbl", text: t }));
       for (var wr = 0; wr < view.weeks; wr++) {
         for (var dd = 0; dd < 5; dd++) {
           var sep = (dd === 0 && wr > 0) ? " wk-sep" : "";
-          if (isNoSchool(dd, t)) { grid.appendChild(h("div", { class: "qwp-cell blank qwp-rv-cell" + sep })); continue; }
+          if (isNoSchool(dd, t)) { grid.appendChild(h("div", { class: "pg-cell blank pg-rv-cell" + sep })); continue; }
           var s = slotAt(wr, dd, t);
-          var cls = "qwp-cell qwp-rv-cell" + sep + " " + (mode === "new" ? reviewCellClass(s) : "rv-old");
+          var cls = "pg-cell pg-rv-cell" + sep + " " + (mode === "new" ? reviewCellClass(s) : "rv-old");
           grid.appendChild(h("div", { class: cls }, [reviewCellContent(s, mode)]));
         }
       }
@@ -5177,13 +5194,13 @@
   // Every way into Controleer (button, header count, launcher) goes through here: an error while
   // building the review is said in the status line instead of the button silently doing nothing.
   function openReview() {
-    try { openReviewNow(); } catch (e) { console.error("[QWP] openReview:", e); setStatus("Controleer kon niet openen: " + ((e && e.message) || e) + " — er is niets weggeschreven."); }
+    try { openReviewNow(); } catch (e) { console.error("[PG] openReview:", e); setStatus("Controleer kon niet openen: " + ((e && e.message) || e) + " — er is niets weggeschreven."); }
   }
   function openReviewNow() {
     if (busyLoading()) return;   // stored titles/fiches of some lesuren are not read yet
-    var old = elId("qwp-modal"); if (old) old.remove();
+    var old = elId("pg-modal"); if (old) old.remove();
     var L = lessonsApi(), lp = { tags: [], fiches: [] };
-    if (L) { try { lp = L.pendingSummary(); } catch (e) { console.error("[QWP] pendingSummary:", e); } }
+    if (L) { try { lp = L.pendingSummary(); } catch (e) { console.error("[PG] pendingSummary:", e); } }
     var cs = commitSlots(), plan = buildCommitPlan(cs.slots);
     // Lesuren that hold a fiche being edited: dirty ones follow it to the new version as part of
     // their own row; clean ones become an opt-in "Fiche-versie" row.
@@ -5196,18 +5213,18 @@
     });
     if (!lp.tags.length && !lp.fiches.length && !plan.length && !bumps.length) { setStatus("Geen wijzigingen om te controleren."); return; }
     var excl = { tag: {}, fiche: {}, cal: {}, bump: {} }, rows = [];
-    function textBlock(lines) { return h("span", { class: "qwp-cr-lines" }, lines.filter(Boolean).map(function (l) { return typeof l === "string" ? h("span", { text: l }) : l; })); }
+    function textBlock(lines) { return h("span", { class: "pg-cr-lines" }, lines.filter(Boolean).map(function (l) { return typeof l === "string" ? h("span", { text: l }) : l; })); }
     function row(kind, key, what, where, oldLines, newLines, note) {
       var cb = h("input", { type: "checkbox", "aria-label": what + " — " + where + " meenemen" }); cb.checked = true;
       // Trash: throw this change away (nothing is written). A Fiche-versie row is not a change of
       // its own — unticking it is enough, so it gets no trash.
-      var del = kind === "bump" ? h("span") : h("button", { class: "qwp-cr-del", type: "button", title: "Deze wijziging weggooien (wordt niet weggeschreven)", "aria-label": "Weggooien: " + what + " — " + where,
+      var del = kind === "bump" ? h("span") : h("button", { class: "pg-cr-del", type: "button", title: "Deze wijziging weggooien (wordt niet weggeschreven)", "aria-label": "Weggooien: " + what + " — " + where,
         onclick: function (e) { e.preventDefault(); e.stopPropagation(); discardRows([{ kind: kind, key: key }]); } }, [svgIcon("trash", 16)]);
-      var el = h("label", { class: "qwp-cr-row" }, [
+      var el = h("label", { class: "pg-cr-row" }, [
         cb,
-        h("span", { class: "qwp-cr-what" }, [h("b", { text: what }), h("span", { text: where })]),
-        h("span", { class: "qwp-cr-old" }, [textBlock(oldLines)]),
-        h("span", { class: "qwp-cr-new" }, [textBlock(newLines), note ? h("span", { class: "qwp-cr-note", text: note }) : null]),
+        h("span", { class: "pg-cr-what" }, [h("b", { text: what }), h("span", { text: where })]),
+        h("span", { class: "pg-cr-old" }, [textBlock(oldLines)]),
+        h("span", { class: "pg-cr-new" }, [textBlock(newLines), note ? h("span", { class: "pg-cr-note", text: note }) : null]),
         del
       ]);
       cb.addEventListener("change", function () { if (cb.checked) delete excl[kind][key]; else excl[kind][key] = true; sync(); });
@@ -5215,21 +5232,21 @@
       return el;
     }
     function section(n, title, detail, kids) {
-      return h("section", { class: "qwp-cr-sec" }, [
-        h("div", { class: "qwp-cr-sechd" }, [h("span", { class: "qwp-cr-n", text: n }), h("span", { class: "qwp-cr-t", text: title }), h("span", { class: "qwp-cr-d", text: detail })])
+      return h("section", { class: "pg-cr-sec" }, [
+        h("div", { class: "pg-cr-sechd" }, [h("span", { class: "pg-cr-n", text: n }), h("span", { class: "pg-cr-t", text: title }), h("span", { class: "pg-cr-d", text: detail })])
       ].concat(kids));
     }
     var secs = [];
     if (lp.tags.length) secs.push(section("1", "Tags", lp.tags.length + (lp.tags.length === 1 ? " nieuwe tag" : " nieuwe tags"), lp.tags.map(function (t) {
       return row("tag", t.key, "Nieuwe tag", t.parentTitle ? "onder " + t.parentTitle : "hoofdtag", ["—"],
-        [h("span", { class: "qwp-cr-tag" }, [h("span", { class: "qwp-cr-dot", style: "background:" + (t.color || "#c9d2d7") }), h("span", { text: t.title })])]);
+        [h("span", { class: "pg-cr-tag" }, [h("span", { class: "pg-cr-dot", style: "background:" + (t.color || "#c9d2d7") }), h("span", { text: t.title })])]);
     })));
     var nNew = lp.fiches.filter(function (f) { return f.isNew; }).length, nEdit = lp.fiches.length - nNew;
     if (lp.fiches.length) secs.push(section("2", "Lesfiches", (nEdit ? nEdit + " fiche(s) · elke fiche krijgt een nieuwe versie" : "") + (nEdit && nNew ? " · " : "") + (nNew ? nNew + " nieuwe fiche(s)" : ""), lp.fiches.map(function (f) {
       var o = [], nw = [];
       f.changes.forEach(function (c) {
-        o.push(c.oldEl ? h("span", { class: "qwp-cr-lbl" }, [h("i", { text: c.label + ": " }), c.oldEl]) : (c.label + ": " + String(c.old || "—").slice(0, 160)));
-        nw.push(c.newEl ? h("span", { class: "qwp-cr-lbl" }, [h("i", { text: c.label + ": " }), c.newEl]) : (c.label + ": " + String(c.nw || "—").slice(0, 160)));
+        o.push(c.oldEl ? h("span", { class: "pg-cr-lbl" }, [h("i", { text: c.label + ": " }), c.oldEl]) : (c.label + ": " + String(c.old || "—").slice(0, 160)));
+        nw.push(c.newEl ? h("span", { class: "pg-cr-lbl" }, [h("i", { text: c.label + ": " }), c.newEl]) : (c.label + ": " + String(c.nw || "—").slice(0, 160)));
       });
       if (!f.changes.length) { o.push("—"); nw.push("(gewijzigd)"); }
       if (f.isNew) return row("fiche", f.key, "Nieuwe lesfiche", f.title, ["—"], nw, "wordt aangemaakt in Questi");
@@ -5255,13 +5272,13 @@
     if (calRows.length) {
       var grid = null;
       if (plan.length) {
-        grid = h("details", { class: "qwp-cr-grid" }, [h("summary", { text: "Toon als rooster (oud / nieuw)" })]);
+        grid = h("details", { class: "pg-cr-grid" }, [h("summary", { text: "Toon als rooster (oud / nieuw)" })]);
         grid.addEventListener("toggle", function () {
           if (!grid.open || grid.getAttribute("data-built")) return;
           grid.setAttribute("data-built", "1");
-          grid.appendChild(h("p", { class: "qwp-note", text: "Groen = gewijzigd · oranje = nog leeg · rood ⚠ = overschrijft bestaande fiche · wit = ongewijzigd. Enkel deze occurrence." }));
-          grid.appendChild(h("div", { class: "qwp-rv-section" }, [h("div", { class: "qwp-rv-caption", text: "HUIDIG (oud)" }), buildReviewGrid("old", true)]));
-          grid.appendChild(h("div", { class: "qwp-rv-section" }, [h("div", { class: "qwp-rv-caption", text: "NA WEGSCHRIJVEN (nieuw)" }), buildReviewGrid("new", false)]));
+          grid.appendChild(h("p", { class: "pg-note", text: "Groen = gewijzigd · oranje = nog leeg · rood ⚠ = overschrijft bestaande fiche · wit = ongewijzigd. Enkel deze occurrence." }));
+          grid.appendChild(h("div", { class: "pg-rv-section" }, [h("div", { class: "pg-rv-caption", text: "HUIDIG (oud)" }), buildReviewGrid("old", true)]));
+          grid.appendChild(h("div", { class: "pg-rv-section" }, [h("div", { class: "pg-rv-caption", text: "NA WEGSCHRIJVEN (nieuw)" }), buildReviewGrid("new", false)]));
         });
       }
       secs.push(section("3", "Agenda", Object.keys(weekCount).map(function (w) { return "week " + w + ": " + weekCount[w]; }).join(" · "), calRows.concat(grid ? [grid] : [])));
@@ -5270,9 +5287,9 @@
     var olderN = Object.keys(follows).length + bumps.length;
     var backupCb = h("input", { type: "checkbox", "aria-label": "Back-up downloaden" }); backupCb.checked = true;
     var masterCb = h("input", { type: "checkbox", "aria-label": "Alles aangevinkt" }); masterCb.checked = true;
-    var sub = h("span", { class: "qwp-cr-sub" });
-    var goBtn = h("button", { class: "qwp-cr-go", onclick: approve });
-    var delBtn = h("button", { class: "qwp-cr-delall", type: "button", title: "De aangevinkte wijzigingen weggooien (worden niet weggeschreven)",
+    var sub = h("span", { class: "pg-cr-sub" });
+    var goBtn = h("button", { class: "pg-cr-go", onclick: approve });
+    var delBtn = h("button", { class: "pg-cr-delall", type: "button", title: "De aangevinkte wijzigingen weggooien (worden niet weggeschreven)",
       onclick: function () {
         var list = chosen().filter(function (r) { return r.kind !== "bump"; });
         if (!list.length) return;
@@ -5314,28 +5331,28 @@
         (cs.held.length ? " · " + cs.held.length + " uit andere weken wacht: zelfde reeks als een lesuur hier, schrijf eerst deze weg" : "");
       masterCb.checked = n === rows.length;
     }
-    var aside = h("aside", { class: "qwp-cr-aside" }, [
-      h("div", { class: "qwp-cr-card" }, [
+    var aside = h("aside", { class: "pg-cr-aside" }, [
+      h("div", { class: "pg-cr-card" }, [
         h("b", { text: "Zo gaat het" }),
         h("ol", {}, [h("li", { text: "Nieuwe tags aanmaken" }), h("li", { text: "Lesfiches bijwerken — elke fiche krijgt daarbij een nieuwe versie" }), h("li", {}, ["Agenda: lesuren koppelen aan die ", h("b", { text: "nieuwste" }), " versie"])]),
-        h("span", { class: "qwp-cr-muted", text: "Enkel losse lesuren — nooit een hele reeks. Lukt een fiche niet, dan blijft een lesuur dat die fiche zou krijgen klaargezet (niet weggeschreven)." })
+        h("span", { class: "pg-cr-muted", text: "Enkel losse lesuren — nooit een hele reeks. Lukt een fiche niet, dan blijft een lesuur dat die fiche zou krijgen klaargezet (niet weggeschreven)." })
       ]),
-      olderN ? h("div", { class: "qwp-cr-warn" }, [h("b", { text: "Let op: " }), document.createTextNode(olderN + (olderN === 1 ? " lesuur in deze weken is" : " lesuren in deze weken zijn") + " al gepland met een fiche die je bewerkt. " + (bumps.length ? "Vink een ‘Fiche-versie’-rij uit om dat lesuur op de oude versie te laten. " : "") + "Lesuren buiten de geladen weken blijven op de oude versie.")]) : null,
-      nEdit ? h("label", { class: "qwp-cr-card qwp-cr-backup" }, [backupCb, h("span", {}, [h("b", { text: "Eerst een back-up downloaden" }), h("br"), h("span", { class: "qwp-cr-muted", text: "de " + nEdit + " fiche(s) zoals ze nu zijn (.json)" })])]) : null,
-      h("span", { class: "qwp-spacer" }),
+      olderN ? h("div", { class: "pg-cr-warn" }, [h("b", { text: "Let op: " }), document.createTextNode(olderN + (olderN === 1 ? " lesuur in deze weken is" : " lesuren in deze weken zijn") + " al gepland met een fiche die je bewerkt. " + (bumps.length ? "Vink een ‘Fiche-versie’-rij uit om dat lesuur op de oude versie te laten. " : "") + "Lesuren buiten de geladen weken blijven op de oude versie.")]) : null,
+      nEdit ? h("label", { class: "pg-cr-card pg-cr-backup" }, [backupCb, h("span", {}, [h("b", { text: "Eerst een back-up downloaden" }), h("br"), h("span", { class: "pg-cr-muted", text: "de " + nEdit + " fiche(s) zoals ze nu zijn (.json)" })])]) : null,
+      h("span", { class: "pg-spacer" }),
       goBtn,
-      h("button", { class: "qwp-cr-back", onclick: function () { modal.remove(); }, text: "Terug, nog niets doen" })
+      h("button", { class: "pg-cr-back", onclick: function () { modal.remove(); }, text: "Terug, nog niets doen" })
     ]);
-    var modal = h("div", { class: "qwp-modal qwp-cr", id: "qwp-modal" }, [
-      h("div", { class: "qwp-cr-box", role: "dialog", "aria-label": "Controleer en wegschrijven" }, [
-        h("header", { class: "qwp-cr-hd" }, [
-          h("button", { class: "qwp-navarrow", "aria-label": "Terug", title: "Terug, nog niets doen", onclick: function () { modal.remove(); }, text: "←" }),
-          h("div", { class: "qwp-cr-titles" }, [h("span", { class: "qwp-cr-title", text: "Controleer & wegschrijven" }), sub]),
-          h("span", { class: "qwp-spacer" }),
+    var modal = h("div", { class: "pg-modal pg-cr", id: "pg-modal" }, [
+      h("div", { class: "pg-cr-box", role: "dialog", "aria-label": "Controleer en wegschrijven" }, [
+        h("header", { class: "pg-cr-hd" }, [
+          h("button", { class: "pg-navarrow", "aria-label": "Terug", title: "Terug, nog niets doen", onclick: function () { modal.remove(); }, text: "←" }),
+          h("div", { class: "pg-cr-titles" }, [h("span", { class: "pg-cr-title", text: "Controleer & wegschrijven" }), sub]),
+          h("span", { class: "pg-spacer" }),
           delBtn,
-          h("label", { class: "qwp-cr-all" }, [masterCb, h("span", { text: "Alles aangevinkt" })])
+          h("label", { class: "pg-cr-all" }, [masterCb, h("span", { text: "Alles aangevinkt" })])
         ]),
-        h("div", { class: "qwp-cr-main" }, [h("div", { class: "qwp-cr-secs" }, secs), aside])
+        h("div", { class: "pg-cr-main" }, [h("div", { class: "pg-cr-secs" }, secs), aside])
       ])
     ]);
     sync();
@@ -5362,7 +5379,7 @@
   function runSharedWrite(sel) {
     var L = lessonsApi(), rep = { tags: null, fiches: null, backup: null, held: [], remapped: 0 };
     var n12 = sel.tagKeys.length + sel.ficheKeys.length;
-    function msg(t) { var m = elId("qwp-commit-msg"); if (m) m.textContent = t; }
+    function msg(t) { var m = elId("pg-commit-msg"); if (m) m.textContent = t; }
     var chain = Promise.resolve();
     if (n12 && L) {
       showCommitOverlay(n12);
@@ -5410,7 +5427,7 @@
       _approvedPlan = plan;
       doCommit();
     }).catch(function (e) {
-      console.error("[QWP] shared write:", e);
+      console.error("[PG] shared write:", e);
       finishSharedWrite(rep, sel, [], 0, [{ label: "wegschrijven", error: String((e && e.message) || e) }]);
     });
   }
@@ -5435,10 +5452,10 @@
     if (!problems && !leftover) {
       // Everything landed and nothing is left staged → reload so Questi's own SPA shows it.
       setStatus("Klaar: alles weggeschreven — Questi wordt vernieuwd…");
-      if (!elId("qwp-commit-overlay")) showCommitOverlay(1);
+      if (!elId("pg-commit-overlay")) showCommitOverlay(1);
       updateCommitOverlay(1, 1);
       msg2("Klaar — Questi wordt vernieuwd…");
-      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) { var gob = goblinImg("goblin-full.png", "qwp-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
+      var sp = document.querySelector("#pg-commit-overlay .pg-spinner"); if (sp) { var gob = goblinImg("goblin-full.png", "pg-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
       setTimeout(function () { try { reloadAndReopen(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
       return;
     }
@@ -5463,16 +5480,16 @@
     setStatus(problems ? "Weggeschreven met " + problems + " probleem/problemen — zie overzicht." : "Weggeschreven: " + wrote + ".");
     sharedResultCard(lines, !!problems);
   }
-  function msg2(t) { var m = elId("qwp-commit-msg"); if (m) m.textContent = t; }
+  function msg2(t) { var m = elId("pg-commit-msg"); if (m) m.textContent = t; }
   function sharedResultCard(lines, bad) {
-    if (!elId("qwp-commit-overlay")) showCommitOverlay(1);
-    var ov = elId("qwp-commit-overlay"), card = ov && ov.querySelector(".qwp-commit-card"); if (!card) return;
-    var sp = ov.querySelector(".qwp-spinner"); if (sp) sp.style.display = "none";
+    if (!elId("pg-commit-overlay")) showCommitOverlay(1);
+    var ov = elId("pg-commit-overlay"), card = ov && ov.querySelector(".pg-commit-card"); if (!card) return;
+    var sp = ov.querySelector(".pg-spinner"); if (sp) sp.style.display = "none";
     msg2(bad ? "Klaar, met aandachtspunten:" : "Klaar.");
-    var m = elId("qwp-commit-msg"); if (m) m.classList.toggle("err", bad);
-    var list = h("ul", { class: "qwp-cr-result" }, lines.map(function (l) { return Array.isArray(l) ? h("li", { class: "warn", text: l[1] }) : h("li", { text: l }); }));
+    var m = elId("pg-commit-msg"); if (m) m.classList.toggle("err", bad);
+    var list = h("ul", { class: "pg-cr-result" }, lines.map(function (l) { return Array.isArray(l) ? h("li", { class: "warn", text: l[1] }) : h("li", { text: l }); }));
     card.appendChild(list);
-    card.appendChild(h("button", { class: "qwp-btn", text: "Sluiten", onclick: hideCommitOverlay }));
+    card.appendChild(h("button", { class: "pg-btn", text: "Sluiten", onclick: hideCommitOverlay }));
   }
   // Human-ish spacing between writes: a base delay + random jitter, so the burst is never
   // perfectly periodic (metronomic timing is itself a bot fingerprint). Base is configurable
@@ -5489,13 +5506,13 @@
     showCommitOverlay(plan.length);
     function finish() {
       _approvedPlan = null;
-      var cb = elId("qwp-commit"); if (cb) { cb.setAttribute("disabled", "true"); cb.classList.remove("armed"); }
+      var cb = elId("pg-commit"); if (cb) { cb.setAttribute("disabled", "true"); cb.classList.remove("armed"); }
       // The shared Controleer (runSharedWrite) reports all three phases itself.
       if (_commitAfter) { var after = _commitAfter; _commitAfter = null; after(ok, fails); return; }
       if (fails.length) {
         var first = fails[0];
         setStatus(ok + " ok, " + fails.length + " fout: " + first.label + " — " + first.error + (fails.length > 1 ? " (+ " + (fails.length - 1) + " meer, zie console)" : ""));
-        console.error("[QWP] commit failures:", JSON.stringify(fails));
+        console.error("[PG] commit failures:", JSON.stringify(fails));
         commitOverlayResult(ok, fails);
         reloadAndRender(); // refresh the planner for what did persist
         return;
@@ -5504,8 +5521,8 @@
       // (its SPA doesn't refetch on its own). The overlay stays up during reload → no edits.
       setStatus("Klaar: " + ok + "/" + plan.length + " weggeschreven — Questi wordt vernieuwd…");
       updateCommitOverlay(plan.length, plan.length);
-      var m = elId("qwp-commit-msg"); if (m) m.textContent = "Klaar — Questi wordt vernieuwd…";
-      var sp = document.querySelector("#qwp-commit-overlay .qwp-spinner"); if (sp) { var gob = goblinImg("goblin-full.png", "qwp-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
+      var m = elId("pg-commit-msg"); if (m) m.textContent = "Klaar — Questi wordt vernieuwd…";
+      var sp = document.querySelector("#pg-commit-overlay .pg-spinner"); if (sp) { var gob = goblinImg("goblin-full.png", "pg-goblin-full"); if (gob) sp.parentNode.insertBefore(gob, sp); sp.style.display = "none"; }
       setTimeout(function () { try { reloadAndReopen(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
     }
     function next() {
@@ -5594,7 +5611,7 @@
     setStatus("Alle eigen lesfiches laden…");
     return loadOwnFiches().then(function (r) {
       renderAllPanels();
-      var note = elId("qwp-side-note"); if (note) note.textContent = ((r.total || (groupFor(myId()) || { items: [] }).items.length)) + " eigen lesfiches geladen.";
+      var note = elId("pg-side-note"); if (note) note.textContent = ((r.total || (groupFor(myId()) || { items: [] }).items.length)) + " eigen lesfiches geladen.";
       setStatus("Alle eigen lesfiches geladen (" + (r.total || 0) + ").");
     }).catch(function () { setStatus("Laden van lesfiches mislukt."); });
   }
@@ -5646,10 +5663,10 @@
     });
   }
   function syncRetryBtn() {
-    var box = els.root && els.root.querySelector(".qwp-side-status"); if (!box) return;
-    var n = hydrateFailed(), b = elId("qwp-retry");
+    var box = els.root && els.root.querySelector(".pg-side-status"); if (!box) return;
+    var n = hydrateFailed(), b = elId("pg-retry");
     if (!n || _retrying) { if (b) b.remove(); return; }
-    if (!b) { b = h("button", { class: "qwp-retry", id: "qwp-retry", type: "button", onclick: function () { retryFailedDetails(); } }); box.appendChild(b); }
+    if (!b) { b = h("button", { class: "pg-retry", id: "pg-retry", type: "button", onclick: function () { retryFailedDetails(); } }); box.appendChild(b); }
     b.textContent = n + (n === 1 ? " lesuur" : " lesuren") + " niet geladen · opnieuw proberen";
   }
   function scheduleHydratePaint() {
@@ -5658,7 +5675,7 @@
       _hydPaintT = null;
       if (!els.root) return;
       // A repaint mid-drag would pull the dragged card out from under the pointer — wait.
-      if (els.root.classList.contains("qwp-dragging")) { scheduleHydratePaint(); return; }
+      if (els.root.classList.contains("pg-dragging")) { scheduleHydratePaint(); return; }
       renderTimetable(); syncHydrateStatus(); syncRetryBtn();
     }, 250);
   }
@@ -5681,9 +5698,9 @@
   }
   function holidayBar(w) {
     var names = holidayNames(w);
-    return h("div", { class: "qwp-wkbar qwp-holbar" }, [
-      h("span", { class: "qwp-wkbar-t", text: "Week " + weekNoOf(w) }),
-      h("span", { class: "qwp-wkbar-s", text: shortRange(w, w) + " · " + (names.length ? names.join(", ") + " — " : "") + "geen lesuren, overgeslagen" })
+    return h("div", { class: "pg-wkbar pg-holbar" }, [
+      h("span", { class: "pg-wkbar-t", text: "Week " + weekNoOf(w) }),
+      h("span", { class: "pg-wkbar-s", text: shortRange(w, w) + " · " + (names.length ? names.join(", ") + " — " : "") + "geen lesuren, overgeslagen" })
     ]);
   }
   function holidayNote() {
@@ -5761,8 +5778,8 @@
   }
 
   // ---------- Boot / toggle ----------
-  function show() { if (els.root) els.root.classList.add("qwp-show"); document.documentElement.classList.add("qwp-locked"); }
-  function hide() { if (els.root) els.root.classList.remove("qwp-show"); document.documentElement.classList.remove("qwp-locked"); var p = elId("qwp-pop"); if (p) p.remove(); }
+  function show() { if (els.root) els.root.classList.add("pg-show"); document.documentElement.classList.add("pg-locked"); }
+  function hide() { if (els.root) els.root.classList.remove("pg-show"); document.documentElement.classList.remove("pg-locked"); var p = elId("pg-pop"); if (p) p.remove(); }
   // After a write PatchGoblin reloads Questi (its own SPA must show the change). A note in this tab's
   // sessionStorage makes content.js open the planner again afterwards, on the same weeks.
   var REOPEN_KEY = "pg_reopen";
@@ -5770,67 +5787,67 @@
     try { sessionStorage.setItem(REOPEN_KEY, JSON.stringify({ week: view.weekStart || null, at: Date.now() })); } catch (e) {}
     location.reload();
   }
-  function toggle() { if (!els.root) { boot(); return; } var open = els.root.classList.toggle("qwp-show"); document.documentElement.classList.toggle("qwp-locked", open); }
-  window.__QWP_TOGGLE = toggle;
+  function toggle() { if (!els.root) { boot(); return; } var open = els.root.classList.toggle("pg-show"); document.documentElement.classList.toggle("pg-locked", open); }
+  window.__PG_TOGGLE = toggle;
   // Sidebar tabs. Plannen and Lesfiches swap the sidebar body and the main column inside this one
-  // overlay (CSS: #qwp-overlay.qwp-tab-lf hides .qwp-plan-only, shows .qwp-lf-only); the bottom bar
+  // overlay (CSS: #pg-overlay.pg-tab-lf hides .pg-plan-only, shows .pg-lf-only); the bottom bar
   // (Alles · Instellingen · Debug · Controleer) stays. Lesfiches = lessons.js mounted into
-  // #qwp-lf-side / #qwp-lf-main. Switching between all three tabs goes through goTab.
+  // #pg-lf-side / #pg-lf-main. Switching between all three tabs goes through goTab.
   var _tab = "plan";
   function setTab(name) {
     if (!els.root) return;
-    var lf = name === "lesfiches", L = window.__QWP_LESSONS;
-    if (lf && !(L && typeof L.mount === "function")) { setStatus("De Lesfiche-manager is niet geladen."); console.warn("[QWP] lessons module niet geladen"); return; }
+    var lf = name === "lesfiches", L = window.__PG_LESSONS;
+    if (lf && !(L && typeof L.mount === "function")) { setStatus("De Lesfiche-manager is niet geladen."); console.warn("[PG] lessons module niet geladen"); return; }
     _tab = lf ? "lesfiches" : "plan";
-    els.root.classList.toggle("qwp-tab-lf", lf);
-    Array.prototype.forEach.call(els.root.querySelectorAll("#qwp-side .qwp-tab[data-tab]"), function (b) {
+    els.root.classList.toggle("pg-tab-lf", lf);
+    Array.prototype.forEach.call(els.root.querySelectorAll("#pg-side .pg-tab[data-tab]"), function (b) {
       var on = b.getAttribute("data-tab") === _tab;
       b.classList.toggle("active", on);
       if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
     });
-    closeMenu("qwp-allesmenu"); closeMenu("qwp-srcmenu");
-    var pop = elId("qwp-pop"); if (pop) pop.remove();
+    closeMenu("pg-allesmenu"); closeMenu("pg-srcmenu");
+    var pop = elId("pg-pop"); if (pop) pop.remove();
     if (!lf) { if (L && L.unmount) L.unmount(); return; }
     resetPrintFicheGoals();   // fiche goals may change on this tab; Doelen/print re-read them
-    var go = function () { if (_tab === "lesfiches") L.mount(elId("qwp-lf-side"), elId("qwp-lf-main"), { onClose: hide }); };
+    var go = function () { if (_tab === "lesfiches") L.mount(elId("pg-lf-side"), elId("pg-lf-main"), { onClose: hide }); };
     if (ctx.ready) go();
     else { setStatus("Context laden vóór lesfichebeheer…"); detectContext().then(go); }
   }
   // The Lesfiche-manager is the planner's Lesfiches tab: open (or boot) the planner on that tab.
   function openLessonsManager() {
-    if (!(window.__QWP_LESSONS && window.__QWP_LESSONS.mount)) { console.warn("[QWP] lessons module niet geladen"); return; }
+    if (!(window.__PG_LESSONS && window.__PG_LESSONS.mount)) { console.warn("[PG] lessons module niet geladen"); return; }
     if (!els.root) boot(); else show();
     goTab("lesfiches");
   }
   // Exposed so the in-page quick menu "Lesfiches" (content.js) opens the planner on that tab,
   // even when the planner overlay was never opened — boot detects context on demand.
-  window.__QWP_OPEN_LESSONS = openLessonsManager;
+  window.__PG_OPEN_LESSONS = openLessonsManager;
   // Staged-but-unwritten changes for the badge on the toolbar launcher (content.js): calendar
   // changes (same filter as buildCommitPlan) + staged fiche edits + tags to create — the same
   // number the Controleer badge shows.
-  window.__QWP_PENDING_COUNT = totalStagedCount;
+  window.__PG_PENDING_COUNT = totalStagedCount;
 
   function reconcilePanelSources() {
     var valid = [String(myId())].concat(state.colleagues.map(function (c) { return String(c.id); }));
     [0, 1, 2].forEach(function (i) { if (valid.indexOf(String(view.panels[i].source)) < 0) { view.panels[i].source = myId(); state.panels[i].source = myId(); } });
   }
   function showContextError() {
-    var wrap = elId("qwp-ttwrap"); if (wrap) {
+    var wrap = elId("pg-ttwrap"); if (wrap) {
       wrap.innerHTML = "";
-      var sidInp = h("input", { class: "qwp-input", id: "qwp-manual-sid", placeholder: "bv. 1010", value: (state.manualSchoolId != null ? String(state.manualSchoolId) : (ctx.schoolId != null ? String(ctx.schoolId) : "")) });
-      var syrInp = h("input", { class: "qwp-input", id: "qwp-manual-syr", placeholder: "bv. 2025-2026", value: (state.manualSchoolyear || ctx.schoolyear || "") });
-      var tagInp = h("input", { class: "qwp-input", id: "qwp-manual-tag", placeholder: "bv. 5", value: (state.manualOwnTagId != null ? String(state.manualOwnTagId) : "") });
-      wrap.appendChild(h("div", { class: "qwp-ctxerr" }, [
-        h("div", { class: "qwp-ctxerr-t", text: "Questi-context / lesfiche-tag handmatig instellen" }),
-        h("div", { class: "qwp-ctxerr-b", text: "Vul in wat niet automatisch gevonden werd. Open F12 → Netwerk → klik een /api/cal/lessons-aanvraag → in de URL staat 'schoolId=' en 'default_tagId=' (jouw eigen lesfiche-tag). Het schooljaar staat als 'schoolyear='." }),
-        h("div", { class: "qwp-ctxerr-form" }, [
-          h("div", { class: "qwp-field" }, [h("label", { text: "schoolId" }), sidInp]),
-          h("div", { class: "qwp-field" }, [h("label", { text: "schooljaar" }), syrInp]),
-          h("div", { class: "qwp-field" }, [h("label", { text: "eigen lesfiche-tag (default_tagId)" }), tagInp])
+      var sidInp = h("input", { class: "pg-input", id: "pg-manual-sid", placeholder: "bv. 1010", value: (state.manualSchoolId != null ? String(state.manualSchoolId) : (ctx.schoolId != null ? String(ctx.schoolId) : "")) });
+      var syrInp = h("input", { class: "pg-input", id: "pg-manual-syr", placeholder: "bv. 2025-2026", value: (state.manualSchoolyear || ctx.schoolyear || "") });
+      var tagInp = h("input", { class: "pg-input", id: "pg-manual-tag", placeholder: "bv. 5", value: (state.manualOwnTagId != null ? String(state.manualOwnTagId) : "") });
+      wrap.appendChild(h("div", { class: "pg-ctxerr" }, [
+        h("div", { class: "pg-ctxerr-t", text: "Questi-context / lesfiche-tag handmatig instellen" }),
+        h("div", { class: "pg-ctxerr-b", text: "Vul in wat niet automatisch gevonden werd. Open F12 → Netwerk → klik een /api/cal/lessons-aanvraag → in de URL staat 'schoolId=' en 'default_tagId=' (jouw eigen lesfiche-tag). Het schooljaar staat als 'schoolyear='." }),
+        h("div", { class: "pg-ctxerr-form" }, [
+          h("div", { class: "pg-field" }, [h("label", { text: "schoolId" }), sidInp]),
+          h("div", { class: "pg-field" }, [h("label", { text: "schooljaar" }), syrInp]),
+          h("div", { class: "pg-field" }, [h("label", { text: "eigen lesfiche-tag (default_tagId)" }), tagInp])
         ]),
-        h("div", { class: "qwp-ctxerr-btns" }, [
-          h("button", { class: "qwp-btn qwp-ghost", onclick: retryDetect, text: "Opnieuw auto-detecteren" }),
-          h("button", { class: "qwp-btn", onclick: function () {
+        h("div", { class: "pg-ctxerr-btns" }, [
+          h("button", { class: "pg-btn pg-ghost", onclick: retryDetect, text: "Opnieuw auto-detecteren" }),
+          h("button", { class: "pg-btn", onclick: function () {
             var sid = sidInp.value.trim(); var syr = syrInp.value.trim(); var tag = tagInp.value.trim();
             if (sid && !/^\d{1,12}$/.test(sid)) { setStatus("schoolId moet een getal zijn."); return; }
             if (tag && !/^\d{1,12}$/.test(tag)) { setStatus("lesfiche-tag moet een getal zijn."); return; }
@@ -5845,7 +5862,7 @@
       ]));
     }
     setStatus("Context-detectie mislukt — vul gegevens handmatig in.");
-    console.error("[QWP] context detection failed. ctx=", ctx);
+    console.error("[PG] context detection failed. ctx=", ctx);
   }
   // Cheap logged-in probe. A logged-out Questi answers an API GET with an HTML login redirect
   // (or 401/403). Only a CLEAR negative → "loggedout"; JSON 200 → "authed"; anything ambiguous
@@ -5862,43 +5879,43 @@
   }
   // Full-cover "log in first" state (only shown on a clear logged-out probe).
   function showLoginRequired() {
-    if (elId("qwp-login")) return;
-    var box = h("div", { class: "qwp-login-box" }, [
-      h("div", { class: "qwp-login-t", text: "Log eerst in op Questi" }),
-      h("div", { class: "qwp-login-b", text: "De weekplanner gebruikt je eigen Questi-sessie. Je bent niet (meer) ingelogd. Log in op questi.com en probeer daarna opnieuw." }),
-      h("div", { class: "qwp-login-btns" }, [
-        h("button", { class: "qwp-btn", text: "Open questi.com", onclick: function () { try { window.open("https://www.questi.com", "_blank", "noopener"); } catch (e) {} } }),
-        h("button", { class: "qwp-btn qwp-approve", text: "Ik ben ingelogd — probeer opnieuw", onclick: function () {
-          var o = elId("qwp-login"); if (o) o.remove();
+    if (elId("pg-login")) return;
+    var box = h("div", { class: "pg-login-box" }, [
+      h("div", { class: "pg-login-t", text: "Log eerst in op Questi" }),
+      h("div", { class: "pg-login-b", text: "De weekplanner gebruikt je eigen Questi-sessie. Je bent niet (meer) ingelogd. Log in op questi.com en probeer daarna opnieuw." }),
+      h("div", { class: "pg-login-btns" }, [
+        h("button", { class: "pg-btn", text: "Open questi.com", onclick: function () { try { window.open("https://www.questi.com", "_blank", "noopener"); } catch (e) {} } }),
+        h("button", { class: "pg-btn pg-approve", text: "Ik ben ingelogd — probeer opnieuw", onclick: function () {
+          var o = elId("pg-login"); if (o) o.remove();
           setStatus("Opnieuw proberen…");
           authProbe().then(function (st) {
             if (st === "loggedout") { showLoginRequired(); return; }
             return detectContext().then(function () { if (!ctx.schoolId) { showContextError(); return; } return loadEverything(); });
-          }).catch(function (e) { console.error("[QWP] login retry error:", e); setStatus("Laadfout — probeer 'Vernieuwen'."); });
+          }).catch(function (e) { console.error("[PG] login retry error:", e); setStatus("Laadfout — probeer 'Vernieuwen'."); });
         } })
       ])
     ]);
-    els.page.appendChild(h("div", { class: "qwp-login", id: "qwp-login" }, [box]));
+    els.page.appendChild(h("div", { class: "pg-login", id: "pg-login" }, [box]));
     setStatus("Niet ingelogd op Questi.");
   }
   // Non-destructive prompt for the per-user lesfiche tag (grid stays visible).
   function openOwnTagPrompt() {
-    if (elId("qwp-modal")) return;
-    var inp = h("input", { class: "qwp-input", placeholder: "bv. 5", value: (state.manualOwnTagId != null ? String(state.manualOwnTagId) : "") });
-    var modal = h("div", { class: "qwp-modal", id: "qwp-modal" }, [
-      h("div", { class: "qwp-modal-box" }, [
-        h("div", { class: "qwp-modal-hd", text: "Eigen lesfiche-tag instellen" }),
-        h("div", { class: "qwp-modal-body" }, [
-          h("p", { class: "qwp-note", text: "Je eigen lesfiches konden niet automatisch geladen worden. Open F12 → Netwerk → open je lessenlijst in Questi → klik de /api/cal/lessons-aanvraag → kopieer het getal na 'default_tagId=' uit de URL." }),
-          h("div", { class: "qwp-field" }, [h("label", { text: "default_tagId" }), inp])
+    if (elId("pg-modal")) return;
+    var inp = h("input", { class: "pg-input", placeholder: "bv. 5", value: (state.manualOwnTagId != null ? String(state.manualOwnTagId) : "") });
+    var modal = h("div", { class: "pg-modal", id: "pg-modal" }, [
+      h("div", { class: "pg-modal-box" }, [
+        h("div", { class: "pg-modal-hd", text: "Eigen lesfiche-tag instellen" }),
+        h("div", { class: "pg-modal-body" }, [
+          h("p", { class: "pg-note", text: "Je eigen lesfiches konden niet automatisch geladen worden. Open F12 → Netwerk → open je lessenlijst in Questi → klik de /api/cal/lessons-aanvraag → kopieer het getal na 'default_tagId=' uit de URL." }),
+          h("div", { class: "pg-field" }, [h("label", { text: "default_tagId" }), inp])
         ]),
-        h("div", { class: "qwp-modal-ft" }, [
-          h("button", { class: "qwp-btn qwp-ghost", text: "Later", onclick: function () { modal.remove(); } }),
-          h("button", { class: "qwp-btn", text: "Bewaren en laden", onclick: function () {
+        h("div", { class: "pg-modal-ft" }, [
+          h("button", { class: "pg-btn pg-ghost", text: "Later", onclick: function () { modal.remove(); } }),
+          h("button", { class: "pg-btn", text: "Bewaren en laden", onclick: function () {
             var v = inp.value.trim(); if (!/^\d{1,12}$/.test(v)) { setStatus("lesfiche-tag moet een getal zijn."); return; }
             state.manualOwnTagId = +v; ctx.ownDefaultTagId = +v; saveState(); modal.remove();
             setStatus("Lesfiche-tag bewaard — laden…");
-            loadOwnFiches().then(function () { renderAllPanels(); var note = elId("qwp-side-note"); if (note) note.textContent = (groupFor(myId()) || { items: [] }).items.length + " eigen lesfiches geladen."; });
+            loadOwnFiches().then(function () { renderAllPanels(); var note = elId("pg-side-note"); if (note) note.textContent = (groupFor(myId()) || { items: [] }).items.length + " eigen lesfiches geladen."; });
           } })
         ])
       ])
@@ -5906,7 +5923,7 @@
     els.page.appendChild(modal);
   }
   function loadEverything() {
-    var sub = elId("qwp-sub"); if (sub) sub.textContent = ctx.schoolyear || "";
+    var sub = elId("pg-sub"); if (sub) sub.textContent = ctx.schoolyear || "";
     reconcilePanelSources();
     // schoolId is fine but the per-user lesfiche tag wasn't found → let the user
     // paste it (grid still renders; only the fiche panels need the tag).
@@ -5924,29 +5941,30 @@
       renderGlobalOwners();
       return loadOwnFiches(); // full own list (for the slot popup search) via tag 5
     }).then(function () {
-      var note = elId("qwp-side-note"); if (note) note.textContent = (groupFor(myId()) || { items: [] }).items.length + " eigen lesfiches geladen.";
+      var note = elId("pg-side-note"); if (note) note.textContent = (groupFor(myId()) || { items: [] }).items.length + " eigen lesfiches geladen.";
       // The health check reads ctx.groupId, which only an item DETAIL supplies — and the first-run
       // wizard reads stored titles/descriptions: both wait for the week to be fully read.
       return view.hydrateP;
     }).then(function () {
-      setStatus((state.colleagues.length ? ("Klaar. Collega's: " + state.colleagues.map(function (c) { return c.name; }).join(", ")) : "Klaar.") + hydrateFailNote());
+      setStatus((state.colleagues.length ? ("Klaar. Collega's: " + state.colleagues.map(function (c) { return c.name; }).join(", ")) : "Klaar.") + hydrateFailNote() +
+        (migratedKeys().length ? " Je instellingen van de vorige versie zijn overgezet (" + migratedKeys().length + " onderdelen)." : ""));
       quickHealthCheck();
       // Week, tags and fiches are in: settings.js listens for this to auto-open first-run setup.
-      try { document.dispatchEvent(new CustomEvent("qwp:loaded")); } catch (e) {}
+      try { document.dispatchEvent(new CustomEvent("pg:loaded")); } catch (e) {}
     });
   }
   // Cheap on-open sanity check — if anything that breaks writes/fiches is missing, make the
   // Debug button glow red (no message; user clicks Debug for details).
   function quickHealthCheck() {
     var problem = !ctx.ready || ctx.schoolId == null || ctx.groupId == null || ctx.ownDefaultTagId == null || ((groupFor(myId()) || { items: [] }).items.length === 0);
-    var b = elId("qwp-debug"); if (b) b.classList.toggle("qwp-alert", !!problem);
+    var b = elId("pg-debug"); if (b) b.classList.toggle("pg-alert", !!problem);
     // A non-technical user never clicks Debug on their own — surface the problem loudly.
     if (problem) showToast("Sommige gegevens werden niet gevonden — de planner werkt mogelijk niet volledig.", "Diagnose", openDiagnose);
     return problem;
   }
   function retryDetect() {
     setStatus("Opnieuw detecteren…");
-    detectContext().then(function () { if (!ctx.schoolId) { showContextError(); return; } return loadEverything(); }).catch(function (e) { console.error("[QWP] retry error:", e); setStatus("Laadfout — probeer 'Vernieuwen'."); });
+    detectContext().then(function () { if (!ctx.schoolId) { showContextError(); return; } return loadEverything(); }).catch(function (e) { console.error("[PG] retry error:", e); setStatus("Laadfout — probeer 'Vernieuwen'."); });
   }
 
   // Resolves once loadEverything has context, tags and the week list (the Afdrukken tab waits on it);
@@ -5970,7 +5988,7 @@
     if (ok) { view.ready = true; view.bootFailed = false; d.res(); }
     else if (!view.ready) { view.bootFailed = true; d.rej(new Error("planner-not-ready")); _readyD = null; }
   }
-  // tab: "print" opens straight on Afdrukken (window.__QWP_PRINT).
+  // tab: "print" opens straight on Afdrukken (window.__PG_PRINT).
   function boot(tab) {
     var root = buildShell();
     document.body.appendChild(root);
@@ -5979,7 +5997,7 @@
     checkForUpdate(); // best-effort GitHub version check → banner if a newer release exists
     // Ctrl/⌘+Z undo — only while the panel is open and not editing text.
     document.addEventListener("keydown", function (e) {
-      if (!els.root || !els.root.classList.contains("qwp-show")) return;
+      if (!els.root || !els.root.classList.contains("pg-show")) return;
       if (!(e.ctrlKey || e.metaKey) || e.shiftKey || (e.key !== "z" && e.key !== "Z")) return;
       if (view.tab === "print") return;   // nothing to undo on the Afdrukken tab
       var t = e.target, tn = t && t.tagName;
@@ -5988,7 +6006,7 @@
     });
     // Close the global-search dropdown when clicking outside it.
     document.addEventListener("mousedown", function (e) {
-      var bar = elId("qwp-globalsearch"); if (!bar) return;
+      var bar = elId("pg-globalsearch"); if (!bar) return;
       if (!bar.contains(e.target)) closeGlobalResults();
     });
     loadState().then(function () {
@@ -6018,20 +6036,20 @@
         // Say which rule picked the week — the fallback is the common path, not an error.
         setStatus((ow.fromQuesti ? "Week overgenomen uit Questi." : "Week van vandaag geladen.") + hydrateFailNote());
       });
-    }).catch(function (e) { console.error("[QWP] boot error:", e); markPlannerReady(false); setStatus("Laadfout — probeer 'Vernieuwen'."); });
+    }).catch(function (e) { console.error("[PG] boot error:", e); markPlannerReady(false); setStatus("Laadfout — probeer 'Vernieuwen'."); });
   }
-  window.__QWP_PRINT = openPrintTab;
+  window.__PG_PRINT = openPrintTab;
 
   // Test hook (no effect in the browser).
   // Read the stored state once at load so the chosen theme applies before Plannen is ever opened
   // (boot reads it again; merging the same stored state twice is harmless).
   loadState();
-  window.__QWP_TEST = { boot: boot, view: view, state: state, ctx: ctx, detectContext: detectContext, renderTimetable: renderTimetable, openSlotPopup: openSlotPopup, openMassAdd: openMassAdd, openInstellingen: openInstellingen };
+  window.__PG_TEST = { boot: boot, view: view, state: state, ctx: ctx, detectContext: detectContext, renderTimetable: renderTimetable, openSlotPopup: openSlotPopup, openMassAdd: openMassAdd, openInstellingen: openInstellingen };
 
   // Read-only helper bag for the sibling Lesfiche-manager module (lessons.js), which
   // loads after planner.js. `ctx` is shared BY REFERENCE, so lessons.js always sees the
   // live detected context (schoolId/schoolyear/ownerId/…) once detectContext resolves.
-  window.__QWP_SHARED = {
+  window.__PG_SHARED = {
     ctx: ctx, API: API, API_ROOT: API_ROOT, IS_BETA: IS_BETA, betaPill: betaPill,
     jget: jget, qs: qs, xsrfToken: xsrfToken, writeHeaders: writeHeaders,
     fetchTags: fetchTags, fetchOwnTags: fetchOwnTags, fetchSharedTags: fetchSharedTags, invalidateOwnTags: invalidateOwnTags,
@@ -6047,7 +6065,7 @@
     ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread, vakAbbr: vakAbbr, refreshVakPicker: function () { renderVakToggle(0); renderSubcats(0); },
     mapLimit: mapLimit,
     // Settings module (settings.js). `state`/`view` are shared BY REFERENCE: settings edits the
-    // planner's own qwp_state_v6 object and persists it through saveState, never a copy.
+    // planner's own pg_state_v6 object and persists it through saveState, never a copy.
     state: state, view: view, loadState: loadState, saveState: saveState, setStatus: setStatus,
     ownTagsList: ownTagsList, anyTagById: anyTagById, topTagIdOf: topTagIdOf, panelTopTags: panelTopTags,
     computeTimeRows: computeTimeRows, isNoSchool: isNoSchool, renderTimetable: renderTimetable,

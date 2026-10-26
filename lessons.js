@@ -1,15 +1,15 @@
 /* Questi Week Planner — lessons.js
  * Lesfiche-manager: a separate, write-heavy module for browsing and bulk-managing
  * the teacher's own fiche library (overview · tag filter · rename/edit · mass-edit
- * tags · bulk delete). Isolated from the planner: own overlay (#qwl-overlay) + own
- * storage key. Reuses the planner's ctx + helpers via window.__QWP_SHARED.
+ * tags · bulk delete). Isolated from the planner: own overlay (#pgl-overlay) + own
+ * storage key. Reuses the planner's ctx + helpers via window.__PG_SHARED.
  *
  * Two hosts for the same manager state (`mgr`):
  *  - MOUNTED (normal use): the planner's "Lesfiches" tab calls mount(sideEl, mainEl) — a tag tree
  *    in the planner's sidebar, a header + table + side-sheet editor in its main column. Staged
  *    edits are written through the planner's ONE shared Controleer (pendingSummary / writeTags /
  *    writeFiches below), never from here.
- *  - STANDALONE overlay (#qwl-overlay): header(title · search · ✕) / main[ left sidebar (actions) |
+ *  - STANDALONE overlay (#pgl-overlay): header(title · search · ✕) / main[ left sidebar (actions) |
  *    content( top tag bar + fiche list) ]. Used by openPicker (Methodevoortgang, read-only) and by
  *    a direct open(); it keeps its own "Wijzigingen controleren" gate.
  *  While the standalone overlay is up over a mounted manager, the mounted list state is stashed
@@ -21,11 +21,11 @@
  * silently wiped. Every edit mints a NEW fiche id — we re-read result.id after. */
 (function () {
   "use strict";
-  if (window.__QWP_LESSONS_LOADED) return;
-  window.__QWP_LESSONS_LOADED = true;
+  if (window.__PG_LESSONS_LOADED) return;
+  window.__PG_LESSONS_LOADED = true;
 
   // ---------- Shared bridge ----------
-  function S() { return window.__QWP_SHARED; }
+  function S() { return window.__PG_SHARED; }
   function ctx() { return S().ctx; }
   function api() { return S().API; }               // "/api/cal"
   function sid() { return ctx().schoolId; }
@@ -45,18 +45,12 @@
   }
 
   // ---------- Storage ----------
-  var STORE_KEY = "qwp_lessons_v1";
+  var STORE_KEY = "pg_lessons_v1";
   var lstate = { lastTagId: null, pageSize: 100, cols: 1, sortKey: null, sortDir: "asc" };
   function loadState() {
     return new Promise(function (res) {
-      try {
-        if (chrome && chrome.storage && chrome.storage.local) {
-          chrome.storage.local.get([STORE_KEY], function (o) { if (o && o[STORE_KEY]) Object.assign(lstate, o[STORE_KEY]); res(); });
-          return;
-        }
-      } catch (e) { /* fall through */ }
-      try { var raw = localStorage.getItem(STORE_KEY); if (raw) Object.assign(lstate, JSON.parse(raw)); } catch (e2) {}
-      res();
+      // Through the shared store, so a pre-v2.0 qwp_lessons_v1 is migrated like every other key.
+      S().storeGet(STORE_KEY).then(function (v) { if (v) Object.assign(lstate, v); res(); }, function () { res(); });
     });
   }
   function saveState() { S().storeSet(STORE_KEY, lstate); }   // failures are reported there
@@ -64,7 +58,7 @@
   // ---------- Runtime state ----------
   var mgr = {
     built: false, els: {},
-    elsStandalone: null,        // the #qwl-overlay host (pick mode / direct open)
+    elsStandalone: null,        // the #pgl-overlay host (pick mode / direct open)
     elsMounted: null,           // the planner-tab host (mount)
     mountOpts: null,            // { onClose }
     stash: null,                // mounted list state, kept while the standalone overlay is up
@@ -114,7 +108,7 @@
       return r.json().catch(function () { return null; }).then(function (j) {
         if (r.ok && !(j && j.status === "error")) return (j && j.result !== undefined) ? j.result : j;
         var msg = (j && (j.error_msg || j.message)) || ("HTTP " + r.status);
-        console.error("[QWL] " + kind + " " + id + " faalde:", msg, sent ? ("| sent: " + JSON.stringify(sent)) : "");
+        console.error("[PGL] " + kind + " " + id + " faalde:", msg, sent ? ("| sent: " + JSON.stringify(sent)) : "");
         if (S() && S().noteApiError) S().noteApiError(kind, id, r.status, msg);   // Zelftest .json report
         if (!r.ok && isUnclearStatus(r.status)) throw unsureError("HTTP " + r.status);
         throw new Error(msg);
@@ -280,52 +274,52 @@
   }
   function isMounted() { return !!(mgr.elsMounted && mgr.els === mgr.elsMounted); }
   function searchInput() {
-    return h("input", { class: "qwl-search", id: "qwl-search", type: "text", placeholder: "Zoek in titels…", oninput: function (e) { mgr.search = e.target.value || ""; applyFilter(); } });
+    return h("input", { class: "pgl-search", id: "pgl-search", type: "text", placeholder: "Zoek in titels…", oninput: function (e) { mgr.search = e.target.value || ""; applyFilter(); } });
   }
   function gradeSelect() {
-    return h("select", { class: "qwl-gradesel", id: "qwl-gradesel", onchange: function (e) { mgr.gradeFilter = e.target.value || ""; applyFilter(); } },
+    return h("select", { class: "pgl-gradesel", id: "pgl-gradesel", onchange: function (e) { mgr.gradeFilter = e.target.value || ""; applyFilter(); } },
       [h("option", { value: "", text: "Alle leerjaren" })].concat(GRADES.map(function (g) { return h("option", { value: g, text: g }); })));
   }
   function build() {
     if (mgr.built) return;
     var search = searchInput(), gradeSel = gradeSelect();
-    var header = h("div", { class: "qwl-header" }, [
-      h("div", { class: "qwl-title", id: "qwl-title", text: "Lesfiches beheren" }),
+    var header = h("div", { class: "pgl-header" }, [
+      h("div", { class: "pgl-title", id: "pgl-title", text: "Lesfiches beheren" }),
       S().betaPill ? S().betaPill() : null,
       search, gradeSel,
-      h("span", { class: "qwl-status", id: "qwl-status", text: "" }),
-      h("span", { class: "qwl-hspacer" }),
-      h("button", { class: "qwl-x", onclick: close, title: "Sluiten", text: "✕" })
+      h("span", { class: "pgl-status", id: "pgl-status", text: "" }),
+      h("span", { class: "pgl-hspacer" }),
+      h("button", { class: "pgl-x", onclick: close, title: "Sluiten", text: "✕" })
     ]);
-    var side = h("div", { class: "qwl-side", id: "qwl-side" }, [
-      h("div", { class: "qwl-side-lbl", text: "Selectie" }),
-      h("button", { class: "qwl-sbtn", id: "qwl-selall", onclick: toggleSelectAll, text: "Alles selecteren" }),
+    var side = h("div", { class: "pgl-side", id: "pgl-side" }, [
+      h("div", { class: "pgl-side-lbl", text: "Selectie" }),
+      h("button", { class: "pgl-sbtn", id: "pgl-selall", onclick: toggleSelectAll, text: "Alles selecteren" }),
       // Pick mode only — confirm/cancel the selection back to whoever opened the picker.
-      h("button", { class: "qwl-sbtn qwl-pickok", id: "qwl-pickok", onclick: pickConfirm, text: "Selectie gebruiken" }),
-      h("button", { class: "qwl-sbtn", id: "qwl-pickcancel", onclick: pickCancel, text: "Annuleer" }),
-      h("button", { class: "qwl-sbtn", id: "qwl-tags", onclick: openTagsModal, text: "Tags bewerken" }),
-      h("button", { class: "qwl-sbtn qwl-danger", id: "qwl-del", onclick: openDeleteModal, text: "Verwijderen" }),
-      h("div", { class: "qwl-side-sep", id: "qwl-sep1" }),
-      h("div", { class: "qwl-side-lbl", text: "Weergave" }),
-      h("button", { class: "qwl-sbtn", id: "qwl-cols", onclick: toggleCols, text: "" }),
-      h("button", { class: "qwl-sbtn", id: "qwl-goalsmode", onclick: toggleGoalsMode, title: "WEET / KEN / KAN per fiche invullen — wordt in de lesfiche zelf bewaard", text: "Lesdoelen invullen" }),
-      h("button", { class: "qwl-sbtn", id: "qwl-goalsimport", onclick: importLocalGoals, title: "Doelen die je eerder in het afdrukvoorbeeld typte (alleen in deze browser) in de fiches zetten", text: "Lokale doelen overnemen" }),
-      h("button", { class: "qwl-sbtn", onclick: reload, text: "Vernieuwen" }),
-      h("button", { class: "qwl-sbtn qwl-import", id: "qwl-import", onclick: function () { if (mgr.importEnabled) openImportView(); }, title: "Binnenkort — OPSTAP volgt", disabled: mgr.importEnabled ? null : "true", text: "Importeren" }),
-      h("div", { class: "qwl-side-sep", id: "qwl-sep2" }),
-      h("div", { class: "qwl-side-lbl", id: "qwl-taglbl", text: "Tags beheren" }),
-      h("button", { class: "qwl-sbtn", id: "qwl-tagadd", onclick: openAddTagModal, text: "Tag toevoegen" }),
-      h("button", { class: "qwl-sbtn qwl-danger", id: "qwl-tagdel", onclick: openRemoveTagModal, text: "Tag verwijderen" }),
-      h("div", { class: "qwl-side-grow" }),
-      h("button", { class: "qwl-sbtn qwl-review", id: "qwl-review", onclick: openReviewEdits, text: "Wijzigingen controleren" }),
-      h("button", { class: "qwl-sbtn qwl-muted", onclick: openDiag, title: "Zelftest — leest alleen", text: "Diagnose" })
+      h("button", { class: "pgl-sbtn pgl-pickok", id: "pgl-pickok", onclick: pickConfirm, text: "Selectie gebruiken" }),
+      h("button", { class: "pgl-sbtn", id: "pgl-pickcancel", onclick: pickCancel, text: "Annuleer" }),
+      h("button", { class: "pgl-sbtn", id: "pgl-tags", onclick: openTagsModal, text: "Tags bewerken" }),
+      h("button", { class: "pgl-sbtn pgl-danger", id: "pgl-del", onclick: openDeleteModal, text: "Verwijderen" }),
+      h("div", { class: "pgl-side-sep", id: "pgl-sep1" }),
+      h("div", { class: "pgl-side-lbl", text: "Weergave" }),
+      h("button", { class: "pgl-sbtn", id: "pgl-cols", onclick: toggleCols, text: "" }),
+      h("button", { class: "pgl-sbtn", id: "pgl-goalsmode", onclick: toggleGoalsMode, title: "WEET / KEN / KAN per fiche invullen — wordt in de lesfiche zelf bewaard", text: "Lesdoelen invullen" }),
+      h("button", { class: "pgl-sbtn", id: "pgl-goalsimport", onclick: importLocalGoals, title: "Doelen die je eerder in het afdrukvoorbeeld typte (alleen in deze browser) in de fiches zetten", text: "Lokale doelen overnemen" }),
+      h("button", { class: "pgl-sbtn", onclick: reload, text: "Vernieuwen" }),
+      h("button", { class: "pgl-sbtn pgl-import", id: "pgl-import", onclick: function () { if (mgr.importEnabled) openImportView(); }, title: "Binnenkort — OPSTAP volgt", disabled: mgr.importEnabled ? null : "true", text: "Importeren" }),
+      h("div", { class: "pgl-side-sep", id: "pgl-sep2" }),
+      h("div", { class: "pgl-side-lbl", id: "pgl-taglbl", text: "Tags beheren" }),
+      h("button", { class: "pgl-sbtn", id: "pgl-tagadd", onclick: openAddTagModal, text: "Tag toevoegen" }),
+      h("button", { class: "pgl-sbtn pgl-danger", id: "pgl-tagdel", onclick: openRemoveTagModal, text: "Tag verwijderen" }),
+      h("div", { class: "pgl-side-grow" }),
+      h("button", { class: "pgl-sbtn pgl-review", id: "pgl-review", onclick: openReviewEdits, text: "Wijzigingen controleren" }),
+      h("button", { class: "pgl-sbtn pgl-muted", onclick: openDiag, title: "Zelftest — leest alleen", text: "Diagnose" })
     ]);
-    var tagbar = h("div", { class: "qwl-tagbar", id: "qwl-tagbar" });
-    var listWrap = h("div", { class: "qwl-listwrap", id: "qwl-listwrap" });
-    var content = h("div", { class: "qwl-content" }, [tagbar, h("div", { class: "qwl-count", id: "qwl-count", text: "" }), listWrap]);
-    var main = h("div", { class: "qwl-main" }, [side, content]);
-    var page = h("div", { class: "qwl-page" }, [header, main]);
-    var overlay = h("div", { class: "qwl-overlay", id: "qwl-overlay" }, [page]);
+    var tagbar = h("div", { class: "pgl-tagbar", id: "pgl-tagbar" });
+    var listWrap = h("div", { class: "pgl-listwrap", id: "pgl-listwrap" });
+    var content = h("div", { class: "pgl-content" }, [tagbar, h("div", { class: "pgl-count", id: "pgl-count", text: "" }), listWrap]);
+    var main = h("div", { class: "pgl-main" }, [side, content]);
+    var page = h("div", { class: "pgl-page" }, [header, main]);
+    var overlay = h("div", { class: "pgl-overlay", id: "pgl-overlay" }, [page]);
     document.body.appendChild(overlay);
     mgr.elsStandalone = { root: overlay, page: page, tagbar: tagbar, list: listWrap, scopes: [overlay] };
     if (!mgr.els || !mgr.els.root) mgr.els = mgr.elsStandalone;
@@ -337,48 +331,48 @@
   // bar, the table, and a side sheet with the full fiche editor. No review button of its own —
   // the planner's Controleer covers fiche edits and tags to create.
   function buildMounted(sideHost, mainHost) {
-    var tree = h("div", { class: "qwl-tree", id: "qwl-tree", role: "tree", "aria-label": "Tags" });
-    var side = h("div", { class: "qwl-mounted qwl-mside" }, [
-      h("div", { class: "qwl-mside-hd" }, [
-        h("span", { class: "qwl-mside-t", text: "Tags" }),
-        h("span", { class: "qwl-hspacer" }),
-        h("button", { class: "qwl-mbtn", onclick: openAddTagModal, title: "Nieuwe tag klaarzetten — wordt aangemaakt bij Controleer", text: "+ Tag" }),
-        h("button", { class: "qwl-mbtn qwl-mbtn-danger", onclick: openRemoveTagModal, title: "Een tag verwijderen (vraagt bevestiging)", text: "− Tag" })
+    var tree = h("div", { class: "pgl-tree", id: "pgl-tree", role: "tree", "aria-label": "Tags" });
+    var side = h("div", { class: "pgl-mounted pgl-mside" }, [
+      h("div", { class: "pgl-mside-hd" }, [
+        h("span", { class: "pgl-mside-t", text: "Tags" }),
+        h("span", { class: "pgl-hspacer" }),
+        h("button", { class: "pgl-mbtn", onclick: openAddTagModal, title: "Nieuwe tag klaarzetten — wordt aangemaakt bij Controleer", text: "+ Tag" }),
+        h("button", { class: "pgl-mbtn pgl-mbtn-danger", onclick: openRemoveTagModal, title: "Een tag verwijderen (vraagt bevestiging)", text: "− Tag" })
       ]),
       tree
     ]);
-    var seg = h("div", { class: "qwl-seg", id: "qwl-modeseg", role: "group", "aria-label": "Weergave" }, [
+    var seg = h("div", { class: "pgl-seg", id: "pgl-modeseg", role: "group", "aria-label": "Weergave" }, [
       h("button", { "data-m": "list", onclick: function () { if (mgr.goalsMode) toggleGoalsMode(); }, text: "Lijst" }),
       h("button", { "data-m": "goals", onclick: function () { if (!mgr.goalsMode) toggleGoalsMode(); }, title: "WEET / KEN / KAN per fiche invullen — wordt in de lesfiche zelf bewaard", text: "Doelen invullen" })
     ]);
-    var header = h("header", { class: "qwl-mhdr" }, [
-      h("div", { class: "qwl-mtitle" }, [h("span", { id: "qwl-title", text: "Lesfiches" }), h("span", { class: "qwl-msub", id: "qwl-count", text: "" })]),
-      h("span", { class: "qwl-status", id: "qwl-status", text: "" }),
-      h("span", { class: "qwl-hspacer" }),
+    var header = h("header", { class: "pgl-mhdr" }, [
+      h("div", { class: "pgl-mtitle" }, [h("span", { id: "pgl-title", text: "Lesfiches" }), h("span", { class: "pgl-msub", id: "pgl-count", text: "" })]),
+      h("span", { class: "pgl-status", id: "pgl-status", text: "" }),
+      h("span", { class: "pgl-hspacer" }),
       searchInput(), gradeSelect(), seg,
-      h("button", { class: "qwl-mbtn", id: "qwl-cols", onclick: toggleCols, text: "" }),
-      h("button", { class: "qwl-mbtn", onclick: reload, title: "Deze tag opnieuw uit Questi laden", text: "Vernieuwen" }),
-      h("button", { class: "qwl-x", onclick: closeMounted, title: "Sluiten", text: "✕" })
+      h("button", { class: "pgl-mbtn", id: "pgl-cols", onclick: toggleCols, text: "" }),
+      h("button", { class: "pgl-mbtn", onclick: reload, title: "Deze tag opnieuw uit Questi laden", text: "Vernieuwen" }),
+      h("button", { class: "pgl-x", onclick: closeMounted, title: "Sluiten", text: "✕" })
     ]);
-    var selbar = h("div", { class: "qwl-selbar" }, [
-      h("span", { class: "qwl-selcount", id: "qwl-selcount", text: "0 geselecteerd" }),
-      h("button", { class: "qwl-mbtn", id: "qwl-selall", onclick: toggleSelectAll, text: "Alles selecteren" }),
-      h("button", { class: "qwl-mbtn", id: "qwl-tags", onclick: openTagsModal, text: "Tags bewerken" }),
-      h("button", { class: "qwl-mbtn qwl-mbtn-danger", id: "qwl-del", onclick: openDeleteModal, text: "Verwijderen" }),
-      h("button", { class: "qwl-mbtn", id: "qwl-goalsimport", onclick: importLocalGoals, title: "Doelen die je eerder in het afdrukvoorbeeld typte (alleen in deze browser) in de fiches zetten", text: "Lokale doelen overnemen" }),
-      h("span", { class: "qwl-hspacer" }),
-      h("span", { class: "qwl-mnote", text: "Klaargezet wordt pas weggeschreven via Controleer." }),
-      h("button", { class: "qwl-mbtn qwl-mbtn-new", onclick: function () { openNewFiche(null); }, title: "Een nieuwe lesfiche maken — wordt aangemaakt bij Controleer", text: "+ Nieuwe fiche" })
+    var selbar = h("div", { class: "pgl-selbar" }, [
+      h("span", { class: "pgl-selcount", id: "pgl-selcount", text: "0 geselecteerd" }),
+      h("button", { class: "pgl-mbtn", id: "pgl-selall", onclick: toggleSelectAll, text: "Alles selecteren" }),
+      h("button", { class: "pgl-mbtn", id: "pgl-tags", onclick: openTagsModal, text: "Tags bewerken" }),
+      h("button", { class: "pgl-mbtn pgl-mbtn-danger", id: "pgl-del", onclick: openDeleteModal, text: "Verwijderen" }),
+      h("button", { class: "pgl-mbtn", id: "pgl-goalsimport", onclick: importLocalGoals, title: "Doelen die je eerder in het afdrukvoorbeeld typte (alleen in deze browser) in de fiches zetten", text: "Lokale doelen overnemen" }),
+      h("span", { class: "pgl-hspacer" }),
+      h("span", { class: "pgl-mnote", text: "Klaargezet wordt pas weggeschreven via Controleer." }),
+      h("button", { class: "pgl-mbtn pgl-mbtn-new", onclick: function () { openNewFiche(null); }, title: "Een nieuwe lesfiche maken — wordt aangemaakt bij Controleer", text: "+ Nieuwe fiche" })
     ]);
-    var listWrap = h("div", { class: "qwl-listwrap", id: "qwl-listwrap" });
-    var sheet = h("aside", { class: "qwl-sheet", id: "qwl-sheet", "aria-label": "Fiche bewerken", style: "display:none" });
-    var main = h("div", { class: "qwl-mounted qwl-mmain" }, [header, selbar, h("div", { class: "qwl-mbody" }, [listWrap, sheet])]);
+    var listWrap = h("div", { class: "pgl-listwrap", id: "pgl-listwrap" });
+    var sheet = h("aside", { class: "pgl-sheet", id: "pgl-sheet", "aria-label": "Fiche bewerken", style: "display:none" });
+    var main = h("div", { class: "pgl-mounted pgl-mmain" }, [header, selbar, h("div", { class: "pgl-mbody" }, [listWrap, sheet])]);
     sideHost.appendChild(side); mainHost.appendChild(main);
     mgr.elsMounted = { root: main, side: side, page: main, tree: tree, list: listWrap, sheet: sheet, scopes: [main, side] };
   }
 
-  function setStatus(t) { var s = E("qwl-status"); if (s) s.textContent = t || ""; }
-  function show() { mgr.els.root.classList.add("qwl-show"); document.documentElement.classList.add("qwl-locked"); }
+  function setStatus(t) { var s = E("pgl-status"); if (s) s.textContent = t || ""; }
+  function show() { mgr.els.root.classList.add("pgl-show"); document.documentElement.classList.add("pgl-locked"); }
 
   // Load lstate and either the tags or the list the active host should show.
   function startHost() {
@@ -412,8 +406,8 @@
       mgr.selected = {}; mgr.fiches = []; mgr.filtered = []; mgr.search = ""; mgr.gradeFilter = "";
     }
     mgr.els = mgr.elsStandalone;
-    var si = E("qwl-search"); if (si) si.value = mgr.search || "";
-    var gs = E("qwl-gradesel"); if (gs) gs.value = mgr.gradeFilter || "";
+    var si = E("pgl-search"); if (si) si.value = mgr.search || "";
+    var gs = E("pgl-gradesel"); if (gs) gs.value = mgr.gradeFilter || "";
   }
   function leaveStandalone() {
     if (!mgr.stash || !mgr.elsMounted) return;
@@ -426,15 +420,15 @@
   }
 
   function open() {
-    if (!window.__QWP_SHARED) { console.warn("[QWL] __QWP_SHARED ontbreekt — planner niet geladen."); return; }
+    if (!window.__PG_SHARED) { console.warn("[PGL] __PG_SHARED ontbreekt — planner niet geladen."); return; }
     enterStandalone(); show(); applyPickMode();
     startHost();
   }
   function close() {
     if (mgr.pick) { pickCancel(); return; }
-    if (mgr.elsStandalone) mgr.elsStandalone.root.classList.remove("qwl-show");
-    var planner = document.getElementById("qwp-overlay");
-    if (!(planner && planner.classList.contains("qwp-show"))) document.documentElement.classList.remove("qwl-locked");
+    if (mgr.elsStandalone) mgr.elsStandalone.root.classList.remove("pgl-show");
+    var planner = document.getElementById("pg-overlay");
+    if (!(planner && planner.classList.contains("pg-show"))) document.documentElement.classList.remove("pgl-locked");
     // Mirror the planner: if we wrote anything (tags/fiches), reload so Questi's SPA reflects it.
     if (mgr.dirtyWrites) { try { location.reload(); } catch (e) {} return; }
     leaveStandalone();
@@ -445,7 +439,7 @@
   // then just re-shows. The planner hides/shows the hosts on tab switches; unmount() only stops
   // background work (the goal-read queue checks hostVisible() itself, too).
   function mount(sideHost, mainHost, opts) {
-    if (!window.__QWP_SHARED) { console.warn("[QWL] __QWP_SHARED ontbreekt — planner niet geladen."); return; }
+    if (!window.__PG_SHARED) { console.warn("[PGL] __PG_SHARED ontbreekt — planner niet geladen."); return; }
     if (!sideHost || !mainHost) return;
     mgr.mountOpts = opts || {};
     if (!mgr.elsMounted || !mgr.elsMounted.root.isConnected) buildMounted(sideHost, mainHost);
@@ -474,7 +468,7 @@
   // ========================================================================
   // opts: { title, preselected:[ficheId…], startTagId?, onDone(fiches), onCancel? }
   function openPicker(opts) {
-    if (!window.__QWP_SHARED) { console.warn("[QWL] __QWP_SHARED ontbreekt — planner niet geladen."); return; }
+    if (!window.__PG_SHARED) { console.warn("[PGL] __PG_SHARED ontbreekt — planner niet geladen."); return; }
     enterStandalone();
     mgr.pick = opts || {};
     mgr.selected = {}; mgr.pickStore = {};
@@ -485,13 +479,13 @@
   }
   function applyPickMode() {
     var on = !!mgr.pick;
-    var t = E("qwl-title");
+    var t = E("pgl-title");
     if (t) t.textContent = on ? (mgr.pick.title || "Fiches kiezen") : "Lesfiches beheren";
     // Hide everything that writes, plus the now-meaningless separators/labels.
     if (on) mgr.goalsMode = false;
-    ["qwl-tags", "qwl-del", "qwl-import", "qwl-review", "qwl-tagadd", "qwl-tagdel", "qwl-taglbl", "qwl-sep2", "qwl-goalsmode", "qwl-goalsimport"]
+    ["pgl-tags", "pgl-del", "pgl-import", "pgl-review", "pgl-tagadd", "pgl-tagdel", "pgl-taglbl", "pgl-sep2", "pgl-goalsmode", "pgl-goalsimport"]
       .forEach(function (id) { var e = E(id); if (e) e.style.display = on ? "none" : ""; });
-    ["qwl-pickok", "qwl-pickcancel"].forEach(function (id) { var e = E(id); if (e) e.style.display = on ? "" : "none"; });
+    ["pgl-pickok", "pgl-pickcancel"].forEach(function (id) { var e = E(id); if (e) e.style.display = on ? "" : "none"; });
   }
   // Keep the full fiche object for anything ticked, so switching tags never loses a selection.
   function rememberPicked(f) { if (mgr.selected[f.id]) mgr.pickStore[String(f.id)] = f; else delete mgr.pickStore[String(f.id)]; }
@@ -509,9 +503,9 @@
   function endPick() {
     mgr.pick = null; mgr.selected = {}; mgr.pickStore = {};
     applyPickMode();
-    if (mgr.elsStandalone) mgr.elsStandalone.root.classList.remove("qwl-show");
-    var planner = document.getElementById("qwp-overlay");
-    if (!(planner && planner.classList.contains("qwp-show"))) document.documentElement.classList.remove("qwl-locked");
+    if (mgr.elsStandalone) mgr.elsStandalone.root.classList.remove("pgl-show");
+    var planner = document.getElementById("pg-overlay");
+    if (!(planner && planner.classList.contains("pg-show"))) document.documentElement.classList.remove("pgl-locked");
     leaveStandalone();
   }
   function reload() { if (mgr.unionParent != null) loadListUnion(mgr.unionParent); else loadList(mgr.tagFilter != null ? mgr.tagFilter : allOwnTagId()); }
@@ -521,10 +515,10 @@
   //  Top tag bar (tops + subtags of the expanded/active top)
   // ========================================================================
   function chipEl(label, color, active, onclick, num) {
-    return h("button", { class: "qwl-tagchip" + (active ? " active" : ""), onclick: onclick }, [
-      color ? h("span", { class: "qwl-dot", style: "background:" + color }) : null,
+    return h("button", { class: "pgl-tagchip" + (active ? " active" : ""), onclick: onclick }, [
+      color ? h("span", { class: "pgl-dot", style: "background:" + color }) : null,
       h("span", { text: label }),
-      (typeof num === "number" && num > 0) ? h("span", { class: "qwl-tagnum", text: String(num) }) : null
+      (typeof num === "number" && num > 0) ? h("span", { class: "pgl-tagnum", text: String(num) }) : null
     ]);
   }
   function isSubjectTop(t) { return !(t.type === "default" || /alle.*lesfiches/i.test(t.title || "")); }
@@ -532,7 +526,7 @@
     if (mgr.els.tree) { renderTagTree(); return; }
     var bar = mgr.els.tagbar; if (!bar) return; bar.innerHTML = "";
     var tops = S().topTagsForOwner(mgr.ownTags, ctx().ownerId);
-    var row1 = h("div", { class: "qwl-tagrow" });
+    var row1 = h("div", { class: "pgl-tagrow" });
     tops.forEach(function (t) {
       var subj = isSubjectTop(t);
       var active = String(mgr.tagFilter) === String(t.id);
@@ -551,7 +545,7 @@
       var kids = mgr.ownTags.filter(function (k) { return String(k.parent) === String(mgr.expandedTop); })
         .sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); });
       if (parent) {
-        var row2 = h("div", { class: "qwl-tagrow qwl-subrow" });
+        var row2 = h("div", { class: "pgl-tagrow pgl-subrow" });
         row2.appendChild(chipEl("Alle " + (parent.title || "").trim(), (parent.color || "#c7ccd1"), String(mgr.unionParent) === String(parent.id), function () { loadListUnion(parent.id); }));
         kids.forEach(function (k) {
           row2.appendChild(chipEl((k.title || "").trim(), (k.color || "#c7ccd1"), (String(mgr.tagFilter) === String(k.id) && mgr.unionParent == null), function () { loadList(k.id); }));
@@ -575,10 +569,10 @@
       return span;
     }
     function node(label, color, depth, active, onclick, extra, tag, kind) {
-      var edit = (tag && tag.type === "user") ? act(h("span", { class: "qwl-tedit", role: "button", tabindex: "0", title: "Naam, kleur of hoofdtag wijzigen", "aria-label": "Tag " + label + " wijzigen", text: "✎" }), function () { openRenameTag(tag); }) : null;
-      var el = h("button", { class: "qwl-tnode d" + depth + (kind ? " " + kind : "") + (active ? " active" : "") + (onclick ? "" : " off"), role: "treeitem", "aria-selected": active ? "true" : "false", onclick: onclick || null, disabled: onclick ? null : "true" }, [
-        kind === "view" ? null : h("span", { class: "qwl-tsq", style: "background:" + (color || "#c9d2d7") }),
-        h("span", { class: "qwl-tlbl", text: label }),
+      var edit = (tag && tag.type === "user") ? act(h("span", { class: "pgl-tedit", role: "button", tabindex: "0", title: "Naam, kleur of hoofdtag wijzigen", "aria-label": "Tag " + label + " wijzigen", text: "✎" }), function () { openRenameTag(tag); }) : null;
+      var el = h("button", { class: "pgl-tnode d" + depth + (kind ? " " + kind : "") + (active ? " active" : "") + (onclick ? "" : " off"), role: "treeitem", "aria-selected": active ? "true" : "false", onclick: onclick || null, disabled: onclick ? null : "true" }, [
+        kind === "view" ? null : h("span", { class: "pgl-tsq", style: "background:" + (color || "#c9d2d7") }),
+        h("span", { class: "pgl-tlbl", text: label }),
         edit, extra || null
       ]);
       if (active && kind !== "view" && color) {
@@ -588,11 +582,11 @@
       return el;
     }
     function caret(t, open) {
-      return act(h("span", { class: "qwl-tcaret", role: "button", tabindex: "0", title: open ? "Subtags verbergen" : "Subtags tonen", "aria-expanded": open ? "true" : "false", text: open ? "▾" : "▸" }),
+      return act(h("span", { class: "pgl-tcaret", role: "button", tabindex: "0", title: open ? "Subtags verbergen" : "Subtags tonen", "aria-expanded": open ? "true" : "false", text: open ? "▾" : "▸" }),
         function () { mgr.expandedTop = open ? null : t.id; renderTagTree(); });
     }
-    function group(text) { tree.appendChild(h("div", { class: "qwl-tgroup", text: text })); }
-    function newBadge() { return h("span", { class: "qwl-tnew", text: "nieuw" }); }
+    function group(text) { tree.appendChild(h("div", { class: "pgl-tgroup", text: text })); }
+    function newBadge() { return h("span", { class: "pgl-tnew", text: "nieuw" }); }
     function pendingUnder(parentId) {
       return mgr.pendingTags.filter(function (p) { return String(p.parent || "") === String(parentId || ""); });
     }
@@ -610,7 +604,7 @@
       var hasKids = mgr.ownTags.some(function (k) { return String(k.parent) === String(t.id); }) || pendingUnder(t.id).length > 0;
       // The name shows the vak's list (and opens its subtags); the caret only folds.
       tree.appendChild(node((t.title || "").trim(), t.color, 0, String(mgr.unionParent) === String(t.id), function () { if (hasKids) mgr.expandedTop = t.id; loadListUnion(t.id); },
-        hasKids ? caret(t, open) : h("span", { class: "qwl-tcaret qwl-tcaret-none" }), t));
+        hasKids ? caret(t, open) : h("span", { class: "pgl-tcaret pgl-tcaret-none" }), t));
       if (!open) return;
       mgr.ownTags.filter(function (k) { return String(k.parent) === String(t.id); })
         .sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); })
@@ -630,28 +624,28 @@
   // (the dialog is the confirmation); every fiche keeps the tag, only its name/colour change.
   // Questi lower-cases titles, so the tree shows what came back, and says so when it differs.
   function openRenameTag(tag) {
-    var nameInp = h("input", { class: "qwl-input", type: "text", value: (tag.title || "").trim(), "aria-label": "Naam" });
-    var colInp = h("input", { class: "qwl-colorinp", type: "color", value: /^#[0-9a-f]{6}$/i.test(tag.color || "") ? tag.color : "#cccccc", "aria-label": "Kleur" });
-    var note = h("div", { class: "qwl-note" });
+    var nameInp = h("input", { class: "pgl-input", type: "text", value: (tag.title || "").trim(), "aria-label": "Naam" });
+    var colInp = h("input", { class: "pgl-colorinp", type: "color", value: /^#[0-9a-f]{6}$/i.test(tag.color || "") ? tag.color : "#cccccc", "aria-label": "Kleur" });
+    var note = h("div", { class: "pgl-note" });
     // "Hoort bij": head tag, or a subtag of one of the own head tags. A tag that has subtags itself
     // stays a head tag (Questi's tree is two levels deep).
     var hasKids = mgr.ownTags.some(function (k) { return String(k.parent) === String(tag.id); });
     var heads = S().topTagsForOwner(mgr.ownTags, ctx().ownerId).filter(function (t) { return t.type === "user" && String(t.id) !== String(tag.id); })
       .sort(function (a, b) { return (a.title || "").localeCompare(b.title || "", "nl"); });
-    var parSel = h("select", { class: "qwl-input", "aria-label": "Hoort bij", disabled: hasKids ? "true" : null },
+    var parSel = h("select", { class: "pgl-input", "aria-label": "Hoort bij", disabled: hasKids ? "true" : null },
       [h("option", { value: "0", text: "— hoofdtag (hoort nergens bij) —" })].concat(heads.map(function (t) {
         return h("option", { value: String(t.id), text: (t.title || "").trim(), selected: String(t.id) === String(tag.parent || 0) ? "selected" : null });
       })));
     var m = modal("Tag wijzigen", [
-      h("label", { class: "qwl-flabel", text: "Naam" }), nameInp,
-      h("label", { class: "qwl-flabel", text: "Kleur" }), colInp,
-      h("label", { class: "qwl-flabel", text: "Hoort bij" }), parSel,
-      hasKids ? h("div", { class: "qwl-note", text: "Deze tag heeft zelf subtags en blijft daarom een hoofdtag." }) : null,
-      h("div", { class: "qwl-note", text: "Wordt meteen in Questi aangepast; alle fiches houden deze tag. Questi bewaart namen in kleine letters." }),
+      h("label", { class: "pgl-flabel", text: "Naam" }), nameInp,
+      h("label", { class: "pgl-flabel", text: "Kleur" }), colInp,
+      h("label", { class: "pgl-flabel", text: "Hoort bij" }), parSel,
+      hasKids ? h("div", { class: "pgl-note", text: "Deze tag heeft zelf subtags en blijft daarom een hoofdtag." }) : null,
+      h("div", { class: "pgl-note", text: "Wordt meteen in Questi aangepast; alle fiches houden deze tag. Questi bewaart namen in kleine letters." }),
       note
     ], []);
-    var ft = m.querySelector(".qwl-modal-ft");
-    var save = h("button", { class: "qwl-btn", text: "Opslaan", onclick: function () {
+    var ft = m.querySelector(".pgl-modal-ft");
+    var save = h("button", { class: "pgl-btn", text: "Opslaan", onclick: function () {
       var title = nameInp.value.trim(), color = colInp.value, wantParent = Number(parSel.value) || 0;
       if (!title) { note.textContent = "Geef de tag een naam."; return; }
       if (title === (tag.title || "").trim() && color === tag.color && wantParent === (Number(tag.parent) || 0)) { m.close(); return; }
@@ -669,7 +663,7 @@
         note.textContent = "Niet gelukt: " + ((e && e.message) || e) + (e && e.uncertain ? " Vernieuw de lijst en kijk het na in Questi." : " — er is niets veranderd.");
       });
     } });
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
+    ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: m.close, text: "Annuleer" }));
     ft.appendChild(save);
     setTimeout(function () { try { nameInp.focus(); nameInp.select(); } catch (e) {} }, 0);
   }
@@ -762,48 +756,48 @@
   function sortArrow(key) { return mgr.sortKey === key ? (mgr.sortDir === "asc" ? " ▲" : " ▼") : ""; }
 
   function headCell(cls, key, label) {
-    return h("div", { class: cls + " qwl-sortable", onclick: function () { sortBy(key); }, text: label + sortArrow(key) });
+    return h("div", { class: cls + " pgl-sortable", onclick: function () { sortBy(key); }, text: label + sortArrow(key) });
   }
   function ficheRow(f) {
     var checked = !!mgr.selected[f.id], pending = !!mgr.pending[f.id];
     function chipEls() {
       return (mgr.tagChips[f.id] || []).map(function (tid) {
-        return h("span", { class: "qwl-chip", style: "border-color:" + tagHex(tid) }, [h("span", { class: "qwl-dot", style: "background:" + tagHex(tid) }), h("span", { text: tagName(tid) })]);
+        return h("span", { class: "pgl-chip", style: "border-color:" + tagHex(tid) }, [h("span", { class: "pgl-dot", style: "background:" + tagHex(tid) }), h("span", { text: tagName(tid) })]);
       });
     }
-    var tagsCell = h("div", { class: "qwl-c-tags" }, chipEls());
+    var tagsCell = h("div", { class: "pgl-c-tags" }, chipEls());
     var picking = !!mgr.pick;
-    var cb = h("input", { class: "qwl-cb", type: "checkbox" }); cb.checked = checked;
+    var cb = h("input", { class: "pgl-cb", type: "checkbox" }); cb.checked = checked;
     cb.addEventListener("change", function () {
       if (cb.checked) mgr.selected[f.id] = true; else delete mgr.selected[f.id];
       if (picking) { rememberPicked(f); row.classList.toggle("sel", cb.checked); }
       updateSidebar();
     });
     var curTitle = (pending && mgr.pending[f.id].subject != null) ? mgr.pending[f.id].subject : ficheName(f);
-    var subjectCell = h("div", { class: "qwl-c-subject" });
+    var subjectCell = h("div", { class: "pgl-c-subject" });
     var mounted = isMounted();
-    var txt = h("span", { class: "qwl-c-subject-txt", text: curTitle, title: picking ? "Klik om te (de)selecteren" : (mounted ? "Klik om te bewerken" : "Klik om de titel te bewerken") });
+    var txt = h("span", { class: "pgl-c-subject-txt", text: curTitle, title: picking ? "Klik om te (de)selecteren" : (mounted ? "Klik om te bewerken" : "Klik om de titel te bewerken") });
     // In pick mode the title must not become an editor — the whole row just toggles selection.
     // Mounted: the whole row opens the side sheet, which has the title field.
     if (!picking && !mounted) txt.addEventListener("click", function (e) { e.stopPropagation(); startInlineTitle(f, subjectCell, ficheName(f)); });
     subjectCell.appendChild(txt);
-    if (pending) subjectCell.appendChild(h("span", { class: "qwl-badge", text: "gewijzigd" }));
+    if (pending) subjectCell.appendChild(h("span", { class: "pgl-badge", text: "gewijzigd" }));
     // Mounted: W/K/K squares from the goal cache (filled as each row's fiche info arrives).
-    var goalsCell = mounted ? h("div", { class: "qwl-c-goals" }) : null;
+    var goalsCell = mounted ? h("div", { class: "pgl-c-goals" }) : null;
     function fillGoals(entry) {
       if (!goalsCell) return; goalsCell.innerHTML = "";
       var g = entry && entry.g, pg = mgr.pending[f.id] && mgr.pending[f.id].goals;
       [["weet", "W"], ["ken", "K"], ["kan", "K"]].forEach(function (k) {
         var v = (pg && Object.prototype.hasOwnProperty.call(pg, k[0])) ? pg[k[0]] : (g ? g[k[0]] : "");
-        goalsCell.appendChild(h("span", { class: "qwl-gsq" + (v ? " on" : "") + (g ? "" : " unk"), title: k[0].toUpperCase() + (g ? (v ? ": " + v : ": leeg") : ": nog niet gelezen"), text: k[1] }));
+        goalsCell.appendChild(h("span", { class: "pgl-gsq" + (v ? " on" : "") + (g ? "" : " unk"), title: k[0].toUpperCase() + (g ? (v ? ": " + v : ": leeg") : ": nog niet gelezen"), text: k[1] }));
       });
     }
     fillGoals(_goalCache && _goalCache[f.id]);
-    var row = h("div", { class: "qwl-row" + (mounted ? " qwl-row6" : "") + (checked ? " sel" : "") + (pending ? " pend" : "") + (mounted && String(mgr.sheetFid) === String(f.id) ? " open" : ""), "data-fid": String(f.id), title: picking ? "" : (mounted ? "Klik om te bewerken" : "Dubbelklik om volledig te bewerken") }, [
-      h("label", { class: "qwl-cbcell" }, [cb]),
+    var row = h("div", { class: "pgl-row" + (mounted ? " pgl-row6" : "") + (checked ? " sel" : "") + (pending ? " pend" : "") + (mounted && String(mgr.sheetFid) === String(f.id) ? " open" : ""), "data-fid": String(f.id), title: picking ? "" : (mounted ? "Klik om te bewerken" : "Dubbelklik om volledig te bewerken") }, [
+      h("label", { class: "pgl-cbcell" }, [cb]),
       subjectCell,
-      h("div", { class: "qwl-c-grades", text: gradesOf(f) }),
-      h("div", { class: "qwl-c-used", text: usedOf(f) }),
+      h("div", { class: "pgl-c-grades", text: gradesOf(f) }),
+      h("div", { class: "pgl-c-used", text: usedOf(f) }),
       goalsCell,
       tagsCell
     ]);
@@ -816,7 +810,7 @@
       });
     } else if (mounted) {
       row.addEventListener("click", function (e) {
-        if (e.target === cb || (e.target.closest && e.target.closest(".qwl-cbcell"))) return;
+        if (e.target === cb || (e.target.closest && e.target.closest(".pgl-cbcell"))) return;
         openEditModal(f);
       });
     } else {
@@ -827,7 +821,7 @@
   // Inline title edit: swap the title text for an input; Enter/blur stages a title-only change.
   function startInlineTitle(f, cell, origTitle) {
     cell.innerHTML = "";
-    var inp = h("input", { class: "qwl-titleinput", type: "text", value: (mgr.pending[f.id] && mgr.pending[f.id].subject != null) ? mgr.pending[f.id].subject : origTitle });
+    var inp = h("input", { class: "pgl-titleinput", type: "text", value: (mgr.pending[f.id] && mgr.pending[f.id].subject != null) ? mgr.pending[f.id].subject : origTitle });
     cell.appendChild(inp); inp.focus(); inp.select();
     var done = false;
     function commit() {
@@ -842,15 +836,15 @@
   }
   function makeTable(items) {
     if (mgr.goalsMode) return makeGoalsTable(items);
-    var table = h("div", { class: "qwl-table" });
+    var table = h("div", { class: "pgl-table" });
     var mounted = isMounted();
-    table.appendChild(h("div", { class: "qwl-row qwl-thead" + (mounted ? " qwl-row6" : "") }, [
-      h("div", { class: "qwl-cbcell" }),
-      headCell("qwl-c-subject", "subject", "Titel"),
-      headCell("qwl-c-grades", "grades", mounted ? "Jaar" : "Leerjaar"),
-      headCell("qwl-c-used", "used", mounted ? "Gebruikt" : "Laatst gebruikt"),
-      mounted ? h("div", { class: "qwl-c-goals", text: "Doelen" }) : null,
-      headCell("qwl-c-tags", "tags", "Tags")
+    table.appendChild(h("div", { class: "pgl-row pgl-thead" + (mounted ? " pgl-row6" : "") }, [
+      h("div", { class: "pgl-cbcell" }),
+      headCell("pgl-c-subject", "subject", "Titel"),
+      headCell("pgl-c-grades", "grades", mounted ? "Jaar" : "Leerjaar"),
+      headCell("pgl-c-used", "used", mounted ? "Gebruikt" : "Laatst gebruikt"),
+      mounted ? h("div", { class: "pgl-c-goals", text: "Doelen" }) : null,
+      headCell("pgl-c-tags", "tags", "Tags")
     ]));
     items.forEach(function (f) { table.appendChild(ficheRow(f)); });
     return table;
@@ -869,10 +863,10 @@
     renderList();
   }
   function goalsListHasFocus() { var a = document.activeElement; return !!(mgr.goalsMode && a && mgr.els.list && mgr.els.list.contains(a)); }
-  // Fiche info per VERSION, saved under qwp_goalcache_v1: { "<fiche id>": { g: {weet,ken,kan}, m: methode hint, t: [tag ids] } }.
+  // Fiche info per VERSION, saved under pg_goalcache_v1: { "<fiche id>": { g: {weet,ken,kan}, m: methode hint, t: [tag ids] } }.
   // Safe to keep: a fiche id never changes content (every edit — tags included — mints a new id), so a
   // cached id is exact forever and a fiche seen once costs no request. Only unseen versions are read.
-  var GOALCACHE_KEY = "qwp_goalcache_v1", _goalCache = null, _goalCacheSaveT = null;
+  var GOALCACHE_KEY = "pg_goalcache_v1", _goalCache = null, _goalCacheSaveT = null;
   function loadGoalCache() {
     if (_goalCache) return Promise.resolve();
     return S().storeGet(GOALCACHE_KEY).then(function (v) { if (!_goalCache) _goalCache = v || {}; });
@@ -942,7 +936,7 @@
         _goalObserver = new IntersectionObserver(function (entries) {
           entries.forEach(function (en) { if (en.isIntersecting) queueGoalRead(en.target.getAttribute("data-fid"), true); });
         }, { rootMargin: "200px 0px" });
-        var rows = mgr.els.list.querySelectorAll(".qwl-row[data-fid]");
+        var rows = mgr.els.list.querySelectorAll(".pgl-row[data-fid]");
         for (var i = 0; i < rows.length; i++) if (!infoCached(rows[i].getAttribute("data-fid"))) _goalObserver.observe(rows[i]);
       }
       pumpGoalReads();
@@ -956,7 +950,7 @@
     return out.join("\n");
   }
   function moveGoalFocus(cell, dir) {
-    var col = cell.getAttribute("data-col"), table = cell.closest(".qwl-table"); if (!table) return;
+    var col = cell.getAttribute("data-col"), table = cell.closest(".pgl-table"); if (!table) return;
     var cells = Array.prototype.slice.call(table.querySelectorAll('[data-col="' + col + '"]'));
     var nx = cells[cells.indexOf(cell) + dir]; if (nx) { nx.focus(); if (nx.select) nx.select(); }
   }
@@ -965,10 +959,10 @@
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); moveGoalFocus(e.target, 1); }
   }
   function makeGoalsTable(items) {
-    var table = h("div", { class: "qwl-table qwl-gtable" });
-    table.appendChild(h("div", { class: "qwl-row qwl-grow qwl-thead" }, [
-      h("div", { class: "qwl-cbcell" }),
-      headCell("qwl-c-subject", "subject", "Titel"),
+    var table = h("div", { class: "pgl-table pgl-gtable" });
+    table.appendChild(h("div", { class: "pgl-row pgl-grow pgl-thead" }, [
+      h("div", { class: "pgl-cbcell" }),
+      headCell("pgl-c-subject", "subject", "Titel"),
       h("div", { text: "Weet" }), h("div", { text: "Ken" }), h("div", { text: "Kan" })
     ]));
     items.forEach(function (f) { table.appendChild(goalRow(f)); });
@@ -976,13 +970,13 @@
   }
   function goalRow(f) {
     var pend = mgr.pending[f.id];
-    var cb = h("input", { class: "qwl-cb", type: "checkbox", tabindex: "-1" }); cb.checked = !!mgr.selected[f.id];
+    var cb = h("input", { class: "pgl-cb", type: "checkbox", tabindex: "-1" }); cb.checked = !!mgr.selected[f.id];
     cb.addEventListener("change", function () { if (cb.checked) mgr.selected[f.id] = true; else delete mgr.selected[f.id]; row.classList.toggle("sel", cb.checked); updateSidebar(); });
-    var title = h("input", { class: "qwl-ginp qwl-gtitle", type: "text", "data-col": "0", value: (pend && pend.subject != null) ? pend.subject : ficheName(f) });
-    var hint = h("span", { class: "qwl-ghint", text: "ⓘ" }); hint.style.display = "none";
+    var title = h("input", { class: "pgl-ginp pgl-gtitle", type: "text", "data-col": "0", value: (pend && pend.subject != null) ? pend.subject : ficheName(f) });
+    var hint = h("span", { class: "pgl-ghint", text: "ⓘ" }); hint.style.display = "none";
     var cells = {};
     GOAL_KINDS.forEach(function (k, i) {
-      var ta = h("textarea", { class: "qwl-ginp", rows: "2", "data-col": String(i + 1), placeholder: "laden…", disabled: "true" });
+      var ta = h("textarea", { class: "pgl-ginp", rows: "2", "data-col": String(i + 1), placeholder: "laden…", disabled: "true" });
       ta.addEventListener("keydown", goalCellKeys);
       ta.addEventListener("change", function () {
         var entry = _goalCache && _goalCache[f.id]; if (!entry) return;
@@ -999,9 +993,9 @@
       stagePending(f, null, { subject: nv }, nv === orig ? [] : [{ label: "Titel", old: orig, nw: nv }]);
       markRow();
     });
-    var row = h("div", { class: "qwl-row qwl-grow" + (cb.checked ? " sel" : "") + (pend ? " pend" : ""), "data-fid": String(f.id) }, [
-      h("label", { class: "qwl-cbcell" }, [cb]),
-      h("div", { class: "qwl-gtitlecell" }, [title, hint]),
+    var row = h("div", { class: "pgl-row pgl-grow" + (cb.checked ? " sel" : "") + (pend ? " pend" : ""), "data-fid": String(f.id) }, [
+      h("label", { class: "pgl-cbcell" }, [cb]),
+      h("div", { class: "pgl-gtitlecell" }, [title, hint]),
       cells.weet, cells.ken, cells.kan
     ]);
     function markRow() { row.classList.toggle("pend", !!mgr.pending[f.id]); updateSidebar(); }
@@ -1019,7 +1013,7 @@
     if (_goalCache && _goalCache[f.id]) fill(_goalCache[f.id]);
     return row;
   }
-  // One-time move of the goals typed in the print preview (this browser, qwp_goals_v1) into the
+  // One-time move of the goals typed in the print preview (this browser, pg_goals_v1) into the
   // fiches. Only fiches with no WEET/KEN/KAN yet; records of an older fiche version cannot match.
   function importLocalGoals() {
     var listed = mgr.filtered, missing = listed.filter(function (f) { return !infoCached(f.id); });
@@ -1028,7 +1022,7 @@
       setStatus("Eerst alle " + missing.length + " fiches lezen — klik daarna opnieuw op 'Lokale doelen overnemen'.");
       return;
     }
-    S().storeGet("qwp_goals_v1").then(function (store) {
+    S().storeGet("pg_goals_v1").then(function (store) {
       store = store || {};
       var staged = 0, skipped = 0, matched = 0;
       listed.forEach(function (f) {
@@ -1050,12 +1044,12 @@
   function renderList() {
     var wrap = mgr.els.list; if (!wrap) return; wrap.innerHTML = "";
     updateSidebar();
-    if (mgr.loading) { wrap.appendChild(h("div", { class: "qwl-empty", text: "Laden…" })); return; }
-    if (!mgr.filtered.length) { wrap.appendChild(h("div", { class: "qwl-empty", text: "Geen lesfiches." })); return; }
+    if (mgr.loading) { wrap.appendChild(h("div", { class: "pgl-empty", text: "Laden…" })); return; }
+    if (!mgr.filtered.length) { wrap.appendChild(h("div", { class: "pgl-empty", text: "Geen lesfiches." })); return; }
     mgr.rowFill = {};
     if (mgr.cols === 2 && !mgr.goalsMode) {
       var mid = Math.ceil(mgr.filtered.length / 2);
-      wrap.appendChild(h("div", { class: "qwl-cols" }, [makeTable(mgr.filtered.slice(0, mid)), makeTable(mgr.filtered.slice(mid))]));
+      wrap.appendChild(h("div", { class: "pgl-cols" }, [makeTable(mgr.filtered.slice(0, mid)), makeTable(mgr.filtered.slice(mid))]));
     } else {
       wrap.appendChild(makeTable(mgr.filtered));
     }
@@ -1064,22 +1058,22 @@
 
   function updateSidebar() {
     var n = selCount(), p = pendCount(), mounted = isMounted();
-    var c = E("qwl-count"); if (c) c.textContent = mounted ? (" · " + mgr.filtered.length + " fiches") : (mgr.filtered.length + " fiches" + (n ? " · " + n + " geselecteerd" : ""));
+    var c = E("pgl-count"); if (c) c.textContent = mounted ? (" · " + mgr.filtered.length + " fiches") : (mgr.filtered.length + " fiches" + (n ? " · " + n + " geselecteerd" : ""));
     if (mounted) {
-      var ti = E("qwl-title"); if (ti) ti.textContent = mgr.tagFilter != null ? (String(mgr.tagFilter) === "1" ? "Zonder tag" : tagName(mgr.tagFilter)) : "Lesfiches";
-      var sc = E("qwl-selcount"); if (sc) sc.textContent = n + " geselecteerd";
-      var seg = E("qwl-modeseg");
+      var ti = E("pgl-title"); if (ti) ti.textContent = mgr.tagFilter != null ? (String(mgr.tagFilter) === "1" ? "Zonder tag" : tagName(mgr.tagFilter)) : "Lesfiches";
+      var sc = E("pgl-selcount"); if (sc) sc.textContent = n + " geselecteerd";
+      var seg = E("pgl-modeseg");
       if (seg) Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("active", (b.getAttribute("data-m") === "goals") === !!mgr.goalsMode); });
     }
-    var tg = E("qwl-tags"), dl = E("qwl-del"), sa = E("qwl-selall"), rv = E("qwl-review"), cols = E("qwl-cols");
+    var tg = E("pgl-tags"), dl = E("pgl-del"), sa = E("pgl-selall"), rv = E("pgl-review"), cols = E("pgl-cols");
     if (tg) { tg.textContent = "Tags bewerken" + (n ? " (" + n + ")" : ""); tg.disabled = n ? null : "true"; }
     if (dl) { dl.textContent = "Verwijderen" + (n ? " (" + n + ")" : ""); dl.disabled = n ? null : "true"; }
     if (sa) sa.textContent = (n && n >= mgr.filtered.length && mgr.filtered.length) ? "Wis selectie" : "Alles selecteren";
     if (rv) { rv.textContent = "Wijzigingen controleren" + (p ? " (" + p + ")" : ""); rv.style.display = (mgr.pick || !p) ? "none" : ""; }
     if (cols) { cols.textContent = mgr.cols === 2 ? "1 kolom" : "2 kolommen"; cols.style.display = (mgr.goalsMode || mgr.pick) ? "none" : ""; }
-    var gm = E("qwl-goalsmode"); if (gm && !mgr.pick) gm.textContent = mgr.goalsMode ? "Terug naar lijst" : "Lesdoelen invullen";
-    var gi = E("qwl-goalsimport"); if (gi) gi.style.display = (mgr.goalsMode && !mgr.pick) ? "" : "none";
-    var ok = E("qwl-pickok");
+    var gm = E("pgl-goalsmode"); if (gm && !mgr.pick) gm.textContent = mgr.goalsMode ? "Terug naar lijst" : "Lesdoelen invullen";
+    var gi = E("pgl-goalsimport"); if (gi) gi.style.display = (mgr.goalsMode && !mgr.pick) ? "" : "none";
+    var ok = E("pgl-pickok");
     if (ok && mgr.pick) { ok.textContent = "Selectie gebruiken" + (n ? " (" + n + ")" : ""); ok.disabled = n ? null : "true"; }
   }
   function toggleSelectAll() {
@@ -1093,12 +1087,12 @@
   //  Modal plumbing
   // ========================================================================
   function modal(titleText, bodyEls, footerEls, cls) {
-    var box = h("div", { class: "qwl-modal-box" + (cls ? " " + cls : "") }, [
-      h("div", { class: "qwl-modal-hd" }, [h("span", { text: titleText })]),
-      h("div", { class: "qwl-modal-bd" }, bodyEls),
-      h("div", { class: "qwl-modal-ft" }, footerEls)
+    var box = h("div", { class: "pgl-modal-box" + (cls ? " " + cls : "") }, [
+      h("div", { class: "pgl-modal-hd" }, [h("span", { text: titleText })]),
+      h("div", { class: "pgl-modal-bd" }, bodyEls),
+      h("div", { class: "pgl-modal-ft" }, footerEls)
     ]);
-    var back = h("div", { class: "qwl-modal" }, [box]);
+    var back = h("div", { class: "pgl-modal" }, [box]);
     mgr.els.page.appendChild(back);
     back.close = function () { back.remove(); };
     return back;
@@ -1112,20 +1106,20 @@
   // Mounted host: the editor is a side sheet next to the table (Lesfiches.dc.html); standalone: a modal.
   function openEditModal(f) {
     if (isMounted() && mgr.els.sheet) { openSheet(f); return; }
-    var m = modal("Bewerk: " + ficheName(f), [h("div", { class: "qwl-loading", text: "Fiche laden…" })], [], "wide");
-    fillEditor(f, m.querySelector(".qwl-modal-bd"), m.querySelector(".qwl-modal-ft"), m.close, function () { return !!m.parentNode; });
+    var m = modal("Bewerk: " + ficheName(f), [h("div", { class: "pgl-loading", text: "Fiche laden…" })], [], "wide");
+    fillEditor(f, m.querySelector(".pgl-modal-bd"), m.querySelector(".pgl-modal-ft"), m.close, function () { return !!m.parentNode; });
   }
   function openSheet(f) {
     var sh = mgr.els.sheet, token = ++mgr.sheetToken;
     mgr.sheetFid = f.id;
     sh.innerHTML = ""; sh.style.display = "";
     var top = (mgr.tagChips[f.id] || []).map(function (tid) { return S().topTagIdOf ? S().topTagIdOf(tid) : tid; })[0];
-    var hd = h("div", { class: "qwl-sheet-hd" }, [
-      h("div", { class: "qwl-sheet-kicker", text: (mgr.tagChips[f.id] || []).map(tagName).join(" · ") || "Lesfiche" }),
-      h("div", { class: "qwl-sheet-title", text: (mgr.pending[f.id] && mgr.pending[f.id].subject != null) ? mgr.pending[f.id].subject : ficheName(f) })
+    var hd = h("div", { class: "pgl-sheet-hd" }, [
+      h("div", { class: "pgl-sheet-kicker", text: (mgr.tagChips[f.id] || []).map(tagName).join(" · ") || "Lesfiche" }),
+      h("div", { class: "pgl-sheet-title", text: (mgr.pending[f.id] && mgr.pending[f.id].subject != null) ? mgr.pending[f.id].subject : ficheName(f) })
     ]);
-    var bd = h("div", { class: "qwl-sheet-bd" }, [h("div", { class: "qwl-loading", text: "Fiche laden…" })]);
-    var ft = h("div", { class: "qwl-sheet-ft" });
+    var bd = h("div", { class: "pgl-sheet-bd" }, [h("div", { class: "pgl-loading", text: "Fiche laden…" })]);
+    var ft = h("div", { class: "pgl-sheet-ft" });
     sh.appendChild(hd); sh.appendChild(bd); sh.appendChild(ft);
     markOpenRow();
     fillEditor(f, bd, ft, closeSheet, function () { return token === mgr.sheetToken; });
@@ -1137,7 +1131,7 @@
   }
   function markOpenRow() {
     var l = mgr.els && mgr.els.list; if (!l) return;
-    Array.prototype.forEach.call(l.querySelectorAll(".qwl-row[data-fid]"), function (r) { r.classList.toggle("open", String(r.getAttribute("data-fid")) === String(mgr.sheetFid)); });
+    Array.prototype.forEach.call(l.querySelectorAll(".pgl-row[data-fid]"), function (r) { r.classList.toggle("open", String(r.getAttribute("data-fid")) === String(mgr.sheetFid)); });
   }
   // Build the full editor into bd/ft. `alive()` says whether that host still shows this fiche
   // (a modal closed, or the sheet moved on to another fiche, while the edit view was loading).
@@ -1146,71 +1140,71 @@
       if (!alive()) return;
       var pend = mgr.pending[f.id];
       var body = [];
-      function section(label, els) { body.push(h("label", { class: "qwl-flabel", text: label })); (els || []).forEach(function (e) { body.push(e); }); }
+      function section(label, els) { body.push(h("label", { class: "pgl-flabel", text: label })); (els || []).forEach(function (e) { body.push(e); }); }
       // --- Titel
-      var subjInp = h("input", { class: "qwl-input", type: "text", value: (pend && pend.subject != null ? pend.subject : (edit.subject || "")) });
+      var subjInp = h("input", { class: "pgl-input", type: "text", value: (pend && pend.subject != null ? pend.subject : (edit.subject || "")) });
       section("Titel", [subjInp]);
       // --- Leerjaren + zichtbaarheid. Proef: Questi's create takes these keys, a PATCH with them was
       // never captured — writePending re-reads the fiche afterwards and says so if Questi ignored them.
       var origGrades = (edit.grades || []).slice().sort(), gradeSet = {};
       ((pend && pend.grades) ? pend.grades : origGrades).forEach(function (g) { gradeSet[g] = true; });
-      var gradeBoxes = h("div", { class: "qwl-gradeboxes" }, GRADES.map(function (g) {
+      var gradeBoxes = h("div", { class: "pgl-gradeboxes" }, GRADES.map(function (g) {
         var c = h("input", { type: "checkbox" }); c.checked = !!gradeSet[g];
         c.addEventListener("change", function () { if (c.checked) gradeSet[g] = true; else delete gradeSet[g]; });
-        return h("label", { class: "qwl-gradebox" }, [c, h("span", { text: g })]);
+        return h("label", { class: "pgl-gradebox" }, [c, h("span", { text: g })]);
       }));
       section("Leerjaren (proef)", [gradeBoxes]);
       var origVis = edit.visibility || "school", vis = (pend && pend.visibility) || origVis;
-      var visRow = h("div", { class: "qwl-gradeboxes" }, [["private", "Privé"], ["school", "School"]].map(function (o) {
-        var r = h("input", { type: "radio", name: "qwl-vis-" + f.id, value: o[0] }); r.checked = vis === o[0];
+      var visRow = h("div", { class: "pgl-gradeboxes" }, [["private", "Privé"], ["school", "School"]].map(function (o) {
+        var r = h("input", { type: "radio", name: "pgl-vis-" + f.id, value: o[0] }); r.checked = vis === o[0];
         r.addEventListener("change", function () { if (r.checked) vis = o[0]; });
-        return h("label", { class: "qwl-gradebox" }, [r, h("span", { text: o[1] })]);
+        return h("label", { class: "pgl-gradebox" }, [r, h("span", { text: o[1] })]);
       }));
       section("Zichtbaarheid (proef)", [visRow]);
       // --- Tags: click a pill to switch it on/off. tags[] is a full replace, so the whole set is staged.
       var origTags = (edit.tags || []).map(function (t) { return String(t.id); });
       var tagSet = {}; ((pend && pend.tags) ? pend.tags.map(String) : origTags).forEach(function (id) { tagSet[id] = true; });
-      var tagSummary = h("span", { class: "qwl-tagsum" });
-      var tagPick = h("div", { class: "qwl-tagpick" });
+      var tagSummary = h("span", { class: "pgl-tagsum" });
+      var tagPick = h("div", { class: "pgl-tagpick" });
       function tagPill(tg) {
         var on = !!tagSet[String(tg.id)];
-        return h("button", { class: "qwl-pill" + (on ? " add" : ""), onclick: function () {
+        return h("button", { class: "pgl-pill" + (on ? " add" : ""), onclick: function () {
           if (tagSet[String(tg.id)]) delete tagSet[String(tg.id)]; else tagSet[String(tg.id)] = true;
           drawTags();
-        } }, [h("span", { class: "qwl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "qwl-pill-mark", text: on ? "✓" : "" })]);
+        } }, [h("span", { class: "pgl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: on ? "✓" : "" })]);
       }
       function drawTags() {
         renderTagGroups(tagPick, tagPill);
         tagSummary.innerHTML = "";
         var ids = Object.keys(tagSet);
-        tagSummary.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "qwl-note", text: "geen tags" }));
+        tagSummary.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "pgl-note", text: "geen tags" }));
       }
       drawTags();
-      section("Tags", [h("details", { class: "qwl-tagdetails" }, [h("summary", {}, [tagSummary, h("span", { class: "qwl-tagedit", text: "wijzigen" })]), tagPick])]);
+      section("Tags", [h("details", { class: "pgl-tagdetails" }, [h("summary", {}, [tagSummary, h("span", { class: "pgl-tagedit", text: "wijzigen" })]), tagPick])]);
       // --- Text fields: the template's, then the fiche's own extra fields (WEET/KEN/KAN included).
       var textFields = (edit.fields || []).filter(function (x) { return x.type === "text"; });
       textFields.sort(function (a, b) { return (a.template_field_id == null) - (b.template_field_id == null); });
       var areas = {};
       textFields.forEach(function (fld) {
-        var ta = h("textarea", { class: "qwl-textarea", rows: "4" });
+        var ta = h("textarea", { class: "pgl-textarea", rows: "4" });
         ta.value = (pend && pend.text && Object.prototype.hasOwnProperty.call(pend.text, fieldKey(fld))) ? pend.text[fieldKey(fld)] : (fld.content != null ? fld.content : "");
         areas[fieldKey(fld)] = ta;
         section((fld.title || "Tekst") + (fld.template_field_id == null ? "  · extra veld" : ""), [ta]);
       });
       // --- New extra text fields (Questi's "+ toevoegen → Tekst"), staged like everything else.
-      var newRows = [], newWrap = h("div", { class: "qwl-newfields" });
+      var newRows = [], newWrap = h("div", { class: "pgl-newfields" });
       function addNewField(title, content) {
-        var t = h("input", { class: "qwl-input", type: "text", placeholder: "titel van het veld", value: title || "" });
-        var c = h("textarea", { class: "qwl-textarea", rows: "3", placeholder: "inhoud" }); c.value = content || "";
-        var rowEl = h("div", { class: "qwl-newfield" }, [t, c]);
+        var t = h("input", { class: "pgl-input", type: "text", placeholder: "titel van het veld", value: title || "" });
+        var c = h("textarea", { class: "pgl-textarea", rows: "3", placeholder: "inhoud" }); c.value = content || "";
+        var rowEl = h("div", { class: "pgl-newfield" }, [t, c]);
         newRows.push({ t: t, c: c }); newWrap.appendChild(rowEl);
       }
       ((pend && pend.newFields) || []).forEach(function (nf) { addNewField(nf.title, nf.content); });
       body.push(newWrap);
-      body.push(h("button", { class: "qwl-btn qwl-ghost qwl-addfield", onclick: function () { addNewField("", ""); }, text: "+ Tekstveld toevoegen" }));
+      body.push(h("button", { class: "pgl-btn pgl-ghost pgl-addfield", onclick: function () { addNewField("", ""); }, text: "+ Tekstveld toevoegen" }));
       // --- Read-only: what Questi holds but this editor cannot change.
       var ro = [];
-      function roRow(k, v) { if (v) ro.push(h("div", { class: "qwl-ro-row" }, [h("span", { class: "qwl-ro-k", text: k }), h("span", { class: "qwl-ro-v", text: v })])); }
+      function roRow(k, v) { if (v) ro.push(h("div", { class: "pgl-ro-row" }, [h("span", { class: "pgl-ro-k", text: k }), h("span", { class: "pgl-ro-v", text: v })])); }
       roRow("Sjabloon", edit.template && edit.template.name);
       roRow("Eigenaar", edit.owner && ((edit.owner.firstname || "") + " " + (edit.owner.lastname || "")).trim());
       roRow("Laatst gebruikt", usedOf(edit));
@@ -1222,14 +1216,14 @@
           roRow((fld.title || "Leerplandoelen") + " (leerplan)", n ? n + " doel(en) gekozen — bewerk in Questi" : "bewerk in Questi");
         }
       });
-      if (ro.length) section("Alleen lezen", [h("div", { class: "qwl-ro" }, ro)]);
-      body.push(h("div", { class: "qwl-note", text: "Niets wordt geschreven tot je op '" + reviewName() + "' klikt en goedkeurt." }));
+      if (ro.length) section("Alleen lezen", [h("div", { class: "pgl-ro" }, ro)]);
+      body.push(h("div", { class: "pgl-note", text: "Niets wordt geschreven tot je op '" + reviewName() + "' klikt en goedkeurt." }));
       bd.innerHTML = ""; body.forEach(function (e) { bd.appendChild(e); });
       ft.innerHTML = "";
-      ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: closeFn, text: isMounted() ? "Sluiten" : "Annuleer" }));
-      if (mgr.pending[f.id]) ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: function () { delete mgr.pending[f.id]; notifyPending(); closeFn(); renderList(); setStatus("Wijziging verworpen."); }, text: "Verwerpen" }));
-      if (isMounted()) ft.appendChild(h("span", { class: "qwl-hspacer" }));
-      ft.appendChild(h("button", { class: "qwl-btn", onclick: function () {
+      ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: closeFn, text: isMounted() ? "Sluiten" : "Annuleer" }));
+      if (mgr.pending[f.id]) ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: function () { delete mgr.pending[f.id]; notifyPending(); closeFn(); renderList(); setStatus("Wijziging verworpen."); }, text: "Verwerpen" }));
+      if (isMounted()) ft.appendChild(h("span", { class: "pgl-hspacer" }));
+      ft.appendChild(h("button", { class: "pgl-btn", onclick: function () {
         var subject = subjInp.value, text = {}, changes = [];
         if ((subject || "") !== (edit.subject || "")) changes.push({ label: "Titel", old: edit.subject || "", nw: subject || "" });
         textFields.forEach(function (fld) {
@@ -1254,8 +1248,8 @@
       }, text: isMounted() ? "Klaarzetten" : "Bewaar wijziging" }));
     }).catch(function (e) {
       if (!alive()) return;
-      bd.innerHTML = ""; bd.appendChild(h("div", { class: "qwl-note", text: "Laadfout: " + ((e && e.message) || e) }));
-      ft.innerHTML = ""; ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: closeFn, text: "Sluiten" }));
+      bd.innerHTML = ""; bd.appendChild(h("div", { class: "pgl-note", text: "Laadfout: " + ((e && e.message) || e) }));
+      ft.innerHTML = ""; ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: closeFn, text: "Sluiten" }));
     });
   }
   // Merge a staged change into pending[id] (title/text and/or tags/createTags). `edit` may be
@@ -1302,25 +1296,25 @@
   // Review ALL staged edits → approve → sequential write.
   function openReviewEdits() {
     var keys = Object.keys(mgr.pending); if (!keys.length) return;
-    var body = [h("div", { class: "qwl-note", text: keys.length + " fiche(s) gewijzigd. Doelen en niet-gewijzigde tags blijven behouden; elke fiche krijgt een nieuw versie-id." })];
+    var body = [h("div", { class: "pgl-note", text: keys.length + " fiche(s) gewijzigd. Doelen en niet-gewijzigde tags blijven behouden; elke fiche krijgt een nieuw versie-id." })];
     keys.forEach(function (id) {
       var p = mgr.pending[id];
-      body.push(h("div", { class: "qwl-review-head", text: ficheName(p.fiche) }));
+      body.push(h("div", { class: "pgl-review-head", text: ficheName(p.fiche) }));
       (p.changes || []).forEach(function (c) {
-        body.push(h("div", { class: "qwl-diff" }, [
-          h("div", { class: "qwl-diff-lbl", text: c.label }),
-          h("div", { class: "qwl-diff-old" }, [c.oldEl || h("span", { text: (c.old || "—").slice(0, 240) })]),
-          h("div", { class: "qwl-diff-new" }, [c.newEl || h("span", { text: (c.nw || "—").slice(0, 240) })])
+        body.push(h("div", { class: "pgl-diff" }, [
+          h("div", { class: "pgl-diff-lbl", text: c.label }),
+          h("div", { class: "pgl-diff-old" }, [c.oldEl || h("span", { text: (c.old || "—").slice(0, 240) })]),
+          h("div", { class: "pgl-diff-new" }, [c.newEl || h("span", { text: (c.nw || "—").slice(0, 240) })])
         ]));
       });
     });
     var m = modal("Wijzigingen controleren — " + keys.length + " fiches", body, [], "wide");
-    var ft = m.querySelector(".qwl-modal-ft");
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Terug" }));
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost qwl-danger", onclick: function () { mgr.pending = {}; notifyPending(); m.close(); renderList(); setStatus("Alle wijzigingen verworpen."); }, text: "Alles verwerpen" }));
+    var ft = m.querySelector(".pgl-modal-ft");
+    ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: m.close, text: "Terug" }));
+    ft.appendChild(h("button", { class: "pgl-btn pgl-ghost pgl-danger", onclick: function () { mgr.pending = {}; notifyPending(); m.close(); renderList(); setStatus("Alle wijzigingen verworpen."); }, text: "Alles verwerpen" }));
     var goalWrites = keys.filter(function (id) { return mgr.pending[id].goals && Object.keys(mgr.pending[id].goals).length; }).length;
-    if (goalWrites >= GOAL_BACKUP_MIN) body.push(h("div", { class: "qwl-note", text: "Eerst wordt een back-up (JSON) gedownload van de " + keys.length + " fiches zoals ze nu zijn." }));
-    ft.appendChild(h("button", { class: "qwl-btn", onclick: function () {
+    if (goalWrites >= GOAL_BACKUP_MIN) body.push(h("div", { class: "pgl-note", text: "Eerst wordt een back-up (JSON) gedownload van de " + keys.length + " fiches zoals ze nu zijn." }));
+    ft.appendChild(h("button", { class: "pgl-btn", onclick: function () {
       m.close();
       if (goalWrites >= GOAL_BACKUP_MIN) backupPendingSnapshots(keys);
       writePending(keys.slice());
@@ -1427,17 +1421,17 @@
   // whole fiche, with the Op.Stap picker, needs the room.
   function openNewFiche(prefill) {
     if (!isMounted()) { setStatus("Open Lesfiches in PatchGoblin om een nieuwe fiche te maken."); return; }
-    var m = modal("Nieuwe lesfiche", [h("div", { class: "qwl-loading", text: "Sjablonen laden…" })], [], "qwl-newfiche");
-    var titleEl = m.querySelector(".qwl-modal-hd span"); titleEl.id = "qwl-new-title";
+    var m = modal("Nieuwe lesfiche", [h("div", { class: "pgl-loading", text: "Sjablonen laden…" })], [], "pgl-newfiche");
+    var titleEl = m.querySelector(".pgl-modal-hd span"); titleEl.id = "pgl-new-title";
     titleEl.textContent = "Nieuwe lesfiche" + (prefill && prefill.subject ? " — " + prefill.subject : "");
-    var bd = m.querySelector(".qwl-modal-bd"), ft = m.querySelector(".qwl-modal-ft");
+    var bd = m.querySelector(".pgl-modal-bd"), ft = m.querySelector(".pgl-modal-ft");
     function alive() { return !!m.parentNode; }
     fetchTemplates().then(function (list) {
       if (!alive()) return;
       fillNewFiche(list || [], prefill || null, bd, ft, m.close, alive);
     }).catch(function (e) {
       if (!alive()) return;
-      bd.innerHTML = ""; bd.appendChild(h("div", { class: "qwl-note", text: "Sjablonen laden mislukt: " + ((e && e.message) || e) }));
+      bd.innerHTML = ""; bd.appendChild(h("div", { class: "pgl-note", text: "Sjablonen laden mislukt: " + ((e && e.message) || e) }));
     });
   }
   function fillNewFiche(templates, prev, bd, ft, closeFn, alive) {
@@ -1450,50 +1444,50 @@
     if (!prev && here && here.type === "user") st.tags = [Number(here.id)];
     function draw() {
       bd.innerHTML = "";
-      var colL = h("div", { class: "qwl-nf-col" }), colR = h("div", { class: "qwl-nf-col" });
-      bd.appendChild(h("div", { class: "qwl-nf-grid" }, [colL, colR]));
-      function section(label, els, right) { var c = right ? colR : colL; c.appendChild(h("label", { class: "qwl-flabel", text: label })); (els || []).forEach(function (e) { if (e) c.appendChild(e); }); }
+      var colL = h("div", { class: "pgl-nf-col" }), colR = h("div", { class: "pgl-nf-col" });
+      bd.appendChild(h("div", { class: "pgl-nf-grid" }, [colL, colR]));
+      function section(label, els, right) { var c = right ? colR : colL; c.appendChild(h("label", { class: "pgl-flabel", text: label })); (els || []).forEach(function (e) { if (e) c.appendChild(e); }); }
       // --- Sjabloon
-      var tplSel = h("select", { class: "qwl-input", "aria-label": "Sjabloon" }, [h("option", { value: "", text: "— kies een sjabloon —" })].concat(sorted.map(function (t) {
+      var tplSel = h("select", { class: "pgl-input", "aria-label": "Sjabloon" }, [h("option", { value: "", text: "— kies een sjabloon —" })].concat(sorted.map(function (t) {
         return h("option", { value: String(t.id), text: templateLabel(t), selected: String(t.id) === String(st.templateId) ? "selected" : null });
       })));
       tplSel.addEventListener("change", function () { st.templateId = tplSel.value ? Number(tplSel.value) : null; st.text = {}; st.selected = {}; draw(); });
       section("Sjabloon", [tplSel]);
       var tpl = tplById(st.templateId);
       // --- Titel
-      var subj = h("input", { class: "qwl-input", type: "text", value: st.subject || "", placeholder: "bv. Blok 4 - Les 45 - …" });
-      subj.addEventListener("input", function () { st.subject = subj.value; var t = document.getElementById("qwl-new-title"); if (t) t.textContent = "Nieuwe lesfiche" + (subj.value ? " — " + subj.value : ""); });
+      var subj = h("input", { class: "pgl-input", type: "text", value: st.subject || "", placeholder: "bv. Blok 4 - Les 45 - …" });
+      subj.addEventListener("input", function () { st.subject = subj.value; var t = document.getElementById("pgl-new-title"); if (t) t.textContent = "Nieuwe lesfiche" + (subj.value ? " — " + subj.value : ""); });
       section("Titel", [subj]);
       // --- Leerjaren + zichtbaarheid (create keys, captured)
       var gset = {}; (st.grades || []).forEach(function (g) { gset[g] = true; });
-      section("Leerjaren", [h("div", { class: "qwl-gradeboxes" }, GRADES.map(function (g) {
+      section("Leerjaren", [h("div", { class: "pgl-gradeboxes" }, GRADES.map(function (g) {
         var c = h("input", { type: "checkbox" }); c.checked = !!gset[g];
         c.addEventListener("change", function () { if (c.checked) gset[g] = true; else delete gset[g]; st.grades = GRADES.filter(function (x) { return gset[x]; }); });
-        return h("label", { class: "qwl-gradebox" }, [c, h("span", { text: g })]);
+        return h("label", { class: "pgl-gradebox" }, [c, h("span", { text: g })]);
       }))]);
-      section("Zichtbaarheid", [h("div", { class: "qwl-gradeboxes" }, [["private", "Privé"], ["school", "School"]].map(function (o) {
-        var r = h("input", { type: "radio", name: "qwl-newvis", value: o[0] }); r.checked = st.visibility === o[0];
+      section("Zichtbaarheid", [h("div", { class: "pgl-gradeboxes" }, [["private", "Privé"], ["school", "School"]].map(function (o) {
+        var r = h("input", { type: "radio", name: "pgl-newvis", value: o[0] }); r.checked = st.visibility === o[0];
         r.addEventListener("change", function () { if (r.checked) st.visibility = o[0]; });
-        return h("label", { class: "qwl-gradebox" }, [r, h("span", { text: o[1] })]);
+        return h("label", { class: "pgl-gradebox" }, [r, h("span", { text: o[1] })]);
       }))]);
       // --- Tags (same pill picker as the editor)
       var tset = {}; (st.tags || []).forEach(function (id) { tset[String(id)] = true; });
-      var tagSum = h("span", { class: "qwl-tagsum" }), tagPick = h("div", { class: "qwl-tagpick" });
+      var tagSum = h("span", { class: "pgl-tagsum" }), tagPick = h("div", { class: "pgl-tagpick" });
       function pill(tg) {
         var on = !!tset[String(tg.id)];
-        return h("button", { class: "qwl-pill" + (on ? " add" : ""), onclick: function () {
+        return h("button", { class: "pgl-pill" + (on ? " add" : ""), onclick: function () {
           if (tset[String(tg.id)]) delete tset[String(tg.id)]; else tset[String(tg.id)] = true;
           st.tags = Object.keys(tset).map(Number); drawTags();
-        } }, [h("span", { class: "qwl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "qwl-pill-mark", text: on ? "✓" : "" })]);
+        } }, [h("span", { class: "pgl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: on ? "✓" : "" })]);
       }
-      function drawTags() { renderTagGroups(tagPick, pill); tagSum.innerHTML = ""; var ids = Object.keys(tset); tagSum.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "qwl-note", text: "geen tags" })); }
+      function drawTags() { renderTagGroups(tagPick, pill); tagSum.innerHTML = ""; var ids = Object.keys(tset); tagSum.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "pgl-note", text: "geen tags" })); }
       drawTags();
-      section("Tags", [h("details", { class: "qwl-tagdetails" }, [h("summary", {}, [tagSum, h("span", { class: "qwl-tagedit", text: "wijzigen" })]), tagPick])]);
-      if (!tpl) { colR.appendChild(h("div", { class: "qwl-note", text: "Kies eerst een sjabloon: dat bepaalt welke velden de fiche krijgt." })); drawFoot(null); return; }
+      section("Tags", [h("details", { class: "pgl-tagdetails" }, [h("summary", {}, [tagSum, h("span", { class: "pgl-tagedit", text: "wijzigen" })]), tagPick])]);
+      if (!tpl) { colR.appendChild(h("div", { class: "pgl-note", text: "Kies eerst een sjabloon: dat bepaalt welke velden de fiche krijgt." })); drawFoot(null); return; }
       // --- The template's own fields, in template order
       (tpl.structure || []).forEach(function (fld) {
         if (fld.type === "text") {
-          var ta = h("textarea", { class: "qwl-textarea", rows: "4", placeholder: stripTags(fld.description || "") });
+          var ta = h("textarea", { class: "pgl-textarea", rows: "4", placeholder: stripTags(fld.description || "") });
           ta.value = st.text[fld.id] || "";
           ta.addEventListener("input", function () { st.text[fld.id] = ta.value; });
           section(fld.title || "Tekst", [ta], true);
@@ -1506,10 +1500,10 @@
             // upgrades once defined. The count follows every saved selection (no redraw — that
             // would rebuild the component and close its modal).
             (function (fid) {
-              var cnt = h("span", { class: "qwl-note" });
+              var cnt = h("span", { class: "pgl-note" });
               function syncCnt() { var n = (st.selected[fid] || []).length; cnt.textContent = n ? n + " doel(en) gekozen" : "nog geen doelen gekozen"; }
-              var box = h("div", { class: "qwl-opstap" }, [opstapSelector(st.selected[fid] || [], function (ids) { st.selected[fid] = ids; syncCnt(); })]);
-              var wait = opstapAvailable() ? null : h("div", { class: "qwl-note", text: "Op.Stap-kiezer laden…" });
+              var box = h("div", { class: "pgl-opstap" }, [opstapSelector(st.selected[fid] || [], function (ids) { st.selected[fid] = ids; syncCnt(); })]);
+              var wait = opstapAvailable() ? null : h("div", { class: "pgl-note", text: "Op.Stap-kiezer laden…" });
               syncCnt();
               section(head, [wait, box, cnt], true);
               if (wait) ensureOpstap(function (ok) {
@@ -1518,15 +1512,15 @@
               });
             })(fld.id);
           } else {
-            section(head, [h("div", { class: "qwl-note", text: "Leerplandoelen van dit (oudere) sjabloon kies je voorlopig in Questi zelf; de fiche wordt zonder doelen aangemaakt." })], true);
+            section(head, [h("div", { class: "pgl-note", text: "Leerplandoelen van dit (oudere) sjabloon kies je voorlopig in Questi zelf; de fiche wordt zonder doelen aangemaakt." })], true);
           }
         } else if (fld.type === "methods") {
-          section((fld.title || "Methode") + " (methode)", [h("div", { class: "qwl-note", text: "Dit veld hoort bij een methode" + (fld.method && fld.method.name ? " (" + fld.method.name + ")" : "") + ". Methodedoelen kies je voorlopig in Questi; de fiche wordt zonder dit veld aangemaakt." })], true);
+          section((fld.title || "Methode") + " (methode)", [h("div", { class: "pgl-note", text: "Dit veld hoort bij een methode" + (fld.method && fld.method.name ? " (" + fld.method.name + ")" : "") + ". Methodedoelen kies je voorlopig in Questi; de fiche wordt zonder dit veld aangemaakt." })], true);
         }
       });
       // --- WEET / KEN / KAN (extra fields, like every own fiche in PatchGoblin)
       GOAL_KINDS.forEach(function (k) {
-        var ta = h("textarea", { class: "qwl-textarea", rows: "2" }); ta.value = st.goals[k] || "";
+        var ta = h("textarea", { class: "pgl-textarea", rows: "2" }); ta.value = st.goals[k] || "";
         ta.addEventListener("input", function () { st.goals[k] = ta.value; });
         section(k.toUpperCase() + " · lesdoel", [ta]);
       });
@@ -1534,9 +1528,9 @@
     }
     function drawFoot(tpl) {
       ft.innerHTML = "";
-      ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: closeFn, text: "Sluiten" }));
-      if (prev && prev.key && mgr.pending[prev.key]) ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: function () { delete mgr.pending[prev.key]; notifyPending(); closeFn(); setStatus("Nieuwe fiche verworpen."); }, text: "Verwerpen" }));
-      ft.appendChild(h("span", { class: "qwl-hspacer" }));
+      ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: closeFn, text: "Sluiten" }));
+      if (prev && prev.key && mgr.pending[prev.key]) ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: function () { delete mgr.pending[prev.key]; notifyPending(); closeFn(); setStatus("Nieuwe fiche verworpen."); }, text: "Verwerpen" }));
+      ft.appendChild(h("span", { class: "pgl-hspacer" }));
       // Two ways out: stage only (to batch several fiches), or stage and go straight to the review.
       // Either way nothing is written until Wegschrijven in that review.
       function stage(thenReview) {
@@ -1548,8 +1542,8 @@
         if (!thenReview) return;
         if (isMounted() && S().openReview) S().openReview(); else openReviewEdits();
       }
-      ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", disabled: tpl ? null : "true", onclick: function () { stage(false); }, title: "Klaarzetten en nog andere fiches maken", text: "Alleen klaarzetten" }));
-      ft.appendChild(h("button", { class: "qwl-btn", disabled: tpl ? null : "true", onclick: function () { stage(true); }, text: "Klaarzetten en controleren" }));
+      ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", disabled: tpl ? null : "true", onclick: function () { stage(false); }, title: "Klaarzetten en nog andere fiches maken", text: "Alleen klaarzetten" }));
+      ft.appendChild(h("button", { class: "pgl-btn", disabled: tpl ? null : "true", onclick: function () { stage(true); }, text: "Klaarzetten en controleren" }));
     }
     draw();
   }
@@ -1625,27 +1619,27 @@
   // ---- Leerplandoelen: Katholiek Onderwijs Vlaanderen's own Op.Stap picker ----
   // Questi loads the <op-stap-selector> web component (opstap.katholiekonderwijs.vlaanderen/webcomponent/
   // op-stap-selector.latest.js) on every page and only wraps it. In mode FULL it renders its own
-  // "select" button, modal and selected list. We place the same element, marked data-uq, and read
+  // "select" button, modal and selected list. We place the same element, marked data-pg, and read
   // the selection from "OpStapSelectionChanged" { selectedKeys: ["/content/<uuid>", …] }. The detail
   // object does not cross into this isolated world, so opstap-bridge.js (page world) copies it to
-  // the element's data-uq-sel attribute. Captured 2026-10-25: opening the modal first fires
+  // the element's data-pg-sel attribute. Captured 2026-10-25: opening the modal first fires
   // { selectedKeys: [], version: null } — those are skipped, or opening would wipe the selection.
   // Questi stores the bare uuids in selected_goals (POST captured).
   var OPSTAP_PREFIX = "/content/";
-  // Defined = the bridge saw customElements define it (it marks <html data-uq-opstap>).
-  function opstapAvailable() { return document.documentElement.getAttribute("data-uq-opstap") === "1"; }
+  // Defined = the bridge saw customElements define it (it marks <html data-pg-opstap>).
+  function opstapAvailable() { return document.documentElement.getAttribute("data-pg-opstap") === "1"; }
   // Questi only loads the component once its own editor opened: ask the bridge to load the same
   // script, then call back true (defined) or false (not within 10 s).
   function ensureOpstap(cb) {
     if (opstapAvailable()) { cb(true); return; }
     var done = false, mo = new MutationObserver(function () { if (opstapAvailable() && !done) { done = true; mo.disconnect(); cb(true); } });
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-uq-opstap"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-pg-opstap"] });
     setTimeout(function () { if (!done) { done = true; mo.disconnect(); cb(false); } }, 10000);
-    document.dispatchEvent(new Event("uq-opstap-load"));
+    document.dispatchEvent(new Event("pg-opstap-load"));
   }
   function opstapSelector(selectedIds, onChange) {
     var el = document.createElement("op-stap-selector");
-    el.setAttribute("data-uq", "1");
+    el.setAttribute("data-pg", "1");
     el.setAttribute("mode", "FULL");
     el.setAttribute("readonly", "false");
     el.setAttribute("keys", JSON.stringify((selectedIds || []).map(function (id) { return OPSTAP_PREFIX + id; })));
@@ -1655,9 +1649,9 @@
       onChange(detail.selectedKeys.map(function (k) { return String(k).indexOf(OPSTAP_PREFIX) === 0 ? String(k).slice(OPSTAP_PREFIX.length) : String(k); }));
     }
     new MutationObserver(function () {
-      var raw = el.getAttribute("data-uq-sel"); if (!raw) return;
+      var raw = el.getAttribute("data-pg-sel"); if (!raw) return;
       try { take(JSON.parse(raw)); } catch (e) {}
-    }).observe(el, { attributes: true, attributeFilter: ["data-uq-sel"] });
+    }).observe(el, { attributes: true, attributeFilter: ["data-pg-sel"] });
     return el;
   }
 
@@ -1737,31 +1731,31 @@
   // ------------------------------------------------------------------------
   //  Mass-edit tags — tri-state picker + create-tag → STAGES into pending
   // ------------------------------------------------------------------------
-  function chipRow(list) { return h("div", { class: "qwl-c-tags" }, list.map(function (tid) { return h("span", { class: "qwl-chip", style: "border-color:" + tagHex(tid) }, [h("span", { class: "qwl-dot", style: "background:" + tagHex(tid) }), h("span", { text: tagName(tid) })]); })); }
+  function chipRow(list) { return h("div", { class: "pgl-c-tags" }, list.map(function (tid) { return h("span", { class: "pgl-chip", style: "border-color:" + tagHex(tid) }, [h("span", { class: "pgl-dot", style: "background:" + tagHex(tid) }), h("span", { text: tagName(tid) })]); })); }
   function openTagsModal() {
     var ids = selectedIds(); if (!ids.length) return;
     var addSet = {}, remSet = {};
-    var newTagInp = h("input", { class: "qwl-input", type: "text", placeholder: "naam van nieuwe tag (optioneel)" });
-    var pickWrap = h("div", { class: "qwl-tagpick" });
+    var newTagInp = h("input", { class: "pgl-input", type: "text", placeholder: "naam van nieuwe tag (optioneel)" });
+    var pickWrap = h("div", { class: "pgl-tagpick" });
     function pill(tg) {
       var st = addSet[tg.id] ? "add" : (remSet[tg.id] ? "rem" : "");
-      return h("button", { class: "qwl-pill " + st, onclick: function () {
+      return h("button", { class: "pgl-pill " + st, onclick: function () {
         if (addSet[tg.id]) { delete addSet[tg.id]; remSet[tg.id] = true; }
         else if (remSet[tg.id]) { delete remSet[tg.id]; }
         else { addSet[tg.id] = true; }
         renderPick();
-      } }, [h("span", { class: "qwl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "qwl-pill-mark", text: addSet[tg.id] ? "＋" : (remSet[tg.id] ? "－" : "") })]);
+      } }, [h("span", { class: "pgl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: addSet[tg.id] ? "＋" : (remSet[tg.id] ? "－" : "") })]);
     }
     function renderPick() { renderTagGroups(pickWrap, pill); }
     renderPick();
     var m = modal("Tags bewerken — " + ids.length + " fiches", [
-      h("div", { class: "qwl-note", text: "Klik een tag: 1× toevoegen (＋), 2× verwijderen (－), 3× niets. Wijzigingen worden klaargezet; niets wordt geschreven tot '" + reviewName() + "'." }),
+      h("div", { class: "pgl-note", text: "Klik een tag: 1× toevoegen (＋), 2× verwijderen (－), 3× niets. Wijzigingen worden klaargezet; niets wordt geschreven tot '" + reviewName() + "'." }),
       pickWrap,
-      h("label", { class: "qwl-flabel", text: "Nieuwe tag maken + toevoegen" }), newTagInp
+      h("label", { class: "pgl-flabel", text: "Nieuwe tag maken + toevoegen" }), newTagInp
     ], [], "wide");
-    var ft = m.querySelector(".qwl-modal-ft");
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
-    ft.appendChild(h("button", { class: "qwl-btn", onclick: function () {
+    var ft = m.querySelector(".pgl-modal-ft");
+    ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: m.close, text: "Annuleer" }));
+    ft.appendChild(h("button", { class: "pgl-btn", onclick: function () {
       var add = Object.keys(addSet), rem = Object.keys(remSet), newName = (newTagInp.value || "").trim();
       if (!add.length && !rem.length && !newName) { m.close(); return; }
       m.close(); stageTagChanges(ids, add, rem, newName);
@@ -1773,8 +1767,8 @@
     var tops = S().topTagsForOwner(mgr.ownTags, ctx().ownerId).filter(function (t) { return !/alle.*lesfiches/i.test(t.title || ""); });
     tops.forEach(function (t) {
       var kids = mgr.ownTags.filter(function (k) { return String(k.parent) === String(t.id); }).sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); });
-      var grp = h("div", { class: "qwl-pickgrp" }, [h("div", { class: "qwl-pickgrp-top" }, [pill(t)])]);
-      if (kids.length) grp.appendChild(h("div", { class: "qwl-pickgrp-kids" }, kids.map(pill)));
+      var grp = h("div", { class: "pgl-pickgrp" }, [h("div", { class: "pgl-pickgrp-top" }, [pill(t)])]);
+      if (kids.length) grp.appendChild(h("div", { class: "pgl-pickgrp-kids" }, kids.map(pill)));
       wrap.appendChild(grp);
     });
   }
@@ -1790,7 +1784,7 @@
         add.forEach(function (x) { set[String(x)] = true; }); rem.forEach(function (x) { delete set[String(x)]; });
         var next = Object.keys(set);
         var change = { label: "Tags", oldEl: chipRow(cur.map(Number)), newEl: chipRow(next.map(Number)) };
-        if (newName) change.newEl = h("div", {}, [chipRow(next.map(Number)), h("span", { class: "qwl-chip", text: "＋ " + newName })]);
+        if (newName) change.newEl = h("div", {}, [chipRow(next.map(Number)), h("span", { class: "pgl-chip", text: "＋ " + newName })]);
         stagePending(f, edit, { tags: next, create_tags: createTags }, [change]);
       });
     }, prog.update).then(function (fails) { prog.done(fails, ids.length); renderList(); if (!fails.length) setStatus(pendCount() + " wijziging(en) klaargezet — druk '" + reviewName() + "'."); });
@@ -1839,30 +1833,30 @@
     else { renderTagBar(); renderList(); }
   }
   function modalNote(m, msg) {
-    var bd = m.querySelector(".qwl-modal-bd");
-    var old = bd.querySelector(".qwl-note.qwl-warn.qwl-live"); if (old) old.remove();
-    bd.appendChild(h("div", { class: "qwl-note qwl-warn qwl-live", text: msg }));
+    var bd = m.querySelector(".pgl-modal-bd");
+    var old = bd.querySelector(".pgl-note.pgl-warn.pgl-live"); if (old) old.remove();
+    bd.appendChild(h("div", { class: "pgl-note pgl-warn pgl-live", text: msg }));
   }
   function openAddTagModal() {
-    var nameInp = h("input", { class: "qwl-input", type: "text", placeholder: "naam van de tag" });
-    var colorInp = h("input", { class: "qwl-color", type: "color", value: "#e0e0e0" });
+    var nameInp = h("input", { class: "pgl-input", type: "text", placeholder: "naam van de tag" });
+    var colorInp = h("input", { class: "pgl-color", type: "color", value: "#e0e0e0" });
     var subjects = S().topTagsForOwner(mgr.ownTags, ctx().ownerId).filter(isSubjectTop);
-    var parentSel = h("select", { class: "qwl-gradesel" },
+    var parentSel = h("select", { class: "pgl-gradesel" },
       [h("option", { value: "", text: "Hoofd-tag (geen vak)" })].concat(subjects.map(function (t) {
         return h("option", { value: String(t.id), text: (t.title || "").trim() });
       })));
     // Mounted (planner tab): the tag is STAGED and created by the shared Controleer, first of all.
     var staged = isMounted();
     var m = modal("Tag toevoegen", [
-      h("label", { class: "qwl-flabel", text: "Naam" }), nameInp,
-      h("label", { class: "qwl-flabel", text: "Kleur" }), colorInp,
-      h("label", { class: "qwl-flabel", text: "Onder vak (optioneel)" }), parentSel,
-      h("div", { class: "qwl-note", text: "Een subtag valt onder een vak; laat op 'Hoofd-tag' staan voor een nieuw vak." }),
-      staged ? h("div", { class: "qwl-note", text: "De tag wordt klaargezet en pas aangemaakt bij Controleer. Fiches kun je er daarna aan toevoegen." }) : null
+      h("label", { class: "pgl-flabel", text: "Naam" }), nameInp,
+      h("label", { class: "pgl-flabel", text: "Kleur" }), colorInp,
+      h("label", { class: "pgl-flabel", text: "Onder vak (optioneel)" }), parentSel,
+      h("div", { class: "pgl-note", text: "Een subtag valt onder een vak; laat op 'Hoofd-tag' staan voor een nieuw vak." }),
+      staged ? h("div", { class: "pgl-note", text: "De tag wordt klaargezet en pas aangemaakt bij Controleer. Fiches kun je er daarna aan toevoegen." }) : null
     ], [], "");
-    var ft = m.querySelector(".qwl-modal-ft");
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
-    ft.appendChild(h("button", { class: "qwl-btn", onclick: function () {
+    var ft = m.querySelector(".pgl-modal-ft");
+    ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: m.close, text: "Annuleer" }));
+    ft.appendChild(h("button", { class: "pgl-btn", onclick: function () {
       var title = (nameInp.value || "").trim();
       if (!title) { modalNote(m, "Geef een naam op."); return; }
       var parentId = parentSel.value || null;
@@ -1887,14 +1881,14 @@
   function openRemoveTagModal() {
     var tags = deletableTags();
     if (!tags.length) {
-      var mm = modal("Tag verwijderen", [h("div", { class: "qwl-note", text: "Je hebt geen eigen tags om te verwijderen." })], [], "");
-      mm.querySelector(".qwl-modal-ft").appendChild(h("button", { class: "qwl-btn", onclick: mm.close, text: "OK" }));
+      var mm = modal("Tag verwijderen", [h("div", { class: "pgl-note", text: "Je hebt geen eigen tags om te verwijderen." })], [], "");
+      mm.querySelector(".pgl-modal-ft").appendChild(h("button", { class: "pgl-btn", onclick: mm.close, text: "OK" }));
       return;
     }
     tags = tags.slice().sort(function (a, b) { return tagPickLabel(a).localeCompare(tagPickLabel(b), undefined, { numeric: true }); });
-    var tagSel = h("select", { class: "qwl-gradesel" }, tags.map(function (t) { return h("option", { value: String(t.id), text: tagPickLabel(t) }); }));
+    var tagSel = h("select", { class: "pgl-gradesel" }, tags.map(function (t) { return h("option", { value: String(t.id), text: tagPickLabel(t) }); }));
     // Second select (move target) — all deletable tags except the currently selected one.
-    var moveSel = h("select", { class: "qwl-gradesel" });
+    var moveSel = h("select", { class: "pgl-gradesel" });
     function fillMoveSel() {
       moveSel.innerHTML = "";
       tags.filter(function (t) { return String(t.id) !== String(tagSel.value); })
@@ -1902,23 +1896,23 @@
     }
     fillMoveSel();
     tagSel.addEventListener("change", fillMoveSel);
-    var rUnlink = h("input", { type: "radio", name: "qwl-delmode", value: "unlink", checked: "true" });
-    var rMove = h("input", { type: "radio", name: "qwl-delmode", value: "move" });
-    var moveRow = h("div", { class: "qwl-delmove", style: "display:none" }, [
-      h("label", { class: "qwl-flabel", text: "Verplaats fiches naar" }), moveSel
+    var rUnlink = h("input", { type: "radio", name: "pgl-delmode", value: "unlink", checked: "true" });
+    var rMove = h("input", { type: "radio", name: "pgl-delmode", value: "move" });
+    var moveRow = h("div", { class: "pgl-delmove", style: "display:none" }, [
+      h("label", { class: "pgl-flabel", text: "Verplaats fiches naar" }), moveSel
     ]);
     function syncMode() { moveRow.style.display = rMove.checked ? "" : "none"; }
     rUnlink.addEventListener("change", syncMode); rMove.addEventListener("change", syncMode);
     var m = modal("Tag verwijderen", [
-      h("label", { class: "qwl-flabel", text: "Tag" }), tagSel,
-      h("label", { class: "qwl-radio" }, [rUnlink, h("span", { text: " Verwijder tag — fiches blijven bestaan, verliezen enkel deze tag" })]),
-      h("label", { class: "qwl-radio" }, [rMove, h("span", { text: " Verplaats fiches naar een andere tag, dan verwijder" })]),
+      h("label", { class: "pgl-flabel", text: "Tag" }), tagSel,
+      h("label", { class: "pgl-radio" }, [rUnlink, h("span", { text: " Verwijder tag — fiches blijven bestaan, verliezen enkel deze tag" })]),
+      h("label", { class: "pgl-radio" }, [rMove, h("span", { text: " Verplaats fiches naar een andere tag, dan verwijder" })]),
       moveRow,
-      h("div", { class: "qwl-note", text: "Er worden geen lesfiches verwijderd." })
+      h("div", { class: "pgl-note", text: "Er worden geen lesfiches verwijderd." })
     ], [], "");
-    var ft = m.querySelector(".qwl-modal-ft");
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
-    ft.appendChild(h("button", { class: "qwl-btn qwl-danger", onclick: function () {
+    var ft = m.querySelector(".pgl-modal-ft");
+    ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: m.close, text: "Annuleer" }));
+    ft.appendChild(h("button", { class: "pgl-btn pgl-danger", onclick: function () {
       var id = tagSel.value; if (!id) return;
       var action = rMove.checked ? "move" : "unlink";
       var second = action === "move" ? moveSel.value : null;
@@ -1945,7 +1939,7 @@
       mgr.els.page.appendChild(a); a.click();
       setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 0);
       return true;
-    } catch (e) { console.error("[QWL] backup-download faalde:", e); return false; }
+    } catch (e) { console.error("[PGL] backup-download faalde:", e); return false; }
   }
   // Read full content per id (best-effort, sequential), download whatever we captured,
   // and report which ids failed to read. Never deletes — that's the caller's decision.
@@ -1976,17 +1970,17 @@
   // ------------------------------------------------------------------------
   function openDeleteModal() {
     var ids = selectedIds(); if (!ids.length) return;
-    var list = ids.map(function (id) { var f = fiskById(id); return h("div", { class: "qwl-delrow", text: (f ? ficheName(f) : ("#" + id)) + "  ·  #" + id }); });
-    var typed = h("input", { class: "qwl-input", type: "text", placeholder: "typ VERWIJDER" });
+    var list = ids.map(function (id) { var f = fiskById(id); return h("div", { class: "pgl-delrow", text: (f ? ficheName(f) : ("#" + id)) + "  ·  #" + id }); });
+    var typed = h("input", { class: "pgl-input", type: "text", placeholder: "typ VERWIJDER" });
     var m = modal("Verwijderen — " + ids.length + " fiches", [
-      h("div", { class: "qwl-note qwl-warn", text: "Definitief en onomkeerbaar — geen server-undo. Typ VERWIJDER om te bevestigen." }),
-      h("div", { class: "qwl-dellist" }, list), typed
+      h("div", { class: "pgl-note pgl-warn", text: "Definitief en onomkeerbaar — geen server-undo. Typ VERWIJDER om te bevestigen." }),
+      h("div", { class: "pgl-dellist" }, list), typed
     ], [], "wide");
-    var ft = m.querySelector(".qwl-modal-ft");
-    var btnTest = h("button", { class: "qwl-btn qwl-danger", disabled: "true", onclick: function () { doDelete(m, ids, true); }, text: "Verwijder 1 (test)" });
-    var btnAll = h("button", { class: "qwl-btn qwl-danger", disabled: "true", onclick: function () { doDelete(m, ids, false); }, text: "Verwijder alle" });
+    var ft = m.querySelector(".pgl-modal-ft");
+    var btnTest = h("button", { class: "pgl-btn pgl-danger", disabled: "true", onclick: function () { doDelete(m, ids, true); }, text: "Verwijder 1 (test)" });
+    var btnAll = h("button", { class: "pgl-btn pgl-danger", disabled: "true", onclick: function () { doDelete(m, ids, false); }, text: "Verwijder alle" });
     typed.addEventListener("input", function () { var ok = (typed.value || "").trim() === "VERWIJDER"; btnTest.disabled = ok ? null : "true"; btnAll.disabled = ok ? null : "true"; });
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: m.close, text: "Annuleer" }));
+    ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: m.close, text: "Annuleer" }));
     ft.appendChild(btnTest); ft.appendChild(btnAll);
   }
   function doDelete(m, ids, testOnly) {
@@ -2019,16 +2013,16 @@
   //  Progress modal
   // ------------------------------------------------------------------------
   function progressModal(title) {
-    var bar = h("div", { class: "qwl-bar-fill" });
-    var txt = h("div", { class: "qwl-prog-txt", text: "0 / ?" });
-    var m = modal(title, [txt, h("div", { class: "qwl-bar" }, [bar])], [], "");
+    var bar = h("div", { class: "pgl-bar-fill" });
+    var txt = h("div", { class: "pgl-prog-txt", text: "0 / ?" });
+    var m = modal(title, [txt, h("div", { class: "pgl-bar" }, [bar])], [], "");
     return {
       update: function (done, total) { txt.textContent = done + " / " + total; bar.style.width = total ? Math.round(done / total * 100) + "%" : "0%"; },
       done: function (fails, total) {
-        var ft = m.querySelector(".qwl-modal-ft");
-        m.querySelector(".qwl-prog-txt").textContent = fails && fails.length ? (fails.length + " van " + total + " mislukt.") : ("Klaar — " + total + " verwerkt.");
-        if (fails && fails.length) m.querySelector(".qwl-modal-bd").appendChild(h("div", { class: "qwl-note qwl-warn", text: fails.map(function (f) { return f.error; }).slice(0, 8).join(" · ") }));
-        ft.innerHTML = ""; ft.appendChild(h("button", { class: "qwl-btn", onclick: m.close, text: "Sluiten" }));
+        var ft = m.querySelector(".pgl-modal-ft");
+        m.querySelector(".pgl-prog-txt").textContent = fails && fails.length ? (fails.length + " van " + total + " mislukt.") : ("Klaar — " + total + " verwerkt.");
+        if (fails && fails.length) m.querySelector(".pgl-modal-bd").appendChild(h("div", { class: "pgl-note pgl-warn", text: fails.map(function (f) { return f.error; }).slice(0, 8).join(" · ") }));
+        ft.innerHTML = ""; ft.appendChild(h("button", { class: "pgl-btn", onclick: m.close, text: "Sluiten" }));
       }
     };
   }
@@ -2072,20 +2066,20 @@
   }
   // Minimal preview view — only reachable when importEnabled (dormant scaffold for now).
   function openImportView() {
-    var ta = h("textarea", { class: "qwl-textarea", rows: "8", placeholder: "Plak hier je CSV/Excel-rijen (eerste regel = kopregel: titel;vak;leerjaar;doelen;leerplandoelen;lesverloop;materiaal)" });
-    var preview = h("div", { class: "qwl-import-preview" });
+    var ta = h("textarea", { class: "pgl-textarea", rows: "8", placeholder: "Plak hier je CSV/Excel-rijen (eerste regel = kopregel: titel;vak;leerjaar;doelen;leerplandoelen;lesverloop;materiaal)" });
+    var preview = h("div", { class: "pgl-import-preview" });
     var m = modal("Importeren (bèta)", [
-      h("div", { class: "qwl-note", text: "Scaffold — OPSTAP-doelen worden later toegevoegd. Niets wordt geschreven zonder dry-run + 'Test 1 fiche'." }),
-      ta, h("button", { class: "qwl-btn qwl-ghost", onclick: function () { renderPreview(); }, text: "Voorbeeld tonen" }), preview
+      h("div", { class: "pgl-note", text: "Scaffold — OPSTAP-doelen worden later toegevoegd. Niets wordt geschreven zonder dry-run + 'Test 1 fiche'." }),
+      ta, h("button", { class: "pgl-btn pgl-ghost", onclick: function () { renderPreview(); }, text: "Voorbeeld tonen" }), preview
     ], [], "wide");
     function renderPreview() {
       preview.innerHTML = "";
       var rows = parseImport(ta.value);
-      if (!rows.length) { preview.appendChild(h("div", { class: "qwl-note", text: "Geen rijen." })); return; }
-      rows.slice(0, 50).forEach(function (r) { preview.appendChild(h("div", { class: "qwl-delrow", text: (r.titel || "(zonder titel)") + "  ·  " + (r.vak || "?") + "  ·  " + (r.leerjaar || "?") })); });
-      preview.appendChild(h("div", { class: "qwl-note", text: rows.length + " rij(en). (Wegschrijven nog niet actief — OPSTAP volgt.)" }));
+      if (!rows.length) { preview.appendChild(h("div", { class: "pgl-note", text: "Geen rijen." })); return; }
+      rows.slice(0, 50).forEach(function (r) { preview.appendChild(h("div", { class: "pgl-delrow", text: (r.titel || "(zonder titel)") + "  ·  " + (r.vak || "?") + "  ·  " + (r.leerjaar || "?") })); });
+      preview.appendChild(h("div", { class: "pgl-note", text: rows.length + " rij(en). (Wegschrijven nog niet actief — OPSTAP volgt.)" }));
     }
-    var ft = m.querySelector(".qwl-modal-ft"); ft.appendChild(h("button", { class: "qwl-btn", onclick: m.close, text: "Sluiten" }));
+    var ft = m.querySelector(".pgl-modal-ft"); ft.appendChild(h("button", { class: "pgl-btn", onclick: m.close, text: "Sluiten" }));
   }
 
   // ========================================================================
@@ -2100,9 +2094,9 @@
   }
   function has(o, k) { return o && Object.prototype.hasOwnProperty.call(o, k) && o[k] != null; }
   function openDiag() {
-    var list = h("div", { class: "qwl-diag-list" }), rows = [];
-    function pill(s) { return h("span", { class: "qwl-diag-pill " + s.toLowerCase(), text: s }); }
-    function addRow(row) { rows.push(row); list.appendChild(h("div", { class: "qwl-diag-row" }, [h("div", { class: "qwl-diag-hd" }, [pill(row.status), h("span", { class: "qwl-diag-name", text: row.name })]), (row.detail ? h("div", { class: "qwl-diag-detail", text: row.detail }) : null), (row.status !== "OK" && row.next ? h("div", { class: "qwl-diag-next", text: "→ " + row.next }) : null)])); list.scrollTop = list.scrollHeight; }
+    var list = h("div", { class: "pgl-diag-list" }), rows = [];
+    function pill(s) { return h("span", { class: "pgl-diag-pill " + s.toLowerCase(), text: s }); }
+    function addRow(row) { rows.push(row); list.appendChild(h("div", { class: "pgl-diag-row" }, [h("div", { class: "pgl-diag-hd" }, [pill(row.status), h("span", { class: "pgl-diag-name", text: row.name })]), (row.detail ? h("div", { class: "pgl-diag-detail", text: row.detail }) : null), (row.status !== "OK" && row.next ? h("div", { class: "pgl-diag-next", text: "→ " + row.next }) : null)])); list.scrollTop = list.scrollHeight; }
     function copyReport() {
       var lines = ["Questi Lesfiche-manager — Zelftest", "", ]; rows.forEach(function (r) { lines.push("[" + r.status + "] " + r.name + (r.detail ? " — " + r.detail : "") + (r.status !== "OK" && r.next ? " — " + r.next : "")); });
       // The methode-fiche probe decides whether copying is possible at all, so the report
@@ -2129,10 +2123,10 @@
       var text = lines.join("\n");
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { setStatus("Rapport gekopieerd."); }); else { var t = document.createElement("textarea"); t.value = text; mgr.els.page.appendChild(t); t.select(); try { document.execCommand("copy"); } catch (e) {} t.remove(); }
     }
-    var m = modal("Zelftest — leest alleen, schrijft nooit", [h("div", { class: "qwl-note", text: "Controleert of de live Questi-API nog overeenkomt met wat de manager verwacht." }), list], [], "wide");
-    var ft = m.querySelector(".qwl-modal-ft");
-    ft.appendChild(h("button", { class: "qwl-btn qwl-ghost", onclick: copyReport, text: "Rapport kopiëren" }));
-    ft.appendChild(h("button", { class: "qwl-btn", onclick: m.close, text: "Sluiten" }));
+    var m = modal("Zelftest — leest alleen, schrijft nooit", [h("div", { class: "pgl-note", text: "Controleert of de live Questi-API nog overeenkomt met wat de manager verwacht." }), list], [], "wide");
+    var ft = m.querySelector(".pgl-modal-ft");
+    ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: copyReport, text: "Rapport kopiëren" }));
+    ft.appendChild(h("button", { class: "pgl-btn", onclick: m.close, text: "Sluiten" }));
     runDiag(addRow);
   }
   // ------------------------------------------------------------------------
@@ -2282,13 +2276,13 @@
     }, "{ title, color, parent, schoolId }, parent altijd mee");
     run("Op.Stap-brug (paginawereld)", function (P) {
       if (!document.documentElement) return;
-      var el = document.createElement("div"); el.setAttribute("data-uq", "zelftest"); el.style.display = "none";
+      var el = document.createElement("div"); el.setAttribute("data-pg", "zelftest"); el.style.display = "none";
       document.body.appendChild(el);
       try {
         el.dispatchEvent(new CustomEvent("OpStapSelectionChanged", { bubbles: true, composed: true, detail: { selectedKeys: [] } }));
-        if (!el.hasAttribute("data-uq-sel")) P.push("opstap-bridge.js reageert niet — staat de MAIN-world-regel nog in manifest.json?");
+        if (!el.hasAttribute("data-pg-sel")) P.push("opstap-bridge.js reageert niet — staat de MAIN-world-regel nog in manifest.json?");
       } finally { el.remove(); }
-    }, "brug kopieert OpStapSelectionChanged naar data-uq-sel");
+    }, "brug kopieert OpStapSelectionChanged naar data-pg-sel");
   }
   function runDiag(addRow) {
     var sampleFicheId = null, userTag = mgr.ownTags.filter(function (t) { return t.type !== "default"; })[0];
@@ -2363,7 +2357,7 @@
   // createUserTag: settings.js creates a missing vak on import/setup — only after an explicit confirm.
   // mount/unmount: the planner's Lesfiches tab. pendingCount/pendingSummary/backupPending/writeTags/
   // writeFiches/afterSharedWrite: the planner's shared Controleer (tags → fiches → calendar).
-  window.__QWP_LESSONS = {
+  window.__PG_LESSONS = {
     open: open, close: close, openPicker: openPicker, runSequential: runSequential, createUserTag: createUserTag,
     mount: mount, unmount: unmount, isMounted: isMounted,
     pendingCount: pendingCount, pendingSummary: pendingSummary, backupPending: backupPending,

@@ -15,7 +15,7 @@ set "PG_DEST=%~dp0" & set "PG_SELF=%~f0" & powershell -NoProfile -ExecutionPolic
 
 #=PS=
 $ErrorActionPreference = 'Stop'
-$repo = 'https://github.com/RareGoudvis/ce-questi-utility/archive/refs/heads/main.zip'
+$repo = 'https://github.com/RareGoudvis/patchgoblin/archive/refs/heads/main.zip'
 $dest = $env:PG_DEST.TrimEnd('\')
 Write-Host '=== PatchGoblin bijwerken ==='
 Write-Host ('Map: ' + $dest)
@@ -30,7 +30,8 @@ try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   Invoke-WebRequest -UseBasicParsing -Uri $repo -OutFile $zip
   Expand-Archive -Path $zip -DestinationPath (Join-Path $work 'x') -Force
-  $src = Join-Path $work 'x\ce-questi-utility-main'
+  # The ZIP holds one folder named after the repo and branch; take it whatever it is called.
+  $src = @(Get-ChildItem (Join-Path $work 'x') -Directory)[0].FullName
 
   # 1. Controle: niets wordt vervangen tenzij de download compleet en consistent is.
   foreach ($f in 'manifest.json', 'version.json', 'planner.js', 'lessons.js', 'content.js', 'background.js', 'opstap-bridge.js') {

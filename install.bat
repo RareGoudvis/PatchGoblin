@@ -8,16 +8,16 @@ REM  Geen Git of installatie nodig - gebruikt alleen Windows PowerShell.
 REM ============================================================================
 setlocal
 REM Welke versie: "main" = stabiel. Testers van een beta zetten hier de naam van die branch.
-set "UQ_BRANCH=main"
-echo === PatchGoblin installeren (versie: %UQ_BRANCH%) ===
+set "PG_BRANCH=main"
+echo === PatchGoblin installeren (versie: %PG_BRANCH%) ===
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
   "try {" ^
-  "  $branch=$env:UQ_BRANCH; $dest=Join-Path $env:LOCALAPPDATA 'PatchGoblin';" ^
-  "  $zip=Join-Path $env:TEMP 'unquesti-install.zip'; $tmp=Join-Path $env:TEMP 'unquesti-install';" ^
+  "  $branch=$env:PG_BRANCH; $dest=Join-Path $env:LOCALAPPDATA 'PatchGoblin';" ^
+  "  $zip=Join-Path $env:TEMP 'patchgoblin-install.zip'; $tmp=Join-Path $env:TEMP 'patchgoblin-install';" ^
   "  Write-Host ('Downloaden van GitHub (' + $branch + ')...');" ^
-  "  Invoke-WebRequest -Uri ('https://github.com/RareGoudvis/ce-questi-utility/archive/refs/heads/' + $branch + '.zip') -OutFile $zip;" ^
+  "  Invoke-WebRequest -Uri ('https://github.com/RareGoudvis/patchgoblin/archive/refs/heads/' + $branch + '.zip') -OutFile $zip;" ^
   "  if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force };" ^
   "  Expand-Archive -Path $zip -DestinationPath $tmp -Force;" ^
   "  $src=Get-ChildItem $tmp -Directory | Select-Object -First 1;" ^

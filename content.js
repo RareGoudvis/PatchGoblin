@@ -1,22 +1,22 @@
 /* PatchGoblin — content.js
  * Thin boot/relay layer. planner.js (loaded first, same isolated world) defines
- * window.__QWP_TOGGLE. This script:
- *   - guards against double injection (window.__QWP_BOOTED),
- *   - relays QWP_TOGGLE messages from background (toolbar action / Alt+P command),
+ * window.__PG_TOGGLE. This script:
+ *   - guards against double injection (window.__PG_BOOTED),
+ *   - relays PG_TOGGLE messages from background (toolbar action / Alt+P command),
  *   - provides an in-page Alt+P keydown fallback (works even if the command key
  *     is unregistered or intercepted by the SPA),
  *   - injects the single PatchGoblin launcher button (+ quick menu) into Questi's toolbar.
- * The fullscreen page itself is built lazily by __QWP_TOGGLE. */
+ * The fullscreen page itself is built lazily by __PG_TOGGLE. */
 (function () {
   "use strict";
-  if (window.__QWP_BOOTED) return;
-  window.__QWP_BOOTED = true;
+  if (window.__PG_BOOTED) return;
+  window.__PG_BOOTED = true;
 
   // ----- Beta channel -----
   // A BETA copy (manifest name contains "BETA") is sideloaded next to the stable addon. Both inject
   // the same overlay ids and class names into the same page, so they must never be live together:
   //   - the beta's CSS is NOT in its manifest; the worker inserts it only once the beta is the active
-  //     copy (QWP_INSERT_CSS), so beta styles never bleed into the stable overlay;
+  //     copy (PG_INSERT_CSS), so beta styles never bleed into the stable overlay;
   //   - before that, stable is detected by probing for its CSS (manifest CSS is injected before the
   //     DOM, so it is already there at document_idle); if found, the beta stays dormant and says so;
   //   - beta chips carry their own data attributes, so neither copy mistakes the other's chips for its own.
@@ -24,9 +24,9 @@
   var stableActive = IS_BETA && (function () {
     try {
       var probe = document.createElement("div");
-      probe.className = "qwp-banner"; probe.style.position = "absolute"; probe.style.visibility = "hidden";
+      probe.className = "pg-banner"; probe.style.position = "absolute"; probe.style.visibility = "hidden";
       (document.body || document.documentElement).appendChild(probe);
-      var on = getComputedStyle(probe).display === "flex";   // planner.css: .qwp-banner { display:flex }
+      var on = getComputedStyle(probe).display === "flex";   // planner.css: .pg-banner { display:flex }
       probe.remove();
       return on;
     } catch (e) { return false; }
@@ -35,7 +35,7 @@
   function ensureCss() {
     if (!IS_BETA) return Promise.resolve();
     if (!_cssReady) _cssReady = new Promise(function (resolve) {
-      try { chrome.runtime.sendMessage({ type: "QWP_INSERT_CSS" }, function () { void chrome.runtime.lastError; resolve(); }); }
+      try { chrome.runtime.sendMessage({ type: "PG_INSERT_CSS" }, function () { void chrome.runtime.lastError; resolve(); }); }
       catch (e) { resolve(); }
     });
     return _cssReady;
@@ -44,7 +44,7 @@
   function showDormantNotice() {
     if (_noticeShown || !document.body) return; _noticeShown = true;
     var n = document.createElement("div");
-    n.setAttribute("data-qwpb-notice", "1");
+    n.setAttribute("data-pgb-notice", "1");
     n.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483600;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:#fff7d6;color:#304651;border:1px solid #e4c84a;box-shadow:0 2px 10px rgba(0,0,0,.18);font:600 13px/1.35 urw-din,helvetica,'Segoe UI',Arial,sans-serif;max-width:92vw;";
     n.innerHTML = "<span>PatchGoblin <b>BETA</b> staat uit: de stabiele versie is ook actief. Schakel één van beide uit op chrome://extensions en herlaad de pagina.</span>";
     var x = document.createElement("button");
@@ -61,12 +61,12 @@
   }
 
   function toggle() {
-    activate(function () { if (typeof window.__QWP_TOGGLE === "function") window.__QWP_TOGGLE(); });
+    activate(function () { if (typeof window.__PG_TOGGLE === "function") window.__PG_TOGGLE(); });
   }
 
   try {
     chrome.runtime.onMessage.addListener(function (msg) {
-      if (msg && msg.type === "QWP_TOGGLE") toggle();
+      if (msg && msg.type === "PG_TOGGLE") toggle();
     });
   } catch (e) { /* not in extension context */ }
 
@@ -102,21 +102,21 @@
     }
     return null;
   }
-  var LAUNCHER_ATTR = IS_BETA ? "data-qwpb-launcher" : "data-qwp-launcher";
+  var LAUNCHER_ATTR = IS_BETA ? "data-pgb-launcher" : "data-pg-launcher";
   var SHORTCUT = IS_BETA ? "Alt+Shift+P" : "Alt+P";
   var FONT = "700 13.5px/1 system-ui,'Segoe UI',Helvetica,Arial,sans-serif";
-  function openLessons() { activate(function () { if (typeof window.__QWP_OPEN_LESSONS === "function") window.__QWP_OPEN_LESSONS(); }); }
-  function openPrint() { activate(function () { if (typeof window.__QWP_PRINT === "function") window.__QWP_PRINT(); }); }
+  function openLessons() { activate(function () { if (typeof window.__PG_OPEN_LESSONS === "function") window.__PG_OPEN_LESSONS(); }); }
+  function openPrint() { activate(function () { if (typeof window.__PG_PRINT === "function") window.__PG_PRINT(); }); }
   // Instellingen lives in the settings module when it is present; the planner hosts it otherwise.
   function openSettings() {
     activate(function () {
-      if (window.__UQ_SETTINGS && typeof window.__UQ_SETTINGS.open === "function") window.__UQ_SETTINGS.open();
-      else if (typeof window.__QWP_TOGGLE === "function") window.__QWP_TOGGLE();
+      if (window.__PG_SETTINGS && typeof window.__PG_SETTINGS.open === "function") window.__PG_SETTINGS.open();
+      else if (typeof window.__PG_TOGGLE === "function") window.__PG_TOGGLE();
     });
   }
   // Staged-but-unwritten changes, as counted by the planner (0 when it does not say).
   function pendingCount() {
-    try { var n = typeof window.__QWP_PENDING_COUNT === "function" ? window.__QWP_PENDING_COUNT() : 0; return n > 0 ? n : 0; } catch (e) { return 0; }
+    try { var n = typeof window.__PG_PENDING_COUNT === "function" ? window.__PG_PENDING_COUNT() : 0; return n > 0 ? n : 0; } catch (e) { return 0; }
   }
   // PatchGoblin mark: the goblin's head on transparent (icons/head96.png, web-accessible on questi.com) —
   // the square app icon is charcoal too and would vanish on the charcoal launcher.
@@ -149,7 +149,7 @@
     main.style.cssText = "display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 5px;border:none;border-radius:8px 0 0 8px;background:transparent;color:#fff;cursor:pointer;font:" + FONT + ";letter-spacing:-.01em;";
     main.innerHTML = markSvg(22) + "<span>PatchGoblin</span>" +
       (IS_BETA ? '<span style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.12);color:#7ED957;font-size:9.5px;letter-spacing:.06em;">BETA</span>' : "") +
-      '<span data-uq-badge="1" style="display:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#7ED957;color:#1E1F27;font-size:11px;align-items:center;justify-content:center;"></span>';
+      '<span data-pg-badge="1" style="display:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#7ED957;color:#1E1F27;font-size:11px;align-items:center;justify-content:center;"></span>';
     main.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); closeMenu(); toggle(); });
     var caret = document.createElement("button");
     caret.type = "button";
@@ -169,7 +169,7 @@
     return wrap;
   }
   function refreshBadge(root) {
-    var b = (root || document).querySelector("[" + LAUNCHER_ATTR + "] [data-uq-badge]"); if (!b) return;
+    var b = (root || document).querySelector("[" + LAUNCHER_ATTR + "] [data-pg-badge]"); if (!b) return;
     var n = pendingCount();
     b.textContent = n ? String(n) : "";
     b.style.display = n ? "inline-flex" : "none";
