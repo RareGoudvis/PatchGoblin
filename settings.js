@@ -966,7 +966,8 @@
             if (!plannerShown()) { diagMsg.textContent = "Open eerst Plannen; de Zelftest draait daar."; return; }
             close(); S().openDiagnose();
           }, "ghost"),
-          btn("Eerste installatie opnieuw", function () { openSetup(); }, "ghost")
+          btn("Eerste installatie opnieuw", function () { openSetup(); }, "ghost"),
+          btn("Handleiding", function () { window.open("https://raregoudvis.github.io/PatchGoblin/", "_blank", "noopener"); }, "ghost", { title: "Wat het kan, installeren en de handleiding (opent in een nieuw tabblad)" })
         ]),
         diagMsg,
         h("p", { class: "pgs-p muted", text: "Werkt bovenop Questi zonder officiële koppeling. Je gegevens blijven in je browser en in je eigen Questi-account; er gaat niets naar een andere server. Enkel de versiecontrole leest een bestand van GitHub." })

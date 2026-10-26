@@ -64,7 +64,7 @@ met je gewone Questi-login.
 
 ## 1. Installeren
 
-De makkelijkste weg is de stap-voor-stap-gids: **[PatchGoblin installeren](https://claude.ai/artifact/BzuDN1SfiziugCxB5YvToL)**.
+De makkelijkste weg is de stap-voor-stap-gids: **[PatchGoblin installeren](https://raregoudvis.github.io/PatchGoblin/#installeren)**.
 In het kort:
 
 1. Download [`install.bat`](https://github.com/RareGoudvis/PatchGoblin/blob/main/install.bat)
@@ -213,13 +213,21 @@ naar de nieuwe versie.
 
 ![Afdrukken: Lesdoelen-versie op A4](docs/img/07-afdrukken.png)
 
+![Te doen: je week als tijdlijn](docs/img/07b-te-doen.png)
+
 Het tabblad **Afdrukken** toont een voorbeeld op A4 van de week die in Questi staat (dus niet je
 klaargezette wijzigingen — die zegt het er ook bij).
 
-- **Versie**: **Gewoon** (je weekplanning) of **Lesdoelen** op 1 of 2 A4, met per les
-  schrijflijnen voor WEET, KEN en KAN. Op de vrije woensdagnamiddag staan de thema's en de legende
-  met je vakkleuren.
-- **Op het blad**: weeknummer en afdrukdatum, labels, legende.
+- **Versie**:
+  - **Weekplanning** — je hele week op één blad: per les een kaartje met de vakkleur, de thema's
+    bovenaan, onderaan je opmerking en de legende.
+  - **Lesdoelen** op 1 of 2 A4 — per les schrijflijnen voor WEET, KEN en KAN. Op de vrije
+    woensdagnamiddag staan de thema's, de legende en de goblin.
+  - **Te doen · 2 A4** (nieuw) — voorkant: je week als tijdlijn, elke les zo lang als ze duurt;
+    achterkant: per dag een afvinklijst met ruimte voor materiaal en huiswerk. Toetsen herkent het
+    aan het woord ‘toets’ in de titel (dat staat ook op het blad).
+- **Op het blad**: weeknummer en afdrukdatum, legende, het logo linksboven (kopje of de volledige
+  goblin) en — als je hem graag ziet — de goblin groot in een vrij vak.
 - **Andere agenda's meeprinten**, bv. die van de zorgjuf. Klik een item om het te verbergen.
 - **Opmerking voor deze week** komt mee op het blad.
 - "**N kaarten zonder doelen · nu invullen**" brengt je meteen naar die fiches.

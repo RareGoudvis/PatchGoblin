@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="PatchGoblin for Questi: wat het kan, installeren en de handleiding.">
+<link rel="icon" href="img/head96.png">
+<title>PatchGoblin for Questi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one reading column; each step is a numbered row with its text left and a drawn browser detail right (stacks on phones). */
+:root {
+  --bg: #f6f7fb; --surface: #ffffff; --ink: #1e2a33; --muted: #5d6b74; --line: #dfe4ea;
+  --blue: #2d5be3; --blue-tint: #eaf0ff; --amber: #ffb343; --amber-tint: #fff4e0; --warn-ink: #8a4b00;
+  --chrome: #eef1f4; --toggle-off: #c4ccd3;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12171c; --surface: #1a2128; --ink: #e8edf1; --muted: #9eabb4; --line: #2c363f;
+  --blue: #8aa8ff; --blue-tint: #1f2a44; --amber: #ffb343; --amber-tint: #3a2c14; --warn-ink: #ffcf8a;
+  --chrome: #222b33; --toggle-off: #48545e; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12171c; --surface: #1a2128; --ink: #e8edf1; --muted: #9eabb4; --line: #2c363f;
+  --blue: #8aa8ff; --blue-tint: #1f2a44; --amber: #ffb343; --amber-tint: #3a2c14; --warn-ink: #ffcf8a;
+  --chrome: #222b33; --toggle-off: #48545e; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 17px/1.6 var(--body); }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 40px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(32px, 6vw, 48px); font-weight: 800; letter-spacing: -.02em; }
+h2 { font-size: 26px; font-weight: 800; margin-top: 56px; }
+h3 { font-size: 19px; font-weight: 600; }
+p { margin: 0; max-width: 65ch; }
+a { color: var(--blue); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; border-radius: 4px; }
+code, .path { font-family: var(--mono); font-size: .86em; background: var(--chrome); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; overflow-wrap: anywhere; }
+kbd { font-family: var(--mono); font-size: .82em; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; background: var(--surface); }
+
+.head { display: flex; align-items: center; gap: 16px; }
+.mark { flex: 0 0 auto; width: 64px; height: 64px; object-fit: contain; }
+.lead { margin-top: 16px; font-size: 19px; color: var(--muted); }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 20px; padding: 0; list-style: none; }
+.facts li { font-size: 14px; padding: 4px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); }
+
+.note { margin-top: 18px; padding: 14px 16px; border-radius: 10px; background: var(--amber-tint); color: var(--warn-ink); font-size: 15.5px; max-width: 72ch; }
+.note b { color: inherit; }
+
+.steps { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 18px; counter-reset: s; }
+.step { display: grid; grid-template-columns: 44px minmax(0, 1fr) minmax(0, 380px); gap: 18px; align-items: start;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+.step::before { counter-increment: s; content: counter(s); width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--blue); color: var(--surface); font: 800 19px/1 var(--display); }
+.step .txt { display: grid; gap: 8px; min-width: 0; }
+.step .txt p { color: var(--muted); }
+.step .txt p b { color: var(--ink); }
+@media (max-width: 760px) { .step { grid-template-columns: 40px minmax(0, 1fr); } .step .fig { grid-column: 1 / -1; } }
+
+/* Drawn browser details */
+.fig { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); font-size: 13.5px; min-width: 0; }
+.fig-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--chrome); border-bottom: 1px solid var(--line); }
+.dots { display: flex; gap: 5px; } .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--toggle-off); display: block; }
+.url { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fig-body { padding: 14px; display: grid; gap: 12px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ttl { font-weight: 700; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+.sw { width: 34px; height: 20px; border-radius: 999px; background: var(--blue); position: relative; flex: 0 0 auto; }
+.sw::after { content: ""; position: absolute; top: 3px; right: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.fbtn { border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; color: var(--blue); background: var(--surface); }
+.hl { box-shadow: 0 0 0 3px var(--amber); border-radius: 6px; }
+.toggle.hl { padding: 2px 6px; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
+.card small { color: var(--muted); }
+.picker .pathbar { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--chrome); overflow-wrap: anywhere; }
+.picker .foot { display: flex; justify-content: flex-end; gap: 8px; }
+.picker .primary { background: var(--blue); color: var(--surface); border-color: var(--blue); }
+.qbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.uqbtn { display: inline-flex; align-items: center; gap: 8px; background: #1e2a33; color: #fff; border-radius: 8px; padding: 5px 12px 5px 5px; font-weight: 700; }
+.uqbtn img { width: 22px; height: 22px; }
+.qmuted { color: var(--muted); }
+
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 20px; }
+@media (max-width: 760px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.box ul, .box ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.box li { max-width: 60ch; }
+.faq { margin-top: 20px; display: grid; gap: 10px; }
+.faq details { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+.faq summary { cursor: pointer; font-weight: 700; }
+.faq details p { margin-top: 8px; color: var(--muted); }
+.copyrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.copy { font: 600 13px var(--body); border: 1px solid var(--line); background: var(--surface); color: var(--blue); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.toc { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+.toc a { text-decoration: none; font-weight: 700; font-size: 15px; padding: 6px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); }
+.toc a:hover { border-color: var(--blue); color: var(--blue); }
+.feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; margin-top: 20px; }
+.feat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 6px; align-content: start; }
+.feat p { color: var(--muted); font-size: 15.5px; }
+.sec { margin-top: 26px; display: grid; gap: 12px; }
+.sec h3 { font-size: 21px; }
+.sec p, .sec li { color: var(--muted); max-width: 72ch; }
+.sec p b, .sec li b { color: var(--ink); }
+.sec ul, .sec ol { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+.shot { margin: 4px 0 0; display: grid; gap: 6px; }
+.shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.shot figcaption { font-size: 14px; color: var(--muted); }
+.demo { font-size: 14.5px; color: var(--muted); margin-top: 10px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 15px; }
+.tbl th, .tbl td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.tbl th { color: var(--ink); white-space: nowrap; }
+.tbl td { color: var(--muted); }
+footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <img class="mark" src="img/head96.png" alt="">
+    <h1>PatchGoblin for Questi</h1>
+  </header>
+  <p class="lead">PatchGoblin for Questi legt een planningsvenster over je Questi-agenda: lesfiches slepen, weken vooruit plannen, lesdoelen afdrukken. Hieronder: wat het kan, hoe je het installeert (ongeveer vijf minuten) en hoe je ermee werkt.</p>
+  <ul class="facts">
+    <li>Windows-pc</li><li>Chrome, Edge of Brave</li><li>Je gewone Questi-login</li><li>Gratis, niet van Questi zelf</li>
+  </ul>
+  <p class="note"><b>Op een pc van school?</b> Daar heeft de IT-dienst het laden van eigen extensies soms afgezet. Lukt stap 3 niet omdat “Ontwikkelaarsmodus” grijs is, gebruik dan je eigen computer.</p>
+
+
+  <nav class="toc" aria-label="Inhoud"><a href="#kan">Wat het kan</a><a href="#installeren">Installeren</a><a href="#handleiding">Handleiding</a><a href="#hulp">Lukt het niet?</a><a href="#handmatig">Zonder install.bat</a></nav>
+
+  <h2 id="kan">Wat het kan</h2>
+  <div class="feats">
+    <div class="feat"><h3>Twee weken in één blik</h3><p>Deze week en volgende week onder elkaar. Sleep lesfiches uit je lijst op je lesuren; de lijst toont wat je al gaf en wat nog niet.</p></div>
+    <div class="feat"><h3>Eén keer controleren</h3><p>Alles wordt eerst klaargezet. Pas na jouw nakijken en goedkeuren gaat het naar Questi — een lesuur uit een reeks altijd alleen voor die ene week.</p></div>
+    <div class="feat"><h3>Lesdoelen</h3><p>WEET / KEN / KAN per les, bewaard in de lesfiche zelf. Zie per week welke lessen nog geen doelen hebben en vul ze snel in.</p></div>
+    <div class="feat"><h3>Je lesfiches beheren</h3><p>Je hele bibliotheek als tabel met tagboom: titels, tags, leerjaren en doelen aanpassen, en nieuwe fiches maken met de Op.Stap-leerplandoelen.</p></div>
+    <div class="feat"><h3>Afdrukken</h3><p>Je week op A4 in de kleuren van je vakken: als weekplanning, met schrijflijnen voor de lesdoelen, of als tijdlijn met een afvinklijst. Ook als PDF.</p></div>
+    <div class="feat"><h3>Vooruit plannen</h3><p>Blader weken verder en je wijzigingen blijven klaarstaan; vakantieweken worden overgeslagen. Methodevoortgang toont welke lessen van een methode je al gaf.</p></div>
+  </div>
+
+  <h2 id="installeren">Installeren</h2>
+  <ol class="steps">
+    <li class="step">
+      <div class="txt">
+        <h3>Download het installatiebestand</h3>
+        <p>Open <a href="https://github.com/RareGoudvis/PatchGoblin/blob/main/install.bat" target="_blank" rel="noopener">install.bat op GitHub</a> en klik rechtsboven op het <b>downloadpijltje</b> (“Download raw file”).</p>
+        <p>Je browser kan vragen of je het bestand wil <b>behouden</b>: kies “Behouden”.</p>
+      </div>
+      <div class="fig" aria-hidden="true">
+        <div class="fig-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">github.com/RareGoudvis/PatchGoblin/…/install.bat</span></div>
+        <div class="fig-body">
+          <div class="row"><span class="ttl">install.bat</span><span class="btns"><span class="fbtn">Raw</span><span class="fbtn">⧉</span><span class="fbtn hl">⤓</span></span></div>
+          <span class="qmuted">@echo off<br>REM PatchGoblin - installer …</span>
+        </div>
+      </div>
+    </li>
+    <li class="step">
+      <div class="txt">
+        <h3>Dubbelklik install.bat</h3>
+        <p>Een zwart venster haalt PatchGoblin binnen en zet het in een vaste map. Het kopieert die map naar je <b>klembord</b> en opent de extensiepagina van je browser.</p>
+        <p>Toont Windows “Windows heeft uw pc beschermd”? Klik <b>Meer info</b> en dan <b>Toch uitvoeren</b>. Het bestand doet niets anders dan downloaden en kopiëren.</p>
+      </div>
+      <div class="fig" aria-hidden="true">
+        <div class="fig-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">install.bat</span></div>
+        <div class="fig-body" style="font-family:var(--mono);font-size:12px">
+          <span>=== PatchGoblin installeren (versie: main) ===</span>
+          <span>Downloaden van GitHub (main)…</span>
+          <span style="color:#16a765">Geinstalleerd in: C:\Users\…\AppData\Local\PatchGoblin</span>
+          <span>Die map staat nu op je klembord.</span>
+        </div>
+      </div>
+    </li>
+    <li class="step">
+      <div class="txt">
+        <h3>Zet Ontwikkelaarsmodus aan</h3>
+        <p>Op de extensiepagina die net openging: zet de schakelaar <b>Ontwikkelaarsmodus</b> aan. In Chrome en Brave staat hij rechtsboven, in Edge links onderaan.</p>
+        <p>Ging de pagina niet open? Typ <code>chrome://extensions</code> in de adresbalk (Edge: <code>edge://extensions</code>).</p>
+      </div>
+      <div class="fig" aria-hidden="true">
+        <div class="fig-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">chrome://extensions</span></div>
+        <div class="fig-body">
+          <div class="row"><span class="ttl">Extensies</span><span class="toggle hl">Ontwikkelaarsmodus <span class="sw"></span></span></div>
+          <div class="btns"><span class="fbtn">Uitgepakt laden</span><span class="fbtn">Inpakken</span><span class="fbtn">Updaten</span></div>
+        </div>
+      </div>
+    </li>
+    <li class="step">
+      <div class="txt">
+        <h3>Klik “Uitgepakt laden” en plak de map</h3>
+        <p>Klik <b>Uitgepakt laden</b>. In het venster dat opent: klik bovenaan in het <b>adresvak</b>, druk <kbd>Ctrl</kbd>+<kbd>V</kbd> en <kbd>Enter</kbd>, en klik <b>Map selecteren</b>.</p>
+        <div class="copyrow"><p>Klembord leeg? Plak dan dit pad:</p><span class="path" id="uqpath">%LOCALAPPDATA%\PatchGoblin</span><button class="copy" id="copypath" type="button">Kopiëren</button></div>
+      </div>
+      <div class="fig picker" aria-hidden="true">
+        <div class="fig-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">Map met extensie selecteren</span></div>
+        <div class="fig-body">
+          <div class="pathbar hl">C:\Users\…\AppData\Local\PatchGoblin</div>
+          <div class="card"><span>icons</span><span>manifest.json · planner.js · …</span></div>
+          <div class="foot"><span class="fbtn primary">Map selecteren</span><span class="fbtn">Annuleren</span></div>
+        </div>
+      </div>
+    </li>
+    <li class="step">
+      <div class="txt">
+        <h3>Herlaad je Questi-agenda</h3>
+        <p>Ga naar je agenda in Questi en druk <kbd>F5</kbd>. Bovenaan staat nu de knop <b>PatchGoblin</b>. Openen kan ook met <kbd>Alt</kbd>+<kbd>P</kbd>.</p>
+        <p>De eerste keer helpt een korte <b>wizard</b> je op weg (zie hieronder).</p>
+      </div>
+      <div class="fig" aria-hidden="true">
+        <div class="fig-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">questi.com/…/calendar</span></div>
+        <div class="fig-body">
+          <div class="qbar"><span class="qmuted">Agenda · Vandaag ‹ ›</span>
+            <span class="uqbtn hl"><img src="img/head96.png" alt="">PatchGoblin</span></div>
+        </div>
+      </div>
+    </li>
+  </ol>
+
+  <h3 id="handmatig" style="margin-top:28px">Lukt install.bat niet? Handmatig installeren</h3>
+  <div class="box" style="margin-top:12px">
+    <p>Op een computer van school blokkeert Windows soms <b>.bat</b>-bestanden of PowerShell. Dan installeer je met de hand — het resultaat is hetzelfde.</p>
+    <ol>
+      <li>Open <a href="https://github.com/RareGoudvis/PatchGoblin" target="_blank" rel="noopener">PatchGoblin op GitHub</a>, klik op de groene knop <b>Code</b> en kies <b>Download ZIP</b>.</li>
+      <li>Pak de ZIP uit naar een <b>vaste map</b> die je niet meer verplaatst of verwijdert, bv. <span class="path">Documenten\PatchGoblin</span>. Laat ze niet in Downloads staan: de browser leest de extensie elke keer uit die map.</li>
+      <li>Open de extensiepagina (<code>chrome://extensions</code>, in Edge <code>edge://extensions</code>) en zet <b>Ontwikkelaarsmodus</b> aan.</li>
+      <li>Klik <b>Uitgepakt laden</b> en kies de map waarin <b>manifest.json</b> staat. Na het uitpakken is dat vaak één map dieper, bv. <span class="path">PatchGoblin-main</span>.</li>
+      <li>Herlaad je Questi-agenda met <kbd>F5</kbd>.</li>
+    </ol>
+    <p><b>Bijwerken zonder update.bat:</b> download de ZIP opnieuw, vervang de bestanden in dezelfde map, klik op de extensiepagina op <b>↻</b> bij PatchGoblin en herlaad Questi.</p>
+  </div>
+
+  <h2>De eerste keer</h2>
+  <div class="cols">
+    <div class="box">
+      <h3>De wizard</h3>
+      <ol>
+        <li><b>Vakken</b>: vink aan welke van je Questi-tags echte vakken zijn (wiskunde, taal …).</li>
+        <li><b>Lesrooster</b>: kies per lesuur het vak. PatchGoblin stelt voor wat het al in je agenda ziet; bevestig of pas aan. Gym en zwemmen zet je zelf.</li>
+        <li><b>Agenda</b>: “Vak als beschrijving” zet je alleen aan als je klaswebsite (bv. Enderklas) de beschrijving als vak toont.</li>
+      </ol>
+      <p class="qmuted">Alles kan later nog in Instellingen.</p>
+    </div>
+    <div class="box">
+      <h3>Goed om te weten</h3>
+      <ul>
+        <li>Niets gaat naar Questi voor je op <b>Controleer</b> klikt en de wijzigingen goedkeurt.</li>
+        <li>Een lesuur uit een reeks wordt altijd los aangepast, nooit de hele reeks.</li>
+        <li>Je instellingen staan in je browser. Op een andere computer neem je ze mee via Instellingen → Delen &amp; back-up.</li>
+        <li>PatchGoblin is een onafhankelijk project; Questi zelf ondersteunt het niet.</li>
+        <li>Iets mis? Open <b>Debug</b> onderaan de zijbalk: de Zelftest zegt wat er scheelt. <b>Opslaan als .json</b> maakt een bestand om mee te sturen met je vraag (zonder wachtwoord of cookies).</li>
+      </ul>
+    </div>
+  </div>
+
+
+  <h2 id="handleiding">Handleiding</h2>
+  <p class="demo">De schermafbeeldingen tonen PatchGoblin met verzonnen voorbeeldgegevens (een fictieve juf en school). Bij jou staan er je eigen vakken, lesuren en lesfiches.</p>
+
+  <div class="sec">
+    <h3>Openen</h3>
+    <p>Op je Questi-<b>agenda</b> staat de knop <b>PatchGoblin</b> in de werkbalk. Klik hem, of druk <kbd>Alt</kbd>+<kbd>P</kbd>. Het pijltje ernaast opent een snelmenu: <b>Plannen</b>, <b>Lesfiches</b>, <b>Afdrukken deze week</b> en <b>Instellingen</b>.</p>
+    <figure class="shot"><img src="img/00-knop.png" alt="De PatchGoblin-knop in de werkbalk van Questi" loading="lazy"><figcaption>De PatchGoblin-knop in de werkbalk van Questi</figcaption></figure>
+    <figure class="shot"><img src="img/00-knop-menu.png" alt="Het snelmenu" loading="lazy"><figcaption>Het snelmenu achter het pijltje</figcaption></figure>
+  </div>
+
+  <div class="sec">
+    <h3>Plannen</h3>
+    <figure class="shot"><img src="img/01-plannen.png" alt="Plannen: links je lesfiches, rechts deze week en volgende week" loading="lazy"><figcaption>Plannen: links je lesfiches, rechts deze week en volgende week</figcaption></figure>
+    <ul>
+      <li><b>Rechts</b> staan deze week en volgende week. Elke kaart is een lesuur: bovenaan het vak in de kleur van je Questi-tag, daaronder de les. Een gestippelde kaart heeft nog geen lesfiche. <b>← →</b> bladert een week, <b>Vandaag</b> brengt je terug.</li>
+      <li><b>Links</b> je lesfiches. Kies een <b>vak</b>, verfijn met de subtags, of kies <b>Ik / Collega</b> voor de fiches van een collega of een methode. <b>Filter</b> klapt zoeken, leerjaar en sorteren open.</li>
+      <li>Achter elke fiche: groen <b>gepland</b> (staat in deze weken), een grijs ✓ (dit schooljaar gegeven), of de laatste datum / <b>nooit</b>.</li>
+      <li><b>Sleep</b> een fiche op een lesuur om ze te plannen. <b>Klik</b> een lesuur om een fiche te kiezen, de titel of het vak te wijzigen, het leeg te maken of er <b>Lichamelijke opvoeding / zwemmen</b> van te maken. Sleep een kaart naar een ander lesuur om te verplaatsen of te wisselen. <kbd>Ctrl</kbd>+<kbd>Z</kbd> draait terug.</li>
+    </ul>
+    <figure class="shot"><img src="img/02-staged.png" alt="Klaargezette wijzigingen: groene kaarten en een teller" loading="lazy"><figcaption>Klaargezette wijzigingen: groene kaarten en een teller</figcaption></figure>
+    <p>Wat je verandert wordt eerst <b>klaargezet</b>: de kaart krijgt een groene rand en bovenaan staat hoeveel wijzigingen er wachten. Blader gerust verder en plan een hele maand — klaargezette wijzigingen blijven staan tot je ze wegschrijft.</p>
+    <table class="tbl"><tr><th>Menu Alles</th><td><b>Kopieer vorige week</b> · <b>Titels opschonen</b> (haalt de “* … (1)” van Questi uit titels) · <b>Vakken herstellen</b> · <b>Ongedaan maken</b> · <b>Vernieuwen</b> · <b>Balans</b> (lesuren per vak) · <b>Zoek in alle lesfiches</b> · <b>Lesfiches van collega’s</b> · <b>Methodes</b> · <b>Methodevoortgang</b></td></tr></table>
+    <p><b>Themarijen.</b> Hele-week-items zoals WO of Godsdienst staan als brede balk bovenaan elke week. Leg er de themafiche van die week in.</p>
+  </div>
+
+  <div class="sec">
+    <h3>Controleren en wegschrijven</h3>
+    <figure class="shot"><img src="img/03-controleer.png" alt="Controleer: elke wijziging op een rij, met een vinkje" loading="lazy"><figcaption>Controleer: elke wijziging op een rij, met een vinkje</figcaption></figure>
+    <ul>
+      <li>Klik <b>Controleer</b> (onderaan de zijbalk). Je ziet alles wat klaarstaat, in de volgorde waarin het naar Questi gaat: nieuwe tags, aangepaste lesfiches, dan de lesuren.</li>
+      <li>Wat je <b>uitvinkt</b>, blijft klaargezet voor later. Het <b>vuilbakje</b> zet een lesuur terug zoals het in Questi staat. <b>Toon als rooster</b> toont voor en na naast elkaar.</li>
+      <li>Klik <b>Wegschrijven</b>. Daarna herlaadt Questi en opent PatchGoblin vanzelf weer op dezelfde weken.</li>
+      <li>Lukt iets niet, dan zegt het venster wat, en blijft dat klaargezet. Antwoordt Questi niet, dan kijkt PatchGoblin zelf na of het toch aankwam; lukt ook dat niet, dan staat het er als <b>onzeker</b> bij — kijk het dan even na in Questi.</li>
+    </ul>
+  </div>
+
+  <div class="sec">
+    <h3>Doelen</h3>
+    <figure class="shot"><img src="img/04-doelen.png" alt="Doelen: per les WEET, KEN en KAN" loading="lazy"><figcaption>Doelen: per les WEET, KEN en KAN</figcaption></figure>
+    <p>Schakel bovenaan van <b>Plannen</b> naar <b>Doelen</b>: één week, en op elke kaart de <b>WEET / KEN / KAN</b>-doelen van de lesfiche. Bovenaan staat hoeveel lessen nog geen doelen hebben. De doelen staan <b>in de lesfiche zelf</b>, dus ook in Questi, op je andere computer en bij collega’s met wie je de fiche deelt.</p>
+  </div>
+
+  <div class="sec">
+    <h3>Lesfiches</h3>
+    <figure class="shot"><img src="img/05-lesfiches.png" alt="Lesfiches: tagboom links, je bibliotheek als tabel" loading="lazy"><figcaption>Lesfiches: tagboom links, je bibliotheek als tabel</figcaption></figure>
+    <ul>
+      <li><b>Links</b> je tags als boom. Met <b>✎</b> hernoem of herkleur je een tag, of hang je hem onder een ander vak; <b>+ Tag</b> maakt een nieuwe.</li>
+      <li><b>Rechts</b> een tabel met titel, leerjaar, laatst gebruikt en tags. Klik een kolomkop om te sorteren; klik een titel om ze aan te passen.</li>
+      <li><b>Meerdere tegelijk</b>: vink fiches aan en kies <b>Tags bewerken</b> of <b>Verwijderen</b> (definitief: je typt eerst VERWIJDER en er wordt een back-up gedownload).</li>
+      <li><b>Lesdoelen invullen</b> maakt van de lijst een invulblad: per fiche Titel · WEET · KEN · KAN. <kbd>Tab</kbd> = volgend vak, <kbd>Enter</kbd> = volgende fiche.</li>
+    </ul>
+    <figure class="shot"><img src="img/06-fiche-editor.png" alt="De volledige editor van één lesfiche" loading="lazy"><figcaption>De volledige editor van één lesfiche</figcaption></figure>
+    <p><b>Dubbelklik</b> een fiche voor de volledige editor: titel, leerjaren, zichtbaarheid, tags, alle tekstvelden en WEET/KEN/KAN. <b>+ Nieuwe fiche</b> maakt een fiche zonder de editor van Questi, met de echte Op.Stap-kiezer voor de leerplandoelen. Ook hier gaat alles via dezelfde <b>Controleer</b>.</p>
+  </div>
+
+  <div class="sec">
+    <h3>Afdrukken</h3>
+    <figure class="shot"><img src="img/07-afdrukken.png" alt="Afdrukken: Lesdoelen-versie op A4" loading="lazy"><figcaption>Afdrukken: Lesdoelen-versie op A4</figcaption></figure>
+    <figure class="shot"><img src="img/07b-te-doen.png" alt="Te doen: je week als tijdlijn" loading="lazy"><figcaption>Te doen: je week als tijdlijn (voorkant)</figcaption></figure>
+    <ul>
+      <li><b>Versie</b>: <b>Weekplanning</b> (je hele week op één blad, kaartjes in je vakkleuren), <b>Lesdoelen</b> op 1 of 2 A4 (schrijflijnen voor WEET, KEN en KAN; de goblin in het vrije woensdagvak) of <b>Te doen · 2 A4</b> (nieuw: voorkant je week als tijdlijn, achterkant per dag een afvinklijst met ruimte voor materiaal en huiswerk; toetsen herkend aan het woord ‘toets’ in de titel).</li>
+      <li><b>Op het blad</b>: weeknummer en datum, legende, het logo linksboven (kopje of volledige goblin) en eventueel de goblin groot in een vrij vak.</li>
+      <li>Kies wat er <b>op het blad</b> komt, druk <b>andere agenda’s</b> mee af (bv. die van de zorgjuf) en voeg een <b>opmerking voor deze week</b> toe.</li>
+      <li><b>Bewaar als PDF</b> of <b>Afdrukken</b> opent het afdrukvenster van je browser. Het blad toont wat in Questi staat, niet wat nog klaargezet is.</li>
+    </ul>
+  </div>
+
+  <div class="sec">
+    <h3>Instellingen</h3>
+    <figure class="shot"><img src="img/08-instellingen.png" alt="Instellingen: het lesrooster" loading="lazy"><figcaption>Instellingen: het lesrooster</figcaption></figure>
+    <p><b>Lesrooster</b> (welk vak op welk lesuur), <b>Vakken</b>, <b>Agenda</b>, <b>Collega’s &amp; methodes</b>, <b>Afdrukken</b>, <b>Weergave</b> (licht of donker) en <b>Delen &amp; back-up</b>: je instellingen als bestand bewaren of overnemen van een collega — vakken gaan mee op naam en kleur.</p>
+  </div>
+
+  <div class="sec">
+    <h3>Methodevoortgang</h3>
+    <figure class="shot"><img src="img/09-methodes.png" alt="Methodevoortgang: welke lessen al gegeven zijn" loading="lazy"><figcaption>Methodevoortgang: welke lessen al gegeven zijn</figcaption></figure>
+    <p>Via <b>Alles → Methodevoortgang</b>. Per methode zie je welke lessen je dit schooljaar al gaf en welke nog open staan, per thema, met de overgeslagen lessen. Een methode komt uit Questi of uit je eigen lesfiches. Het <b>leest alleen</b>: er wordt niets naar Questi geschreven.</p>
+  </div>
+
+  <h2>Bijwerken</h2>
+  <div class="box" style="margin-top:20px">
+    <p>Is er een nieuwe versie, dan meldt PatchGoblin dat zelf. Bijwerken:</p>
+    <ol>
+      <li>Open de map <span class="path">%LOCALAPPDATA%\PatchGoblin</span> (plakken in de adresbalk van Verkenner) en dubbelklik <b>update.bat</b>. Het controleert de download eerst en maakt een back-up van je vorige versie (in <span class="path">%LOCALAPPDATA%\PatchGoblin-backups</span>); lukt het vervangen niet, dan zet het die vanzelf terug.</li>
+      <li>Klik op de extensiepagina bij PatchGoblin op het pijltje <b>↻</b> (opnieuw laden).</li>
+      <li>Geen update.bat mogelijk? Zie <a href="#handmatig">handmatig installeren</a> — bijwerken gaat net zo.</li>
+      <li>Herlaad je Questi-agenda met <kbd>F5</kbd>.</li>
+    </ol>
+  </div>
+
+  <h2 id="hulp">Lukt het niet?</h2>
+  <div class="faq">
+    <details><summary>Ik zie geen PatchGoblin-knop</summary><p>Herlaad de Questi-pagina met F5. Staat PatchGoblin op de extensiepagina wel aan? Zie je daar een rode foutmelding, stuur dan een schermafdruk door.</p></details>
+    <details><summary>Ontwikkelaarsmodus is grijs of verdwijnt</summary><p>Dan beheert je school deze browser en zijn eigen extensies geblokkeerd. Installeer PatchGoblin op je eigen computer.</p></details>
+    <details><summary>Chrome vraagt om extensies in ontwikkelaarsmodus uit te schakelen</summary><p>Kies niet “Uitschakelen”, maar sluit de melding met het kruisje. PatchGoblin blijft dan werken.</p></details>
+    <details><summary>Ik heb een Mac</summary><p>install.bat werkt alleen op Windows. Volg <a href="#handmatig">handmatig installeren</a>.</p></details>
+    <details><summary>Ik wil PatchGoblin weer weg</summary><p>Klik op de extensiepagina bij PatchGoblin op “Verwijderen”. Je agenda in Questi blijft zoals hij is.</p></details>
+  </div>
+
+  <footer>PatchGoblin for Questi v2.0 · broncode en vragen: <a href="https://github.com/RareGoudvis/PatchGoblin" target="_blank" rel="noopener">github.com/RareGoudvis/PatchGoblin</a></footer>
+</div>
+
+<script>
+(function () {
+  var b = document.getElementById("copypath"), p = document.getElementById("uqpath");
+  b.addEventListener("click", function () {
+    var t = p.textContent;
+    function sel() { var r = document.createRange(); r.selectNodeContents(p); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Geselecteerd — Ctrl+C"; }
+    try { navigator.clipboard.writeText(t).then(function () { b.textContent = "Gekopieerd"; }, sel); } catch (e) { sel(); }
+  });
+})();
+</script>
+</body>
+</html>

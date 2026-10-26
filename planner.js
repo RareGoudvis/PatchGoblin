@@ -6267,7 +6267,7 @@
       return view.hydrateP;
     }).then(function () {
       setStatus((state.colleagues.length ? ("Klaar. Collega's: " + state.colleagues.map(function (c) { return c.name; }).join(", ")) : "Klaar.") + hydrateFailNote() +
-        (migratedKeys().length ? " Je instellingen van de vorige versie zijn overgezet (" + migratedKeys().length + " onderdelen)." : ""));
+        (migratedKeys().length ? " Je instellingen van de vorige versie zijn overgezet (" + (migratedKeys().length === 1 ? "1 onderdeel" : migratedKeys().length + " onderdelen") + ")." : ""));
       quickHealthCheck();
       // Week, tags and fiches are in: settings.js listens for this to auto-open first-run setup.
       try { document.dispatchEvent(new CustomEvent("pg:loaded")); } catch (e) {}
@@ -6356,7 +6356,7 @@
         // Say which rule picked the week — the fallback is the common path, not an error.
         // This line replaces loadEverything's "Klaar.", so it repeats the one-time migration note.
         setStatus((ow.fromQuesti ? "Week overgenomen uit Questi." : "Week van vandaag geladen.") + hydrateFailNote() +
-          (migratedKeys().length ? " Je instellingen van de vorige versie zijn overgezet (" + migratedKeys().length + " onderdelen)." : ""));
+          (migratedKeys().length ? " Je instellingen van de vorige versie zijn overgezet (" + (migratedKeys().length === 1 ? "1 onderdeel" : migratedKeys().length + " onderdelen") + ")." : ""));
       });
     }).catch(function (e) { console.error("[PG] boot error:", e); markPlannerReady(false); setStatus("Laadfout — probeer 'Vernieuwen'."); });
   }

@@ -43,7 +43,7 @@ names and ids — never copy values from it into a tracked file).
 
 ## Layout
 
-Flat repo. `icons/`, `reference/` and `docs/img/` (README/manual screenshots, rendered from the real code against a fake API with invented data; the same PNGs are published as `img/` in the user guide artifact BzuDN1SfiziugCxB5YvToL) are the only folders.
+Flat repo. `icons/`, `reference/` and `docs/img/` (screenshots rendered from the real code against a fake API with invented data, plus `docs/index.html`: the user guide — features, install incl. a manual route without install.bat, illustrated manual — served by GitHub Pages at https://raregoudvis.github.io/PatchGoblin/; README, Instellingen → Over and the guide link there) are the only folders.
 
 | File | Lines | Role |
 |---|---|---|
