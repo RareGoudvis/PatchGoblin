@@ -136,7 +136,7 @@ how many parts were carried over (`migratedKeys()`). Every read must go through 
 | `pg_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
 | `pg_threads_v1` | planner (print) + lessons | fiche lineage `{ "<thread>": newest fiche id seen }` — learned from every edit view read/written (the list has no `thread`) |
 | `pg_goalcache_v1` | lessons (goals mode) + print | goals per fiche VERSION `{ "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }` — exact forever (an id never changes content), so a seen fiche costs no request |
-| `pg_print_v1` | planner (Afdrukken tab) + settings | print choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool, meta: bool }` (`meta` = week no. + print date, default on) |
+| `pg_print_v1` | planner (Afdrukken tab) + settings | print choices `{ mode: "plain" \| "goals1" \| "goals2" \| "todo", tabs: "word" \| "icon", legend, meta, hideEmpty, logo: "head" \| "full", goblin, huiswerk }` (`meta` = week no. + print date, default on; `goblin` off, `huiswerk` on; a missing field keeps its default) |
 | `pg_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
 **`pg_state_v6` is restored field by field** (`mergeState` + `mergeUqSettings`): a new `state.x` that is
@@ -375,12 +375,14 @@ so between the roll and 1 September nothing counts as given — hence the explic
 
 **Afdrukken tab** (`buildPrintPanel`, built once inside `buildShell`; `showTab` swaps the column pairs via
 `.pg-main.tab-print`). Sidebar: the same tabs (`tabsNav`), week ← →, Versie cards, Op het blad
-(labels + legend for Lesdoelen, week no. + date), other agendas, "Opmerking voor deze week" (Gewoon
+(only the rows that apply to the version — `P.onPage[].modes`: labels/hide-empty/goblin note for Lesdoelen,
+legend, week no. + date, logo Kopje | Volledige goblin and "Goblin in een vrij vak" for Weekplanning / Te doen,
+Huiswerkkolom for Te doen), other agendas (hidden for Te doen), "Opmerking voor deze week" (Weekplanning
 adds "Lege notitieregels" when it is empty), a note when edits are staged or a detail failed, the
 orange "N kaarten zonder doelen · nu invullen" (own fiches → `openLesfichesTab` when `__PG_LESSONS`
 exists, else Plannen in Doelen mode; methode cards are typed in the preview), and **Bewaar als PDF** /
 **Afdrukken** pinned at the bottom — both open the browser print dialog; PDF says to pick "Opslaan als
-PDF". Main: the live A4 preview iframe; for the Lesdoelen versions a Voorkant/Achterkant switch hides
+PDF". Main: the live A4 preview iframe; for every version but Weekplanning a Voorkant/Achterkant switch hides
 every other page on screen only (`@media screen` style injected by `applyPrintPage`). Entering waits on
 `plannerReady()` (context + tags + week list) and `view.hydrateP`, then follows the planner's first
 week unless the tab was stepped on its own. It prints the STORED planning: `plannerPrintView` reuses
@@ -388,7 +390,26 @@ copies of the planner's slots when they cover the week, are fully read and nothi
 `fetchPrintView` reads the week itself. `window.__PG_PRINT` = `openPrintTab` (boot("print") when the
 planner never opened). The old standalone `#pg-print-overlay` is gone.
 
-**Lesdoelen print.** The Afdrukken tab's "Versie" choice: Gewoon (the original layout, untouched) or
+**Prints.** Four versions, `PRINT_VERSIONS`: **Weekplanning** (`plain`, `printDocHtml` → `printWeekTableHtml`), **Lesdoelen
+1 A4 / 2 A4** (`goals1`/`goals2`, below) and **Te doen · 2 A4** (`todo`, `printTodoDocHtml`). All print CSS sets
+`print-color-adjust: exact` (vak bars must print without "Achtergrondafbeeldingen"). Weekplanning is a CSS grid in
+the app's card look: logo · "Week N" · dates · meta, one-line charcoal day headings, thema bands with a vak chip,
+cards with a vak-coloured top bar (`goalsInkOn` ink; no colour → grey bar), breaks as 3px gaps, lesuur rows
+weighted by duration (`fr`) so the week fills one page; each day's trailing free rows (no lesuur, no other-agenda
+item, `printFreeRuns`) merge into one hatched box; footer = note + legend. Other-agenda chips sit in the card, an
+uncovered time gets its own `auto` row. Te doen: front = timeline (axis rounded to the hour, a block per lesson at
+its real time, consecutive lesuren of the same lesson merged — same fiche content id, else same vak + shown title,
+never across a gap ≥ 30 min, `todoDayBlocks`; gaps labelled speeltijd/middag; a day ending before the week's first
+afternoon lesson gets "vrije namiddag"); back = per-day checklist + writing areas, toetsen, lesuren per vak, notes.
+Only the planner's own lesuren (`pv.slots`), never other agendas. **A toets is a guess**: the word "toets" in the
+shown title (`TODO_TOETS_RE`), and the front footer says so. **Images:** `icons/head96.png` / `goblin-full.png`
+(web-accessible) by `chrome.runtime.getURL` — the preview iframe is about:blank on questi.com's origin, where the
+overlay already shows them; no URL → no image. Logo top-left (Weekplanning, Te doen front) follows `logo`;
+`goblin` puts the full goblin in Weekplanning's free Wednesday box and a small one with a bubble on the Te doen
+back. Lesdoelen ALWAYS has the full goblin bottom-right in the Wednesday box (`goalsBoxHtml`; 2 A4 = back page);
+no free Wednesday afternoon → no goblin. No logo in any day heading.
+
+**Lesdoelen print.** The Afdrukken tab's "Versie" choice:
 Lesdoelen 1 A4 / 2 A4 (`printGoalsDocHtml`). Equal-height cards with WEET/KEN/KAN write lines
 (3 per card on 1 A4, 8 on 2 A4, both ≈7mm; titles fixed at 2 lines — front = first half of the lesuren, back = rest + week info); the
 free Wednesday afternoon holds thema names and the vak legend. Goals live **in the fiche** (see

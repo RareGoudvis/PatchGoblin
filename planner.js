@@ -1863,13 +1863,6 @@
       " – " + b.getDate() + " " + MONTH_NL[b.getMonth()] + " " + b.getFullYear();
   }
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
-  // Day-header cell: full name on line 1, dd-mm-jjjj muted on line 2.
-  function dayHeadHtml(pv, offset) {
-    var d = addDays(pv.weekStart, offset); if (!d) return '<th class="pday"></th>';
-    var nm = DAY_FULL_NL[(d.getDay() + 6) % 7];
-    var dt = pad2(d.getDate()) + "-" + pad2(d.getMonth() + 1) + "-" + d.getFullYear();
-    return '<th class="pday">' + esc(nm) + '<span class="dd">' + dt + "</span></th>";
-  }
   function minToHHMM(m) { if (m == null || m < 0) m = 0; return pad2(Math.floor(m / 60)) + ":" + pad2(m % 60); }
   // ISO-8601 week number of the Monday-start week containing dateStr.
   function isoWeekNo(dateStr) {
@@ -1924,15 +1917,6 @@
       (top != null ? (anyTagColor(top) || "") : "");
     return { vak: vak, main: main, color: color };
   }
-  function printCellHtml(pv, s, extraHtml) {
-    var chips = extraHtml || "";
-    var p = printCellParts(pv, s);
-    if (!p) return '<td class="pc">' + chips + "</td>";
-    var stripe = p.color ? (' style="box-shadow:inset 4px 0 0 ' + esc(p.color) + '"') : "";
-    var vakHtml = p.vak ? ('<div class="pc-vak"' + (p.color ? (' style="color:' + esc(p.color) + '"') : "") + ">" + esc(p.vak) + "</div>") : "";
-    var inner = vakHtml + (p.main ? ('<div class="pc-title">' + esc(p.main) + "</div>") : "");
-    return '<td class="pc filled"' + stripe + ">" + inner + chips + "</td>";
-  }
   // ---- extras placement model ----
   // Every selected other-agenda item is either COVERED (a lesson time-row's [start,end) contains
   // its start → ⓘ pill inside that day cell) or UNCOVERED (no lesson at that time → its own
@@ -1965,119 +1949,182 @@
     var gap = next - end; if (gap < 10) return null;
     return gap >= 40 ? "middagpauze" : "speeltijd";
   }
-  // Fit-to-one-page: scale rows (weighted by duration) to fill the usable A4-landscape height minus
-  // fixed chrome (header, theme bands, break spacers, meta line, notes block). Clamped for sanity —
-  // toggling notes/date off frees budget so the blocks grow; on shrinks them, still one page.
-  var PRINT_PAGE_PX = 718;   // 210mm − 2×10mm margins @96dpi
-  function fitPxPerMin(er, nBands, nBreaks, opts) {
-    var fb = 50, totalMin = 0;
-    er.rows.forEach(function (t) { totalMin += rowDurEff(er.meta, t, fb); });
-    var chrome = 34 + nBands * 26 + nBreaks * 9 + 5 * (er.rows.length + nBands + nBreaks + 2) +
-      (opts.showMeta ? 22 : 0) + (opts.showNotes ? 104 : 0);
-    var ppm = (PRINT_PAGE_PX - chrome) / Math.max(30, totalMin);
-    return Math.max(0.6, Math.min(1.7, ppm));
+  // ---- Weekplanning (mode "plain"): the app's own card look on paper ----
+  // Header (logo · Week N · dates · meta), one-line day headings, thema bands as a light band with a
+  // vak chip, every lesuur a white card with a vak-coloured top bar and its title below (no colour →
+  // grey bar), breaks as thin gaps, the trailing free cells of a day merged into one hatched box (the
+  // Wednesday one may hold the goblin), and a footer with the week's note and the vak legend. A CSS grid
+  // whose lesuur rows are weighted by duration (fr) fills the page, so the week fits one A4 by layout.
+  // Logo and goblin are the extension's web-accessible icons by chrome-extension:// URL: the preview
+  // iframe is about:blank (questi.com's origin and CSP), where the overlay already shows these files,
+  // and Chrome lets an extension's web-accessible resources past a page's img-src. No URL → no image.
+  function printIconUrl(file) { try { return chrome.runtime.getURL("icons/" + file); } catch (e) { return ""; } }
+  function printLogoHtml(prefs, cls) {
+    var full = !!prefs && prefs.logo === "full", u = printIconUrl(full ? "goblin-full.png" : "head96.png");
+    return u ? '<img class="' + cls + (full ? " full" : "") + '" src="' + esc(u) + '" alt="">' : "";
   }
-  // Slim right-aligned meta line (week no. + print date) — toggle.
-  function metaHtml(pv, weekIdx, opts) {
-    if (!opts.showMeta) return "";
-    var wk = isoWeekNo(isoDate(addDays(pv.weekStart, weekIdx * 7)));
-    return '<div class="pmeta"><span>Week <b>' + esc(wk) + "</b></span><span>afgedrukt <b>" + esc(todayDDMMYYYY()) + "</b></span></div>";
+  function printGoblinHtml(cls) { var u = printIconUrl("goblin-full.png"); return u ? '<img class="' + cls + '" src="' + esc(u) + '" alt="">' : ""; }
+  // { name: "maandag", ab: "MA", dm: "26-10" } for day `offset` (days since pv.weekStart).
+  function printDayInfo(pv, offset) {
+    var d = addDays(pv.weekStart, offset); if (!d) return { name: "", ab: "", dm: "" };
+    var nm = DAY_FULL_NL[(d.getDay() + 6) % 7];
+    return { name: nm, ab: nm.slice(0, 2).toUpperCase(), dm: pad2(d.getDate()) + "-" + pad2(d.getMonth() + 1) };
   }
-  // Opmerking / notities under a divider — toggle; prints the typed text, else blank ruled lines.
-  function notesHtml(opts) {
-    if (!opts.showNotes) return "";
-    var txt = (opts.comment || "").trim();
-    var inner = txt ? ('<div class="pnote-txt">' + esc(txt) + "</div>") : '<div class="pnote-lines"></div>';
-    return '<div class="pfoot"><div class="pfoot-rule"></div><div class="pfoot-lbl">Opmerking / notities</div>' + inner + "</div>";
-  }
-  // Each week → .psheet-scale > .psheet (fixed one-page box) > .psheet-inner (JS-scaled to fit).
-  function printWeekTableHtml(pv, weekIdx, exWeek, opts) {
-    exWeek = exWeek || { cells: {}, inject: {} };
-    var cells = exWeek.cells || {};
-    var er = effectiveRows(pv, exWeek);
-    var fb = commonDurationMin(pv);
-    var themaKeys = pvThemaKeys(pv);
-    var nBands = themaKeys.length;
-    var nBreaks = 0; er.rows.forEach(function (t, idx) { if (breakAfterEff(er, idx)) nBreaks++; });
-    var ppm = fitPxPerMin(er, nBands, nBreaks, opts);
-    var head = '<tr><th class="ptime"></th>';
-    for (var d = 0; d < 5; d++) head += dayHeadHtml(pv, weekIdx * 7 + d);
-    head += "</tr>";
-    var rows = "";
-    // Compact full-width theme band(s) (WO / Godsdienst): no time label, no "hele dag" wording.
-    // Skip a band whose title is empty or a "Lesuur"-placeholder (a bare full-day filler item).
-    themaKeys.forEach(function (key) {
+  // The week's thema bands: [{ label, txt, color }]. Skips an empty or "Lesuur N" band; label is ""
+  // when it IS the text (an untagged row is labelled by its own title — never print it twice).
+  function printThemaList(pv, weekIdx) {
+    var out = [];
+    pvThemaKeys(pv).forEach(function (key) {
       var s = pvWeekThemaSlot(pv, weekIdx, key);
       var p = s ? printCellParts(pv, s) : null;
       var txt = p ? (p.main || p.vak || "") : "";
       if (!txt || isLesuurPlaceholder(txt)) return;
-      // Skip the label when it IS the text (an untagged row is labelled by its own title) —
-      // otherwise the band prints the same string twice.
       var lbl = themaLabel(key, pv.slots);
-      var same = normTitle(lbl) === normTitle(txt);
-      rows += '<tr class="pthemarow"><td class="pc pthema" colspan="6">' +
-        (same ? "" : '<span class="pthema-k">' + esc(lbl) + "</span>") + esc(txt) + "</td></tr>";
+      out.push({ label: normTitle(lbl) === normTitle(txt) ? "" : lbl, txt: txt, color: p.color || "" });
     });
-    er.rows.forEach(function (t, idx) {
-      var m = er.meta[t], endL = (m && m.end) ? m.end : "";
-      var hpx = Math.max(15, Math.round(rowDurEff(er.meta, t, fb) * ppm));
-      var isInj = er.injected[t];
-      var timeCell = '<th class="ptime"><span class="pt-start">' + esc(t) + "</span>" +
-        (endL ? ('<span class="pt-end">' + esc(endL) + "</span>") : "") + "</th>";
-      var body = "";
-      for (var dd = 0; dd < 5; dd++) {
-        if (isInj) body += '<td class="pc xcell">' + ((er.inj[t] && er.inj[t].days[dd]) || "") + "</td>";
-        else body += printCellHtml(pv, pvSlotAt(pv, weekIdx, dd, t), cells[dd + "|" + t] || "");
+    return out;
+  }
+  function printChipHtml(cls, label, color) {
+    return '<span class="' + cls + '"' + (color ? (' style="background:' + esc(color) + ";color:" + goalsInkOn(color) + '"') : "") + ">" + esc(label) + "</span>";
+  }
+  // Per day, the trailing run of free rows (no lesuur, no other-agenda item) → { day: [rows] }.
+  function printFreeRuns(pv, weekIdx, er, cells) {
+    var out = {};
+    for (var d = 0; d < 5; d++) {
+      var run = [];
+      for (var i = er.rows.length - 1; i >= 0; i--) {
+        var t = er.rows[i];
+        var busy = er.injected[t] ? !!(er.inj[t] && er.inj[t].days[d]) : (!!pvSlotAt(pv, weekIdx, d, t) || !!cells[d + "|" + t]);
+        if (busy) break;
+        run.unshift(t);
       }
-      rows += '<tr class="' + (isInj ? "xrow" : "lrow") + '" style="height:' + hpx + 'px">' + timeCell + body + "</tr>";
-      if (breakAfterEff(er, idx)) rows += '<tr class="pbreak"><td colspan="6"></td></tr>';
-    });
-    // Empty week (holiday etc.): show a friendly state, not a bare grid of empty cells.
-    var tbody = rows ? ('<tbody>' + rows + '</tbody>') : "";
-    var empty = er.rows.length ? "" : '<div class="pempty">Geen lesitems deze week.</div>';
-    var inner = metaHtml(pv, weekIdx, opts) +
-      '<table class="pweek"><thead>' + head + "</thead>" + tbody + "</table>" +
-      empty + notesHtml(opts);
+      if (run.length) out[d] = run;
+    }
+    return out;
+  }
+  function printCardHtml(pv, s, chips, pos) {
+    var p = printCellParts(pv, s);
+    if (!p) return chips ? ('<div class="pcard xonly" style="' + pos + '">' + chips + "</div>") : "";
+    var bar = p.color ? (' style="background:' + esc(p.color) + ";color:" + goalsInkOn(p.color) + '"') : "";
+    return '<div class="pcard' + (p.color ? "" : " none") + '" style="' + pos + '"><div class="pc-vb"' + bar + ">" + esc(p.vak) + "</div>" +
+      '<div class="pc-tt">' + esc(p.main) + "</div>" + (chips ? ('<div class="pc-xs">' + chips + "</div>") : "") + "</div>";
+  }
+  function printLegendHtml(cls, legend) {
+    return legend.length ? ('<div class="' + cls + '">' + legend.map(function (v) { return '<span><i style="background:' + esc(v.color) + '"></i>' + esc(v.name) + "</span>"; }).join("") + "</div>") : "";
+  }
+  // Each week → .psheet-scale > .psheet (fixed one-page box) > .psheet-inner (flex column, fixed height).
+  function printWeekTableHtml(pv, weekIdx, exWeek, opts, prefs) {
+    exWeek = exWeek || { cells: {}, inject: {} }; prefs = prefs || {};
+    var cells = exWeek.cells || {};
+    var er = effectiveRows(pv, exWeek);
+    var fb = commonDurationMin(pv);
+    var wk = isoWeekNo(isoDate(addDays(pv.weekStart, weekIdx * 7)));
+    var hd = '<div class="phd">' + printLogoHtml(prefs, "plogo") + '<span class="pwk">Week ' + esc(wk) + '</span><span class="prng">' + esc(weekTitleFor(pv, weekIdx)) + "</span>" +
+      '<span class="psp"></span>' + (opts.showMeta ? ('<span class="pmeta">weekplanning<br>afgedrukt <b>' + esc(todayDDMMYYYY()) + "</b></span>") : "") + "</div>";
+    var txt = (opts.comment || "").trim();
+    var note = opts.showNotes ? ('<div class="pnote"><div class="plbl">Opmerking voor deze week</div>' +
+      (txt ? ('<div class="pnote-txt">' + esc(txt) + "</div>") : '<div class="plines"></div>') + "</div>") : "<div></div>";
+    var legend = printLegendHtml("plegend", prefs.legend !== false ? goalsLegend(pv, weekIdx) : []);
+    var foot = (opts.showNotes || legend) ? ('<div class="pfoot">' + note + legend + "</div>") : "";
+    var inner;
+    if (!er.rows.length) {
+      // Empty week (holiday etc.): a friendly state, not a bare grid of empty cells.
+      inner = hd + '<div class="pempty">Geen lesitems deze week.</div>' + foot;
+    } else {
+      var themas = printThemaList(pv, weekIdx);
+      var tracks = ["auto"], rowLine = {}, html = "";
+      themas.forEach(function () { tracks.push("auto"); });
+      er.rows.forEach(function (t, idx) {
+        rowLine[t] = tracks.length + 1;
+        tracks.push(er.injected[t] ? "auto" : ("minmax(0, " + rowDurEff(er.meta, t, fb) + "fr)"));
+        if (breakAfterEff(er, idx)) tracks.push("3px");   // a break is a thin gap, nothing more
+      });
+      function pos(r1, r2, c) { return "grid-row:" + r1 + " / " + r2 + ";grid-column:" + c; }
+      for (var d = 0; d < 5; d++) {
+        var di = printDayInfo(pv, weekIdx * 7 + d);
+        html += '<div class="pdh" style="grid-row:1;grid-column:' + (d + 2) + '">' + esc(di.name) + "<small>" + esc(di.dm) + "</small></div>";
+      }
+      themas.forEach(function (b, i) {
+        html += '<div class="pband" style="grid-row:' + (i + 2) + ';grid-column:2 / -1">' + (b.label ? printChipHtml("pchip", b.label, b.color) : "") +
+          '<span class="ptx">' + esc(b.txt) + "</span></div>";
+      });
+      er.rows.forEach(function (t) {
+        var m = er.meta[t], endL = (m && m.end) ? m.end : "";
+        html += '<div class="ptl' + (er.injected[t] ? " x" : "") + '" style="' + pos(rowLine[t], rowLine[t] + 1, 1) + '"><b>' + esc(t) + "</b>" + (endL ? ("<span>" + esc(endL) + "</span>") : "") + "</div>";
+      });
+      var free = printFreeRuns(pv, weekIdx, er, cells);
+      for (var dd = 0; dd < 5; dd++) {
+        var run = free[dd] || [];
+        er.rows.forEach(function (t) {
+          var p1 = pos(rowLine[t], rowLine[t] + 1, dd + 2);
+          if (run.indexOf(t) >= 0) {
+            if (run[0] !== t) return;
+            // One hatched box for the whole free stretch; the goblin only in Wednesday's.
+            var last = run[run.length - 1];
+            html += '<div class="pfree" style="' + pos(rowLine[t], rowLine[last] + 1, dd + 2) + '">' + (prefs.goblin && dd === 2 ? printGoblinHtml("pfree-gob") : "") + "</div>";
+            return;
+          }
+          if (er.injected[t]) {
+            var x = (er.inj[t] && er.inj[t].days[dd]) || "";
+            if (x) html += '<div class="pxcell" style="' + p1 + '">' + x + "</div>";
+            return;
+          }
+          html += printCardHtml(pv, pvSlotAt(pv, weekIdx, dd, t), cells[dd + "|" + t] || "", p1);
+        });
+      }
+      inner = hd + '<div class="pgrid" style="grid-template-rows:' + tracks.join(" ") + '">' + html + "</div>" + foot;
+    }
     // .psheet-scale = screen-only fit-to-pane wrapper · .psheet = one fixed A4-landscape page
-    // (overflow-hidden) · .psheet-inner = content, JS-scaled to guarantee it fits the page.
+    // (overflow-hidden) · .psheet-inner = content, JS-scaled only if it ever outgrows the page.
     return '<div class="psheet-scale"><div class="psheet"><div class="psheet-inner">' + inner + "</div></div></div>";
   }
   var PRINT_CSS =
     '@page { size: A4 landscape; margin: 10mm; }' +
-    '* { box-sizing: border-box; }' +
-    'body { font: 11.5px/1.4 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1E1F27; margin: 0; }' +
+    '* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
+    'body { font: 11.5px/1.35 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1E1F27; margin: 0; }' +
     // One page = one .psheet, fixed to the A4-landscape printable area (277×190mm ≈ 1047×718px@96dpi).
     // overflow:hidden + the JS scale on .psheet-inner mean content can never spill to a 2nd page.
     '.psheet-scale { page-break-after: always; }' +
     '.psheet-scale:last-child { page-break-after: auto; }' +
     '.psheet { width: 1040px; height: 712px; overflow: hidden; background: #fff; }' +
-    '.psheet-inner { width: 1040px; transform-origin: top left; padding: 6px 2px; }' +
-    '.pempty { text-align: center; color: #93a0a7; font-size: 13px; padding: 60px 0; }' +
-    '.pmeta { display: flex; justify-content: flex-end; gap: 14px; font-size: 10px; color: #93a0a7; letter-spacing: .03em; margin: 0 2px 8px; }' +
-    '.pmeta b { color: #5c6b73; }' +
-    '.pweek { width: 100%; border-collapse: separate; border-spacing: 6px; table-layout: fixed; }' +
-    'th.ptime { width: 56px; background: transparent; border: none; text-align: left; vertical-align: top; padding: 6px 4px 0 0; white-space: nowrap; }' +
-    '.ptime .pt-start { display: block; font-weight: 700; font-size: 11px; color: #5c6b73; }' +
-    '.ptime .pt-end { display: block; font-size: 10px; color: #93a0a7; font-weight: 400; }' +
-    '.pweek thead th.pday { background: #2f6d6b; color: #fff; text-align: center; font-size: 11.5px; font-weight: 600; padding: 9px 6px; border-radius: 8px; }' +
-    '.pday .dd { display: block; font-weight: 400; font-size: 10px; opacity: .85; margin-top: 1px; }' +
-    'td.pc { background: #fbfcfc; border: 1px solid #dfe6ea; border-radius: 8px; vertical-align: top; padding: 8px 11px; }' +
-    'td.filled { background: #fff; border-color: #e3e9ec; padding-left: 12px; }' +
-    '.pc-vak { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #8a949b; }' +
-    '.pc-title { font-weight: 600; line-height: 1.3; color: #1E1F27; }' +
-    'tr.pthemarow td.pthema { background: #f4f3e8; color: #5a5836; border: 1px solid #e6e3c8; border-radius: 8px; padding: 9px 12px; font-size: 12px; font-weight: 700; }' +
-    '.pthema-k { font-weight: 800; text-transform: uppercase; font-size: 9.5px; letter-spacing: .08em; opacity: .7; margin-right: 8px; }' +
-    'tr.pbreak td { border: none; height: 7px; padding: 0; background: transparent; }' +
-    'tr.xrow td.xcell { background: repeating-linear-gradient(135deg,#fffaf0,#fffaf0 8px,#fff6e6 8px,#fff6e6 16px); border: 1px dashed #e7cf94; border-radius: 8px; }' +
-    'tr.xrow .pt-start { color: #b7891a; }' +
-    '.pc-extra { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 600; background: #f3f5f6; border-radius: 999px; padding: 2px 9px 2px 7px; margin: 4px 5px 0 0; color: #3c4a52; }' +
+    '.psheet-inner { width: 1040px; height: 700px; transform-origin: top left; padding: 4px 4px 2px; display: flex; flex-direction: column; }' +
+    '.pempty { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; color: #8A8E99; font-size: 13px; }' +
+    '.phd { flex: none; display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }' +
+    '.plogo { width: 30px; height: 30px; object-fit: contain; }' +
+    '.plogo.full { width: auto; height: 48px; margin: -8px 0 -8px 0; }' +
+    '.pwk { font-size: 17px; font-weight: 800; letter-spacing: -.01em; }' +
+    '.prng { font-size: 12.5px; color: #5B5F6B; font-weight: 600; }' +
+    '.psp { flex: 1; }' +
+    '.pmeta { font-size: 9.5px; color: #8A8E99; text-align: right; line-height: 1.3; }' +
+    '.pmeta b { color: #5B5F6B; }' +
+    '.pgrid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 46px repeat(5, minmax(0, 1fr)); column-gap: 6px; row-gap: 5px; }' +
+    '.pdh { background: #1E1F27; color: #fff; border-radius: 6px; padding: 3px 6px; text-align: center; font-weight: 700; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+    '.pdh small { font-weight: 500; font-size: 9.5px; opacity: .75; margin-left: 5px; }' +
+    '.ptl { padding-top: 3px; min-height: 0; overflow: hidden; }' +
+    '.ptl b { display: block; font-size: 10.5px; color: #3E424D; }' +
+    '.ptl span { display: block; font-size: 9.5px; color: #8A8E99; }' +
+    '.ptl.x b { color: #b7891a; }' +
+    '.pband { display: flex; align-items: center; gap: 9px; min-width: 0; border-radius: 7px; padding: 4px 9px; min-height: 24px; font-weight: 700; font-size: 11.5px; background: #F4F2EA; border: 1px solid #E7E2CF; }' +
+    '.ptx { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }' +
+    '.pchip { flex: none; padding: 2px 7px; border-radius: 5px; font-size: 8.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; background: #EEF0F3; color: #5B5F6B; }' +
+    '.pcard { min-height: 0; overflow: hidden; border: 1px solid #DADDE3; border-radius: 7px; display: flex; flex-direction: column; background: #fff; }' +
+    '.pc-vb { flex: none; padding: 2px 7px; min-height: 15px; font-size: 8.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #EEF0F3; color: #5B5F6B; }' +
+    '.pc-tt { min-height: 0; overflow: hidden; padding: 4px 7px 5px; font-weight: 600; font-size: 11px; }' +
+    '.pc-tt:empty { display: none; }' +
+    '.pc-xs { flex: none; padding: 0 5px 3px; }' +
+    '.pcard.xonly { border-style: dashed; padding: 1px 5px; }' +
+    '.pxcell { min-height: 0; overflow: hidden; border-radius: 7px; padding: 1px 5px; background: repeating-linear-gradient(135deg,#fffaf0,#fffaf0 8px,#fff6e6 8px,#fff6e6 16px); border: 1px dashed #e7cf94; }' +
+    '.pfree { position: relative; min-height: 0; overflow: hidden; border-radius: 7px; background: repeating-linear-gradient(135deg, #FAFAFB, #FAFAFB 7px, #F3F4F6 7px, #F3F4F6 14px); border: 1px dashed #E2E4E9; }' +
+    '.pfree-gob { position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); height: calc(100% - 10px); max-height: 150px; width: auto; }' +
+    '.pc-extra { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 600; background: #F1F2F4; border-radius: 999px; padding: 1px 8px 1px 6px; margin: 2px 4px 0 0; color: #3E424D; white-space: nowrap; max-width: 100%; overflow: hidden; }' +
     '.pc-ico { font-size: 11px; line-height: 1; }' +
-    '.pc-tm { color: #8a949b; font-weight: 500; }' +
-    '.pfoot { margin-top: 12px; page-break-inside: avoid; }' +
-    '.pfoot-rule { border-top: 1px solid #d3dadf; margin: 0 2px 8px; }' +
-    '.pfoot-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em; color: #7a868d; font-weight: 700; margin: 0 2px 6px; }' +
-    '.pnote-txt { white-space: pre-wrap; }' +
-    '.pnote-lines { height: 60px; border-radius: 8px; border: 1px solid #e3e9ec; background-image: repeating-linear-gradient(#fff,#fff 21px,#e7edf0 21px,#e7edf0 22px); }';
+    '.pc-tm { color: #8A8E99; font-weight: 500; }' +
+    '.pfoot { flex: none; margin-top: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }' +
+    '.plbl { font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #8A8E99; margin-bottom: 3px; }' +
+    '.plines { height: 44px; border: 1px solid #E2E4E9; border-radius: 7px; background-image: repeating-linear-gradient(#fff, #fff 21px, #ECEEF2 21px, #ECEEF2 22px); }' +
+    '.pnote-txt { white-space: pre-wrap; max-height: 64px; overflow: hidden; font-size: 11px; border: 1px solid #E2E4E9; border-radius: 7px; padding: 5px 8px; }' +
+    '.plegend { display: flex; flex-wrap: wrap; gap: 4px 10px; max-width: 420px; justify-content: flex-end; font-size: 9.5px; color: #5B5F6B; }' +
+    '.plegend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }';
   // Screen-only: the fixed 1047px sheet is scaled to the preview pane via `zoom` (var --ss set by
   // the fit script). @media screen so print ignores it and uses the true A4 page. The .psheet-inner
   // transform (inline) applies in BOTH media — that's the one-page guarantee.
@@ -2112,12 +2159,240 @@
     for (j = 0; j < wr.length; j++) wr[j].style.setProperty("--ss", ss > 0 ? ss : 1);
   }
   // Full print document HTML (used for BOTH the preview iframe and printing — one source).
-  function printDocHtml(pv, extraByWeek, opts) {
+  // prefs: pg_print_v1 ({ legend, logo, goblin, … }).
+  function printDocHtml(pv, extraByWeek, opts, prefs) {
     extraByWeek = extraByWeek || {};
     var body = "";
-    for (var w = 0; w < pv.weeks; w++) body += printWeekTableHtml(pv, w, extraByWeek[w] || { cells: {}, inject: {} }, opts);
+    for (var w = 0; w < pv.weeks; w++) body += printWeekTableHtml(pv, w, extraByWeek[w] || { cells: {}, inject: {} }, opts, prefs);
     return "<!doctype html><html lang=\"nl\"><head><meta charset=\"utf-8\"><title>" +
       esc("Weekplanning " + weekTitleFor(pv, 0)) + "</title><style>" + PRINT_CSS + PRINT_SCREEN_CSS + "</style></head><body>" +
+      body + "</body></html>";
+  }
+  // ---- Te doen (mode "todo"): two pages per week, front and back of one sheet ----
+  // Front: a timeline — one lane per school day, every lesson a block as long as the lesson itself (the
+  // same lesson in consecutive lesuren is one block, never across the lunch break), breaks as faint
+  // labels, a free afternoon as a dashed block. Back: per day a checklist next to writing space for
+  // preparation (and homework, pref `huiswerk`), plus toetsen, lesuren per vak and notes. The same
+  // lesuren as the Weekplanning grid (the planner's own lesson calendar(s)); other agendas stay out.
+  // A toets is a GUESS from the word "toets" in the shown title, and the page says so.
+  var TODO_TOETS_RE = /\btoets/i;
+  var TODO_LUNCH_MIN = 30;   // a gap this long or longer is "middag" (and never merged across)
+  function todoSlotEnd(pv, s, start, fb) {
+    var em = hhmmToMin(s.endtime ? String(s.endtime).slice(0, 5) : timeFromISO(s.enddate));
+    if (em == null || em <= start) { var m = pv.rowMeta && pv.rowMeta[minToHHMM(start)]; em = (m && m.end) ? hhmmToMin(m.end) : null; }
+    if (em == null || em <= start) em = start + fb;
+    return em;
+  }
+  // Same lesson? By the fiche (content id) when either carries one; a fiche-less pair needs the same
+  // vak AND the same shown title (and both gym or neither).
+  function todoSameLesson(a, b) {
+    var fa = a.slot.ficheContentId, fb = b.slot.ficheContentId;
+    if (fa || fb) return String(fa || "") === String(fb || "");
+    return !!a.key && a.key === b.key && String(a.top) === String(b.top) && !!a.slot.isGym === !!b.slot.isGym;
+  }
+  // A day's lessons, sorted, consecutive lesuren of the same lesson merged. n = lesuren in the block.
+  function todoDayBlocks(pv, weekIdx, day, fb) {
+    var les = pv.slots.filter(function (s) {
+      return s.weekIdx === weekIdx && s.dayIdx === day && s.idCalendar !== "cal_holidays" && !s.isFullday && (s.time || s.starttime);
+    }).map(function (s) {
+      var st = hhmmToMin(s.time || String(s.starttime).slice(0, 5));
+      var p = printCellParts(pv, s) || { vak: "", main: "", color: "" };
+      var col = p.color || "#3E424D";
+      return { slot: s, s: st, e: st == null ? null : todoSlotEnd(pv, s, st, fb), p: p, key: normTitle(p.main || ""), top: topTagIdOf(s.vak), n: 1,
+        col: col, ink: goalsInkOn(col), lbl: p.vak || (s.isGym ? "beweging" : ""), toets: TODO_TOETS_RE.test(p.main || "") };
+    }).filter(function (x) { return x.s != null; }).sort(function (a, b) { return a.s - b.s; });
+    var out = [];
+    les.forEach(function (L) {
+      var prev = out[out.length - 1];
+      if (prev && L.s >= prev.e - 1 && L.s - prev.e < TODO_LUNCH_MIN && todoSameLesson(prev, L)) {
+        prev.e = Math.max(prev.e, L.e); prev.n++; prev.toets = prev.toets || L.toets; return;
+      }
+      out.push(L);
+    });
+    return out;
+  }
+  // Everything both pages need for one week.
+  function todoWeekData(pv, weekIdx) {
+    var fb = commonDurationMin(pv), days = [], t0 = null, t1 = null, aft = null, nLes = 0;
+    for (var d = 0; d < 5; d++) {
+      var bl = todoDayBlocks(pv, weekIdx, d, fb);
+      bl.forEach(function (L) {
+        nLes += L.n;
+        if (t0 == null || L.s < t0) t0 = L.s;
+        if (t1 == null || L.e > t1) t1 = L.e;
+        if (L.s >= 720 && (aft == null || L.s < aft)) aft = L.s;   // the week's first afternoon lesson
+      });
+      days.push({ info: printDayInfo(pv, weekIdx * 7 + d), blocks: bl });
+    }
+    // A day whose lessons all end before the afternoon starts (while other days go on) has a free afternoon.
+    days.forEach(function (D) {
+      if (!D.blocks.length || aft == null) return;
+      var last = D.blocks[D.blocks.length - 1].e;
+      if (last <= aft && t1 - aft >= 30) D.free = { s: aft, e: t1 };
+    });
+    return { days: days, nLes: nLes, t0: t0 == null ? 0 : Math.floor(t0 / 60) * 60, t1: t1 == null ? 0 : Math.ceil(t1 / 60) * 60,
+      wk: isoWeekNo(isoDate(addDays(pv.weekStart, weekIdx * 7))), rng: weekTitleFor(pv, weekIdx), themas: printThemaList(pv, weekIdx) };
+  }
+  function todoFrontHtml(W, opts, prefs) {
+    var span = Math.max(60, W.t1 - W.t0);
+    function pct(m) { return ((m - W.t0) / span * 100).toFixed(3) + "%"; }
+    function lr(a, b, inset) { return "left:calc(" + pct(a) + " + " + inset + "px);width:calc(" + pct(b) + " - " + pct(a) + " - " + (2 * inset) + "px);"; }
+    var title = opts.showMeta ? ("Week " + W.wk) : W.rng;
+    var h = '<div class="tdhd">' + printLogoHtml(prefs, "tlogo") + '<div><div class="tbig">' + esc(title) + '</div><div class="tsub">' +
+      esc((opts.showMeta ? W.rng + " · " : "") + W.nLes + (W.nLes === 1 ? " lesuur" : " lesuren")) + '</div></div><span class="tsp"></span><div class="tpills">' +
+      W.themas.map(function (b) { return '<span class="tpill">' + (b.label ? printChipHtml("tpchip", b.label, b.color) : "") + "<span>" + esc(b.txt) + "</span></span>"; }).join("") +
+      "</div></div>";
+    h += '<div class="taxis">';
+    for (var m = W.t0; m <= W.t1; m += 60) h += '<span style="left:' + pct(m) + '">' + minToHHMM(m) + "</span>";
+    h += '</div><div class="tlanes">';
+    var halves = Math.max(1, Math.round(span / 30));
+    W.days.forEach(function (D) {
+      h += '<div class="tlane"><div class="tday"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="ttrack" style="background-image:repeating-linear-gradient(90deg, #F5F6F8 0, #F5F6F8 calc(100% / ' + halves + ' - 1px), #E9EBEF calc(100% / ' + halves + ' - 1px), #E9EBEF calc(100% / ' + halves + '))">';
+      if (!D.blocks.length) h += '<div class="tnone">geen lessen</div>';
+      D.blocks.forEach(function (L, i) {
+        var nx = D.blocks[i + 1];
+        if (nx && nx.s - L.e >= 10) h += '<div class="tbrk" style="' + lr(L.e, nx.s, 0) + '"><span>' + (nx.s - L.e < TODO_LUNCH_MIN ? "speeltijd" : "middag") + "</span></div>";
+        h += '<div class="tblk' + (L.toets ? " toets" : "") + '" style="' + lr(L.s, L.e, 2) + "background:" + esc(L.col) + ";color:" + L.ink + '"><div class="tk"><span>' + esc(L.lbl) + "</span><em>" + minToHHMM(L.s) + '</em></div><div class="tt">' + esc(L.p.main) + "</div>" +
+          (L.toets ? '<span class="tst">TOETS</span>' : "") + "</div>";
+      });
+      if (D.free) {
+        var last = D.blocks[D.blocks.length - 1].e;
+        if (D.free.s - last >= 10) h += '<div class="tbrk" style="' + lr(last, D.free.s, 0) + '"><span>' + (D.free.s - last < TODO_LUNCH_MIN ? "speeltijd" : "middag") + "</span></div>";
+        h += '<div class="tfree" style="' + lr(D.free.s, D.free.e, 2) + '">vrije namiddag</div>';
+      }
+      h += "</div></div>";
+    });
+    h += '</div><div class="tfoot"><span>Blokken zo lang als de les zelf · een dubbel lesuur is één blok · zwart omlijnd = toets, herkend aan het woord ‘toets’ in de titel</span>' +
+      '<span class="tside">' + (opts.showMeta ? "afgedrukt " + esc(todayDDMMYYYY()) + " · " : "") + "voorkant · draai om voor je to-do ↻</span></div>";
+    return h;
+  }
+  function todoBackHtml(W, opts, prefs) {
+    var hw = prefs.huiswerk !== false, toetsen = [], perVak = {}, order = [];
+    var h = '<div class="tdhd tback"><div><div class="tbig sm">Te doen · ' + esc(opts.showMeta ? "week " + W.wk : W.rng) + '</div><div class="tsub">vink af wat klaarligt · noteer wat je nodig hebt' +
+      (hw ? " en wat de klas meekrijgt" : "") + '</div></div><span class="tsp"></span><span class="tside">achterkant</span></div>';
+    h += '<div class="tbk"><div class="tbt' + (hw ? "" : " nohw") + '"><div class="tbh"></div><div class="tbh">Lessen</div><div class="tbh">Voorbereiden / materiaal</div>' + (hw ? '<div class="tbh">Huiswerk</div>' : "");
+    W.days.forEach(function (D) {
+      var n = D.blocks.length + (D.free ? 1 : 0);
+      var fs = n <= 8 ? 10 : Math.max(7, Math.floor(84 / n));   // a long day shrinks its list instead of clipping it
+      h += '<div class="tbd"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="tbl" style="font-size:' + fs + 'px">';
+      if (!D.blocks.length) h += '<div class="tli tvrij">geen lessen</div>';
+      D.blocks.forEach(function (L) {
+        if (L.toets) toetsen.push({ day: D.info.ab, s: L.s, t: L.p.main });
+        var k = L.lbl || "geen vak";
+        if (!perVak[k]) { perVak[k] = { n: 0, col: L.col }; order.push(k); }
+        perVak[k].n += L.n;
+        h += '<div class="tli"><span class="tcb"></span><span class="ttm">' + minToHHMM(L.s) + '</span><i style="background:' + esc(L.col) + '"></i><span class="tlt' + (L.p.main ? "" : " tmut") + '">' + esc(L.p.main || L.lbl) + "</span>" +
+          (L.toets ? '<span class="ttg">TOETS</span>' : "") + "</div>";
+      });
+      if (D.free) h += '<div class="tli tvrij"><span class="ttm">' + minToHHMM(D.free.s) + "</span>vrije namiddag</div>";
+      h += '</div><div class="twr"></div>' + (hw ? '<div class="twr hw"></div>' : "");
+    });
+    h += '</div><div class="tbside">';
+    h += '<div class="tpanel"><h5>Toetsen</h5>' + (toetsen.length ? toetsen.map(function (t) {
+      return '<div class="ttl"><b>' + esc(t.day.toLowerCase()) + " " + minToHHMM(t.s) + "</b><span>" + esc(t.t) + "</span></div>";
+    }).join("") : '<div class="tmuted">geen gevonden</div>') + "</div>";
+    order.sort(function (a, b) { return perVak[b].n - perVak[a].n || a.localeCompare(b, "nl"); });
+    var max = order.length ? perVak[order[0]].n : 1, total = 0;
+    h += '<div class="tpanel tbars"><h5>Lesuren per vak</h5>' + order.map(function (k) {
+      total += perVak[k].n;
+      return '<div><span>' + esc(k) + '</span><u style="width:' + Math.round(perVak[k].n / max * 100) + "%;background:" + esc(perVak[k].col) + '"></u><b>' + perVak[k].n + "</b></div>";
+    }).join("") + "</div>";
+    var txt = (opts.comment || "").trim();
+    h += '<div class="tpanel tnotesp"><h5>Opmerkingen</h5><div class="tnotes">' + (txt ? esc(txt) : "") + "</div></div>";
+    if (prefs.goblin) {
+      var gob = printGoblinHtml("tgob");
+      if (gob) h += '<div class="tgstrip"><div class="tbub">' + total + (total === 1 ? " lesuur, " : " lesuren, ") + toetsen.length + (toetsen.length === 1 ? " toets" : " toetsen") +
+        ". Lijst staat klaar — jij zet de koffie.</div>" + gob + "</div>";
+    }
+    h += "</div></div>";
+    return h;
+  }
+  function printTodoWeekHtml(pv, weekIdx, opts, prefs) {
+    var W = todoWeekData(pv, weekIdx);
+    function sheet(inner) { return '<div class="psheet-scale"><div class="psheet"><div class="psheet-inner tsheet">' + inner + "</div></div></div>"; }
+    if (!W.nLes) {
+      return sheet('<div class="tdhd">' + printLogoHtml(prefs, "tlogo") + '<div><div class="tbig">' + esc(opts.showMeta ? "Week " + W.wk : W.rng) + '</div><div class="tsub">' +
+        esc(opts.showMeta ? W.rng : "") + '</div></div></div><div class="pempty">Geen lesitems deze week.</div>');
+    }
+    return sheet(todoFrontHtml(W, opts, prefs)) + sheet(todoBackHtml(W, opts, prefs));
+  }
+  var PRINT_TODO_CSS =
+    '.tdhd { flex: none; display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }' +
+    '.tdhd.tback { margin-bottom: 6px; }' +
+    '.tlogo { width: 46px; height: 46px; object-fit: contain; }' +
+    '.tlogo.full { width: auto; height: 64px; margin: -8px 0 -6px; }' +
+    '.tbig { font-size: 24px; font-weight: 900; letter-spacing: -.02em; line-height: 1; }' +
+    '.tbig.sm { font-size: 19px; }' +
+    '.tsub { font-size: 12px; color: #5B5F6B; font-weight: 600; margin-top: 3px; }' +
+    '.tsp { flex: 1; }' +
+    '.tpills { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 560px; }' +
+    '.tpill { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border-radius: 999px; padding: 4px 11px 4px 4px; font-size: 11px; font-weight: 700; background: #F4F2EA; border: 1px solid #E7E2CF; }' +
+    '.tpill > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+    '.tpill:not(:has(.tpchip)) { padding-left: 11px; }' +
+    '.tpchip { flex: none; border-radius: 999px; padding: 2px 8px; font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase; background: #EEF0F3; color: #5B5F6B; }' +
+    '.tside { font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #A0A4AE; white-space: nowrap; }' +
+    '.taxis { flex: none; position: relative; height: 16px; margin: 0 8px 0 64px; }' +
+    '.taxis span { position: absolute; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: #8A8E99; }' +
+    '.tlanes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 6px; }' +
+    '.tlane { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 6px; min-height: 0; }' +
+    '.tday, .tbd { border-radius: 10px; background: #1E1F27; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }' +
+    '.tday b { font-size: 17px; font-weight: 900; }' +
+    '.tday span, .tbd span { font-size: 10px; opacity: .75; margin-top: 4px; }' +
+    '.ttrack { position: relative; border-radius: 10px; background-color: #F5F6F8; margin-right: 8px; }' +
+    '.tblk { position: absolute; top: 4px; bottom: 4px; border-radius: 8px; padding: 5px 7px; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }' +
+    '.tk { display: flex; gap: 6px; font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; opacity: .85; white-space: nowrap; }' +
+    '.tk span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }' +
+    '.tk em { font-style: normal; margin-left: auto; letter-spacing: 0; font-weight: 700; }' +
+    '.tblk .tt { font-size: 11px; font-weight: 700; line-height: 1.22; overflow: hidden; overflow-wrap: anywhere; }' +
+    '.tblk.toets { box-shadow: inset 0 0 0 2px #1E1F27; }' +
+    '.tst { position: absolute; right: 5px; bottom: 4px; transform: rotate(-6deg); background: #fff; color: #1E1F27; font-size: 8px; font-weight: 900; letter-spacing: .1em; padding: 1px 5px; border-radius: 3px; box-shadow: 0 0 0 1px #1E1F27; }' +
+    '.tbrk { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }' +
+    '.tbrk span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #A0A4AE; white-space: nowrap; }' +
+    '.tfree { position: absolute; top: 4px; bottom: 4px; border-radius: 8px; border: 2px dashed #7ED957; background: #F3FBEF; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #3B7A22; font-size: 13px; overflow: hidden; white-space: nowrap; }' +
+    '.tnone { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #A0A4AE; font-weight: 700; font-size: 12px; }' +
+    '.tfoot { flex: none; display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 7px; font-size: 9.5px; color: #8A8E99; }' +
+    // back: one row per day + a side column
+    '.tbk { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 10px; }' +
+    '.tbt { display: grid; grid-template-columns: 40px minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, .85fr); grid-template-rows: 18px repeat(5, minmax(0, 1fr)); gap: 5px 6px; min-height: 0; }' +
+    '.tbt.nohw { grid-template-columns: 40px minmax(0, 1.25fr) minmax(0, 1.85fr); }' +
+    '.tbh { font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #8A8E99; align-self: end; padding-left: 2px; }' +
+    '.tbd { border-radius: 8px; }' +
+    '.tbd b { font-size: 15px; font-weight: 900; }' +
+    '.tbd span { font-size: 9px; }' +
+    '.tbl { border: 1px solid #E2E4E9; border-radius: 8px; padding: 3px 7px; display: flex; flex-direction: column; justify-content: space-around; min-height: 0; overflow: hidden; }' +
+    '.tli { display: flex; align-items: center; gap: 5px; line-height: 1.2; min-width: 0; }' +
+    '.tcb { width: 11px; height: 11px; border: 1.5px solid #1E1F27; border-radius: 3px; flex: 0 0 auto; }' +
+    '.ttm { font-size: .85em; font-weight: 700; color: #8A8E99; flex: 0 0 auto; width: 2.7em; }' +
+    '.tli i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }' +
+    '.tlt { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }' +
+    '.ttg { margin-left: auto; background: #F59E0B; color: #1E1F27; border-radius: 3px; padding: 0 4px; font-size: 7.5px; font-weight: 900; letter-spacing: .08em; flex: 0 0 auto; }' +
+    '.tlt.tmut { color: #8A8E99; font-weight: 500; font-style: italic; }' +
+    '.tli.tvrij { color: #3B7A22; font-weight: 800; padding-left: 16px; }' +
+    '.twr { min-height: 0; border: 1px solid #E2E4E9; border-radius: 8px; background-color: #fff; background-image: repeating-linear-gradient(transparent, transparent 19px, #E3E6EB 19px, #E3E6EB 20px); background-position: 0 4px; }' +
+    '.twr.hw { background-color: #FBF8EE; border-color: #EDE4C8; background-image: repeating-linear-gradient(transparent, transparent 19px, #E9DFC2 19px, #E9DFC2 20px); }' +
+    '.tbside { display: flex; flex-direction: column; gap: 8px; min-height: 0; }' +
+    '.tpanel { flex: 0 1 auto; min-height: 0; border: 1px solid #E2E4E9; border-radius: 10px; padding: 8px 10px; overflow: hidden; }' +
+    '.tpanel h5 { margin: 0 0 6px; font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #8A8E99; }' +
+    '.ttl { display: flex; gap: 6px; align-items: baseline; font-size: 10px; margin-bottom: 4px; }' +
+    '.ttl b { background: #F59E0B; color: #1E1F27; border-radius: 3px; padding: 0 5px; font-size: 9px; white-space: nowrap; }' +
+    '.ttl span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }' +
+    '.tmuted { font-size: 10px; color: #8A8E99; }' +
+    '.tbars div { display: grid; grid-template-columns: 78px minmax(0, 1fr) 14px; gap: 6px; align-items: center; font-size: 9.5px; margin-bottom: 4px; }' +
+    '.tbars span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+    '.tbars u { display: block; height: 9px; border-radius: 3px; text-decoration: none; }' +
+    '.tbars b { text-align: right; }' +
+    '.tnotesp { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 60px; }' +
+    '.tnotes { flex: 1; min-height: 0; overflow: hidden; white-space: pre-wrap; font-size: 10.5px; line-height: 20px; background-image: repeating-linear-gradient(#fff, #fff 19px, #E7E9EE 19px, #E7E9EE 20px); }' +
+    '.tgstrip { flex: none; display: flex; align-items: flex-end; gap: 6px; }' +
+    '.tgob { width: 58px; height: auto; flex: 0 0 auto; }' +
+    '.tbub { position: relative; flex: 1 1 auto; background: #fff; border: 1.5px solid #1E1F27; border-radius: 12px; padding: 5px 7px; margin-bottom: 18px; font-size: 9.5px; font-weight: 600; line-height: 1.3; }' +
+    '.tbub::after { content: ""; position: absolute; right: -7px; bottom: 10px; width: 12px; height: 12px; background: #fff; border-right: 1.5px solid #1E1F27; border-bottom: 1.5px solid #1E1F27; transform: rotate(-45deg); }';
+  function printTodoDocHtml(pv, opts, prefs) {
+    prefs = prefs || {};
+    var body = "";
+    for (var w = 0; w < pv.weeks; w++) body += printTodoWeekHtml(pv, w, opts, prefs);
+    return "<!doctype html><html lang=\"nl\"><head><meta charset=\"utf-8\"><title>" +
+      esc("Te doen " + weekTitleFor(pv, 0)) + "</title><style>" + PRINT_CSS + PRINT_TODO_CSS + PRINT_SCREEN_CSS + "</style></head><body>" +
       body + "</body></html>";
   }
   // ---- Lesdoelen print (WEET / KEN / KAN) ----
@@ -2548,7 +2823,8 @@
   }
   // Wednesday box: type size follows the line count so 13 vakken + 2 themas still fit. A thema name
   // may wrap, so it is budgeted at 2 lines. The legend sits at the bottom.
-  function goalsBoxHtml(parts, boxH, rowspan) {
+  // The full goblin always sits bottom-right in this box (big = the 2 A4 back page); the legend keeps clear of it.
+  function goalsBoxHtml(parts, boxH, rowspan, big) {
     var noteLines = parts.note ? parts.note.split("\n").reduce(function (n, l) { return n + Math.max(1, Math.ceil(l.length / 34)); }, 0) : 0;
     var xl = goalsXListHtml(parts.extras);
     var lines = (parts.meta ? 1 : 0) + parts.themas.length * 2 + noteLines + xl.lines + parts.legend.length + 1;
@@ -2558,7 +2834,8 @@
       parts.themas.map(function (t) { return goalsThemaHtml(t, "div"); }).join("") +
       (parts.note ? '<div class="gi-note">' + esc(parts.note) + "</div>" : "") +
       xl.html +
-      (parts.legend.length ? '<div class="gi-legend">' + goalsLegendHtml(parts.legend) + "</div>" : "");
+      (parts.legend.length ? '<div class="gi-legend">' + goalsLegendHtml(parts.legend) + "</div>" : "") +
+      printGoblinHtml("gi-gob" + (big ? " big" : ""));
     // inner height = box minus border (3) and padding (14)
     return '<td class="gc gbox" rowspan="' + rowspan + '" style="font-size:' + fs + "px;line-height:" + lh + 'px"><div class="gbox-in" style="height:' + (boxH - 17) + 'px">' + html + "</div></td>";
   }
@@ -2627,7 +2904,7 @@
       html += '<tr style="height:' + (isInj ? GOALS_XROW_H : rowH) + 'px">';
       for (var dd = 0; dd < 5; dd++) {
         if (dd === 2 && wed && wed.indexOf(t) >= 0) {
-          if (wed[0] === t) html += goalsBoxHtml(parts, boxH, wed.length);
+          if (wed[0] === t) html += goalsBoxHtml(parts, boxH, wed.length, n > 3);
           continue;
         }
         if (isInj) {
@@ -2669,7 +2946,7 @@
   }
   var PRINT_GOALS_CSS =
     '@page { size: A4 landscape; margin: 6mm; }' +
-    '* { box-sizing: border-box; }' +
+    '* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     'body { font: 11px/1.4 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1E1F27; margin: 0; }' +
     '.psheet-scale { page-break-after: always; }' +
     '.psheet-scale:last-child { page-break-after: auto; }' +
@@ -2723,7 +3000,11 @@
     'td.gband > * { display: inline-flex; margin-right: 12px; vertical-align: middle; }' +
     '.gi-meta { color: #8a8660; margin-bottom: 2px; }' +
     '.gi-meta b { color: #5a5836; }' +
-    '.gbox-in { display: flex; flex-direction: column; overflow: hidden; }' +
+    '.gbox-in { position: relative; display: flex; flex-direction: column; overflow: hidden; }' +
+    '.gi-gob { position: absolute; right: -2px; bottom: -4px; height: 55%; max-height: 84px; width: auto; }' +
+    '.gi-gob.big { max-height: 110px; }' +
+    '.gbox-in:has(.gi-gob) .gi-legend { padding-right: 74px; }' +
+    '.gbox-in:has(.gi-gob.big) .gi-legend { padding-right: 98px; }' +
     '.gi-th { font-weight: 700; margin-bottom: 3px; }' +
     '.gi-legend { margin-top: auto; padding-top: 4px; border-top: 1px solid #e6e3c8; }' +
     '.gi-note { white-space: pre-wrap; font-style: italic; margin-bottom: 3px; }' +
@@ -2738,8 +3019,8 @@
     // fitPrintDoc's --ss zoom assumes the 1040×712 sheet; this page is 1076×746, so shrink 5% more.
     '  .gsheet { border-radius: 12px; box-shadow: 0 4px 22px rgba(20,40,60,.16); zoom: .95; }' +
     '  .gl-row { cursor: text; }' +
-    '  .gl-row:hover .gl-txt { background-color: rgba(47,109,107,.05); }' +
-    '  .gl-row:focus-within .gl-txt { background-color: rgba(47,109,107,.10); }' +
+    '  .gl-row:hover .gl-txt { background-color: rgba(109,63,224,.05); }' +
+    '  .gl-row:focus-within .gl-txt { background-color: rgba(109,63,224,.10); }' +
     '  .gl-ico { cursor: pointer; }' +
     '  .gl-ico:hover { color: #b3261e; }' +
     '  .gl-txt.gl-over { box-shadow: inset -3px 0 0 #b3261e; }' +
@@ -2748,11 +3029,11 @@
     '  .xl-off { display: grid; opacity: .45; text-decoration: line-through; }' +
     '  .xl-off:hover { opacity: 1; text-decoration: none; color: #137a3a; }' +
     '  .xl-more { display: block; cursor: pointer; color: #7a868d; font-style: italic; }' +
-    '  .xl-more:hover { color: #2f6d6b; }' +
+    '  .xl-more:hover { color: #6D3FE0; }' +
     '  .gc-src { display: block; position: absolute; right: 3px; bottom: 2px; font-size: 8.5px; font-weight: 700; color: #8a5a00; background: #fff4d6; border-radius: 999px; padding: 0 5px; line-height: 13px; cursor: help; }' +
     '  td.gfilled:hover .gc-ctl { display: flex; gap: 3px; position: absolute; right: 4px; top: 2px; background: #fff; border-radius: 999px; padding: 1px; }' +
     '  .gc-ctl-b { display: inline-flex; align-items: center; font-size: 9.5px; font-weight: 700; color: #7a868d; background: #eef2f4; border-radius: 999px; padding: 0 5px; cursor: pointer; line-height: 14px; }' +
-    '  .gc-ctl-b:hover { color: #2f6d6b; background: #dcebea; }' +
+    '  .gc-ctl-b:hover { color: #6D3FE0; background: #ECE5FC; }' +
     '  .gc-ctl-b svg { width: 9px; height: 9px; }' +
     '}';
   // prefs: { tabs: "word" | "icon", legend: bool } from the print window.
@@ -3014,14 +3295,21 @@
   // Achterkant switch only hides pages on screen (@media screen), printing always sends every page.
   var _pp = null;
   var PRINT_VERSIONS = [
-    { v: "plain", t: "Gewoon", d: "het weekrooster, één blad per week" },
+    { v: "plain", t: "Weekplanning", d: "één blad per week, alle lessen" },
     { v: "goals1", t: "Lesdoelen · 1 A4", d: "één blad per week, 3 lijnen per les" },
-    { v: "goals2", t: "Lesdoelen · 2 A4", d: "voor- en achterkant, 8 lijnen per les" }
+    { v: "goals2", t: "Lesdoelen · 2 A4", d: "voor- en achterkant, 8 lijnen per les" },
+    { v: "todo", t: "Te doen · 2 A4", d: "voorkant tijdlijn, achterkant afvinklijst", nieuw: true }
   ];
+  function isGoalsMode(m) { return m === "goals1" || m === "goals2"; }
+  // Checkbox row; `sub` = a muted second line (an element, so its text can change per version).
+  function ppCheck(input, label, sub, title) {
+    return h("label", { class: "qpp-check" + (sub ? " has-sub" : ""), title: title || null }, [input, h("span", null, [h("span", { text: label }), sub || null])]);
+  }
   function ppLbl(t) { return h("div", { class: "qpp-lbl", text: t }); }
   function buildPrintPanel() {
     var P = _pp = { pv: null, start: null, weeks: 1, extras: {}, gen: 0, page: "front", pages: 0, plannerWeek: null, prefsLoaded: false,
-      prefs: { mode: "plain", tabs: "word", legend: true, meta: true, hideEmpty: false }, calBoxes: [], verCards: [], tabBtns: [], pageBtns: [] };
+      prefs: { mode: "plain", tabs: "word", legend: true, meta: true, hideEmpty: false, logo: "head", goblin: false, huiswerk: true },
+      calBoxes: [], verCards: [], tabBtns: [], pageBtns: [], logoBtns: [] };
     P.frame = h("iframe", { class: "qpp-frame", title: "Afdrukvoorbeeld" });
     P.msg = h("div", { class: "qpp-msg", style: "display:none" });
     P.range = h("span", { class: "qpp-wk-lbl", text: "…" });
@@ -3035,10 +3323,15 @@
     P.legendChk.addEventListener("change", function () { P.prefs.legend = P.legendChk.checked; savePrintPrefs(); renderPrintPreview(); });
     P.hideEmptyChk = h("input", { type: "checkbox" });
     P.hideEmptyChk.addEventListener("change", function () { P.prefs.hideEmpty = P.hideEmptyChk.checked; savePrintPrefs(); renderPrintPreview(); });
+    P.goblinChk = h("input", { type: "checkbox" });
+    P.goblinChk.addEventListener("change", function () { P.prefs.goblin = P.goblinChk.checked; savePrintPrefs(); renderPrintPreview(); });
+    P.hwChk = h("input", { type: "checkbox" }); P.hwChk.checked = true;
+    P.hwChk.addEventListener("change", function () { P.prefs.huiswerk = P.hwChk.checked; savePrintPrefs(); renderPrintPreview(); });
     var verList = PRINT_VERSIONS.map(function (x) {
       var r = h("input", { type: "radio", name: "qpp-mode", value: x.v });
       r.addEventListener("change", function () { if (r.checked) { P.prefs.mode = x.v; savePrintPrefs(); renderPrintPreview(); } });
-      var card = h("label", { class: "qpp-ver" }, [r, h("span", { class: "qpp-ver-tx" }, [h("span", { class: "qpp-ver-t", text: x.t }), h("span", { class: "qpp-ver-d", text: x.d })])]);
+      var card = h("label", { class: "qpp-ver" }, [r, h("span", { class: "qpp-ver-tx" }, [
+        h("span", { class: "qpp-ver-t" }, [x.t, x.nieuw ? h("span", { class: "qpp-ver-new", text: "nieuw" }) : null]), h("span", { class: "qpp-ver-d", text: x.d })])]);
       P.verCards.push({ v: x.v, r: r, el: card });
       return card;
     });
@@ -3046,13 +3339,26 @@
       var b = h("button", { type: "button", text: label, onclick: function () { P.prefs.tabs = v; savePrintPrefs(); renderPrintPreview(); } });
       P.tabBtns.push({ v: v, el: b }); return b;
     }
-    // Only meaningful for the Lesdoelen versions; hidden for Gewoon.
-    P.goalsOnly = [
-      h("div", { class: "qpp-seg", role: "group", "aria-label": "Labels op de kaart" }, [tabBtn("word", "WEET / KEN / KAN"), tabBtn("icon", "Icoontjes")]),
-      h("label", { class: "qpp-check" }, [P.legendChk, h("span", { text: "Vakkenlegende in het woensdagvak" })]),
-      h("label", { class: "qpp-check", title: "Een WEET/KEN/KAN zonder tekst krijgt geen label en geen lijnen. Uitvinken brengt alles terug." }, [P.hideEmptyChk, h("span", { text: "Lege doelen weglaten" })])
+    function logoBtn(v, label) {
+      var b = h("button", { type: "button", text: label, onclick: function () { P.prefs.logo = v; savePrintPrefs(); renderPrintPreview(); } });
+      P.logoBtns.push({ v: v, el: b }); return b;
+    }
+    // "Op het blad" shows only what applies to the chosen version (syncPrintControls): each row lists
+    // the versions it belongs to.
+    P.goblinSub = h("small", { class: "qpp-check-sub" });
+    P.gobInfo = h("div", { class: "qpp-info" });
+    P.onPage = [
+      { modes: "goals1 goals2", el: h("div", { class: "qpp-seg", role: "group", "aria-label": "Labels op de kaart" }, [tabBtn("word", "WEET / KEN / KAN"), tabBtn("icon", "Icoontjes")]) },
+      { modes: "todo", el: ppCheck(P.hwChk, "Huiswerkkolom", h("small", { class: "qpp-check-sub", text: "op de achterkant, naast materiaal" })) },
+      { modes: "plain goals1 goals2", el: ppCheck(P.legendChk, "Vakkenlegende") },
+      { modes: "goals1 goals2", el: ppCheck(P.hideEmptyChk, "Lege doelen weglaten", null, "Een WEET/KEN/KAN zonder tekst krijgt geen label en geen lijnen. Uitvinken brengt alles terug.") },
+      { modes: "plain goals1 goals2 todo", el: ppCheck(P.metaChk, "Weeknummer en afdrukdatum") },
+      { modes: "plain todo", el: h("div", { class: "qpp-logo" }, [h("div", { class: "qpp-sublbl", text: "Logo linksboven" }),
+        h("div", { class: "qpp-seg", role: "group", "aria-label": "Logo linksboven" }, [logoBtn("head", "Kopje"), logoBtn("full", "Volledige goblin")])]) },
+      { modes: "plain todo", el: ppCheck(P.goblinChk, "Goblin in een vrij vak", P.goblinSub) },
+      { modes: "goals1 goals2", el: P.gobInfo }
     ];
-    // Only meaningful for Gewoon: its note block prints ruled lines when no text was typed.
+    // Only meaningful for Weekplanning: its note block prints ruled lines when no text was typed.
     P.notesRow = h("label", { class: "qpp-check" }, [P.notesChk, h("span", { text: "Lege notitieregels als er geen opmerking is" })]);
     P.cals = h("div", { class: "qpp-sec", style: "display:none" });
     P.staged = h("div", { class: "qpp-note", style: "display:none" });
@@ -3068,9 +3374,7 @@
         ])
       ]),
       h("fieldset", { class: "qpp-sec qpp-vers" }, [h("legend", { class: "qpp-lbl", text: "Versie" })].concat(verList)),
-      h("div", { class: "qpp-sec" }, [ppLbl("Op het blad")].concat(P.goalsOnly).concat([
-        h("label", { class: "qpp-check" }, [P.metaChk, h("span", { text: "Weeknummer en afdrukdatum" })])
-      ])),
+      h("div", { class: "qpp-sec" }, [ppLbl("Op het blad")].concat(P.onPage.map(function (o) { return o.el; }))),
       P.cals,
       h("div", { class: "qpp-sec" }, [h("label", { class: "qpp-lbl", text: "Opmerking voor deze week" }), P.ta, P.notesRow]),
       P.staged,
@@ -3097,7 +3401,8 @@
     window.addEventListener("resize", function () { if (view.tab === "print") fitPrintFrame(); });
     return P;
   }
-  // pg_print_v1 = { mode, tabs, legend, meta, hideEmpty } — shared with the Afdrukken section in settings.js.
+  // pg_print_v1 = { mode, tabs, legend, meta, hideEmpty, logo, goblin, huiswerk } — shared with the
+  // Afdrukken section in settings.js. A missing or odd field keeps its default.
   function savePrintPrefs() { storeSet("pg_print_v1", _pp.prefs); }
   function loadPrintPrefs() {
     return storeGet("pg_print_v1").then(function (v) {
@@ -3107,7 +3412,11 @@
       if (typeof v.legend === "boolean") p.legend = v.legend;
       if (typeof v.meta === "boolean") p.meta = v.meta;
       if (typeof v.hideEmpty === "boolean") p.hideEmpty = v.hideEmpty;
+      if (v.logo === "head" || v.logo === "full") p.logo = v.logo;
+      if (typeof v.goblin === "boolean") p.goblin = v.goblin;
+      if (typeof v.huiswerk === "boolean") p.huiswerk = v.huiswerk;
       _pp.legendChk.checked = p.legend; _pp.metaChk.checked = p.meta; _pp.hideEmptyChk.checked = p.hideEmpty;
+      _pp.goblinChk.checked = p.goblin; _pp.hwChk.checked = p.huiswerk;
     }).catch(function () {});
   }
   function ppOpts() {
@@ -3115,14 +3424,22 @@
     return { comment: txt, showNotes: !!txt.trim() || (P.prefs.mode === "plain" && P.notesChk.checked), showMeta: P.metaChk.checked };
   }
   function syncPrintControls() {
-    var P = _pp, goals = P.prefs.mode !== "plain";
-    P.verCards.forEach(function (c) { c.r.checked = c.v === P.prefs.mode; c.el.classList.toggle("on", c.r.checked); });
+    var P = _pp, mode = P.prefs.mode, plain = mode === "plain", goals = isGoalsMode(mode);
+    P.verCards.forEach(function (c) { c.r.checked = c.v === mode; c.el.classList.toggle("on", c.r.checked); });
     P.tabBtns.forEach(function (b) { b.el.classList.toggle("active", b.v === P.prefs.tabs); });
-    P.goalsOnly.forEach(function (el) { el.style.display = goals ? "" : "none"; });
-    P.notesRow.style.display = goals ? "none" : "";
-    P.pageSeg.style.display = goals ? "" : "none";
-    P.sub.textContent = goals ? "A4 liggend · klik een vak-tab om die soort doel op deze fiche te verbergen" : "A4 liggend · één pagina per week";
+    P.logoBtns.forEach(function (b) { b.el.classList.toggle("active", b.v === P.prefs.logo); });
+    P.onPage.forEach(function (o) { o.el.style.display = (" " + o.modes + " ").indexOf(" " + mode + " ") >= 0 ? "" : "none"; });
+    P.goblinSub.textContent = mode === "todo" ? "klein, onderaan naast de lijst op de achterkant"
+      : "groot, in de vrije woensdagnamiddag — geen vrije namiddag, dan geen goblin";
+    P.gobInfo.textContent = "De goblin staat in het vrije woensdagvak" + (mode === "goals2" ? " (achterkant)" : "") + ".";
+    P.notesRow.style.display = plain ? "" : "none";
+    P.pageSeg.style.display = plain ? "none" : "";
+    syncPrintCalsShown();
+    P.sub.textContent = goals ? "A4 liggend · klik een vak-tab om die soort doel op deze fiche te verbergen"
+      : mode === "todo" ? "A4 liggend · voor- en achterkant van één blad" : "A4 liggend · één pagina per week";
   }
+  // Te doen leaves other agendas out, so their checkboxes are hidden there rather than doing nothing.
+  function syncPrintCalsShown() { var P = _pp; P.cals.style.display = (P.calBoxes.length && P.prefs.mode !== "todo") ? "" : "none"; }
   // Status line over the preview: "Week laden…", or an error with one way out.
   function ppMsg(text, isErr, action) {
     var m = _pp.msg; m.innerHTML = "";
@@ -3142,8 +3459,11 @@
     syncPrintControls(); syncPrintNotes();
     if (!P.pv) return;
     var doc = P.frame.contentDocument || (P.frame.contentWindow && P.frame.contentWindow.document); if (!doc) return;
-    var goals = P.prefs.mode !== "plain";
-    doc.open(); doc.write(goals ? printGoalsDocHtml(P.pv, P.extras, ppOpts(), P.prefs.mode, P.prefs) : printDocHtml(P.pv, P.extras, ppOpts())); doc.close();
+    var mode = P.prefs.mode, goals = isGoalsMode(mode);
+    doc.open();
+    doc.write(goals ? printGoalsDocHtml(P.pv, P.extras, ppOpts(), mode, P.prefs)
+      : mode === "todo" ? printTodoDocHtml(P.pv, ppOpts(), P.prefs) : printDocHtml(P.pv, P.extras, ppOpts(), P.prefs));
+    doc.close();
     applyPrintPage();
     if (goals) {
       wireGoalsEditor(doc, renderPrintPreview);
@@ -3184,7 +3504,7 @@
   }
   function syncPrintWarn() {
     var P = _pp, w = P.warn; w.innerHTML = "";
-    var c = (P.prefs.mode !== "plain" && P.pv) ? printGoalsMissing(P.pv) : null;
+    var c = (isGoalsMode(P.prefs.mode) && P.pv) ? printGoalsMissing(P.pv) : null;
     if (!c || (!c.own && !c.meth && !c.loading)) { w.style.display = "none"; return; }
     w.style.display = "";
     var kids = [];
@@ -3218,8 +3538,7 @@
     P.calBoxes.forEach(function (b) { if (b.cb.checked) was[String(b.id)] = true; });
     P.calBoxes = []; P.cals.innerHTML = "";
     var cals = extraPrintCalendars();
-    P.cals.style.display = cals.length ? "" : "none";
-    if (!cals.length) return;
+    if (!cals.length) { syncPrintCalsShown(); return; }
     P.cals.appendChild(ppLbl("Andere agenda’s meeprinten"));
     cals.forEach(function (c) {
       var cb = h("input", { type: "checkbox", value: String(c.id) });
@@ -3228,6 +3547,7 @@
       P.calBoxes.push({ cb: cb, id: c.id });
       P.cals.appendChild(h("label", { class: "qpp-check" }, [cb, h("span", { class: "qpp-cal-dot", style: "background:" + (c.color || "#888") }), h("span", { text: c.name })]));
     });
+    syncPrintCalsShown();
   }
   function refreshPrintExtras() {
     var P = _pp, pv = P.pv; if (!pv) return Promise.resolve();
@@ -6034,7 +6354,9 @@
       view.weekFromQuesti = ow.fromQuesti;
       return loadEverything().then(function () {
         // Say which rule picked the week — the fallback is the common path, not an error.
-        setStatus((ow.fromQuesti ? "Week overgenomen uit Questi." : "Week van vandaag geladen.") + hydrateFailNote());
+        // This line replaces loadEverything's "Klaar.", so it repeats the one-time migration note.
+        setStatus((ow.fromQuesti ? "Week overgenomen uit Questi." : "Week van vandaag geladen.") + hydrateFailNote() +
+          (migratedKeys().length ? " Je instellingen van de vorige versie zijn overgezet (" + migratedKeys().length + " onderdelen)." : ""));
       });
     }).catch(function (e) { console.error("[PG] boot error:", e); markPlannerReady(false); setStatus("Laadfout — probeer 'Vernieuwen'."); });
   }

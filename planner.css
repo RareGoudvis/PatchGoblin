@@ -597,6 +597,13 @@ fieldset.qpp-sec > legend.qpp-lbl { margin-bottom:6px; }
 .qpp-check { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; }
 .qpp-check input { flex:0 0 auto; margin:0; width:15px; height:15px; accent-color:var(--pg-blue); }
 .qpp-cal-dot { flex:0 0 auto; width:9px; height:9px; border-radius:50%; }
+.qpp-check.has-sub { align-items:flex-start; }
+.qpp-check.has-sub input { margin-top:2px; }
+.qpp-check-sub { display:block; font-size:12px; font-weight:400; color:var(--muted); line-height:1.35; }
+.qpp-ver-new { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:6px; background:var(--pg-amber); color:#1E1F27; font-size:10px; font-weight:800; vertical-align:1px; }
+.qpp-logo { display:flex; flex-direction:column; gap:6px; }
+.qpp-sublbl { font-size:13px; font-weight:600; color:var(--ink); }
+.qpp-info { font-size:12.5px; line-height:1.4; color:var(--muted); }
 .qpp-ta { width:100%; border:1px solid var(--line2); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:500; line-height:1.4; color:var(--ink); background:var(--surface); resize:vertical; }
 .qpp-ta:focus { outline:none; border-color:var(--pg-blue); box-shadow:0 0 0 2px var(--pg-cyan-tint); }
 .qpp-note { padding:9px 12px; border-radius:9px; background:var(--pg-blue-tint); color:var(--ink); font-size:12.5px; line-height:1.4; }
