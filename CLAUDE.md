@@ -1,10 +1,13 @@
-# CLAUDE.md — Questi Week Planner
+# CLAUDE.md — PatchGoblin for Questi
 
 Chrome MV3 extension that overlays planning tools on `questi.com`, a Belgian primary-school
 platform. Written for and used by a teacher; also shared with colleagues.
 
-**Read this before editing.** `README.md` has the user guide plus a full API reference; the
-ground-truth request/response captures live in `reference/questi-api-samples.md`.
+**Read this before editing.** `README.md` is the user guide (Dutch, with screenshots);
+`Questi_unofficial_api.md` is the developer reference — the whole unofficial Questi API plus how
+PatchGoblin is built. Keep it current when an API shape or the architecture changes. The ground-truth
+request/response captures live in `reference/questi-api-samples.md` (local only: it holds real
+names and ids — never copy values from it into a tracked file).
 
 ## Golden rules
 
@@ -27,14 +30,14 @@ ground-truth request/response captures live in `reference/questi-api-samples.md`
 5. **Two themes, print always white.** Light "Parchment" (default) and dark "Slate" (`state.theme`,
    Instellingen → Weergave; `applyTheme` sets `html[data-pg-theme]`). Every colour in the overlays'
    CSS goes through tokens (`--page --panel --surface --hover --soft --line --line2 --ink --muted
-   --faint` + the `--uq-*` brand ones), each stylesheet ends with its dark token block — never a
+   --faint` + the `--pg-*` brand ones), each stylesheet ends with its dark token block — never a
    hard-coded white or grey. The print documents in `planner.js` keep their own literal colours and
    stay white in both themes (the preview iframe is `color-scheme: light`). No decorative accent
    stripes: no coloured left edges, top strips or underline markers on cards, rows, menus or
    notes — state shows through fill or text (the user rejects that look). All CSS namespaced under
    the module's overlay id.
 6. **Dutch UI strings.** Code, comments and commits in English.
-7. **Reuse before writing.** Check `__QWP_SHARED` and the sibling modules first — a helper for
+7. **Reuse before writing.** Check `__PG_SHARED` and the sibling modules first — a helper for
    what you need usually already exists. (A duplicate `fetchAllFichesByTag` once shadowed the
    real one and shipped a bug; function declarations hoist, the last one wins.)
 
@@ -45,15 +48,15 @@ Flat repo. `icons/`, `reference/` and `docs/img/` (README/manual screenshots, re
 | File | Lines | Role |
 |---|---|---|
 | `manifest.json` | | MV3. Permissions `storage, activeTab, scripting`. Hosts `*://*.questi.com/*` + `raw.githubusercontent.com` (self-update check). |
-| `background.js` | 41 | Service worker. Relays the toolbar/Alt+P toggle to the tab; serves `QWP_CHECK_VERSION`. |
-| `content.js` | 131 | Boot/relay. Injects the toolbar chips into Questi's calendar header. Builds no UI itself. |
-| `planner.js` / `planner.css` | 3179 / 474 | Week planner `#qwp-overlay`. Also holds context detection, the API layer, print, and the Zelftest. Exports `__QWP_SHARED`. |
-| `lessons.js` / `lessons.css` | 1906 / 256 | Lesfiche-manager. Mounted as the planner's **Lesfiches** tab; standalone `#qwl-overlay` for pick mode. Fiche + tag CRUD. |
-| `methodes.js` / `methodes.css` | 802 / 153 | Methodevoortgang `#qwm-overlay`. Read-only progress tracker. |
-| `settings.js` / `settings.css` | 1215 / 217 | Instellingen + first-run setup wizard `#qws-overlay`. Settings export/import, Zelftest `.json`. |
+| `background.js` | 53 | Service worker. Relays the toolbar/Alt+P toggle to the tab; serves `PG_CHECK_VERSION`. |
+| `content.js` | 287 | Boot/relay. Injects the one PatchGoblin launcher (button + quick menu) into Questi's calendar header; reopens the planner after our own write. |
+| `planner.js` / `planner.css` | 6081 / 808 | Week planner `#pg-overlay`. Also holds context detection, the API layer, print, and the Zelftest. Exports `__PG_SHARED`. |
+| `lessons.js` / `lessons.css` | 2366 / 322 | Lesfiche-manager. Mounted as the planner's **Lesfiches** tab; standalone `#pgl-overlay` for pick mode. Fiche + tag CRUD. |
+| `methodes.js` / `methodes.css` | 803 / 190 | Methodevoortgang `#pgm-overlay`. Read-only progress tracker. |
+| `settings.js` / `settings.css` | 1272 / 267 | Instellingen + first-run setup wizard `#pgs-overlay`. Settings export/import, Zelftest `.json`. |
 | `version.json`, `update.bat` | | Self-update: `.bat` pulls the repo ZIP into temp, refuses it unless core files exist and `manifest.json` = `version.json` version, backs the folder up to `%LOCALAPPDATA%\PatchGoblin-backups` (last 3), replaces, re-checks, rolls back on failure. Its PowerShell sits after a `#=PS=` marker and runs from ONE launch line, because the file overwrites itself mid-run. The in-app banner compares `manifest.json` against the GitHub `version.json`. Bump **both** on release. |
 
-Docs (all gitignored except `README.md`): `brief.md` (API/build reference), `featues.md` (sic —
+Docs: `README.md` and `Questi_unofficial_api.md` are tracked; the rest is local (gitignored): `brief.md` (API/build reference), `featues.md` (sic —
 Zelftest spec), `planned.md` (planner polish log), `plannedfeature.md` (Lesfiche CRUD / import
 roadmap), `reference/questi-api-samples.md` (captured calls).
 
@@ -70,20 +73,20 @@ the chips. There are no modules — everything crosses file boundaries through `
 
 | Global | Set by | Purpose |
 |---|---|---|
-| `__QWP_SHARED` | planner | ctx + API + DOM helpers used by lessons/methodes |
-| `__QWP_TOGGLE` | planner | open/close the planner (action click, Alt+P) |
-| `__QWP_OPEN_LESSONS` | planner | open (or boot) the planner on its **Lesfiches** tab |
-| `__QWP_PRINT` | planner | open the planner on its **Afdrukken** tab (boots it first when needed) |
-| `__QWP_TEST` | planner | debug handles |
-| `__QWP_LESSONS` | lessons | `{ open, close, openPicker, runSequential, createUserTag, mount, unmount, isMounted, pendingCount, pendingSummary, backupPending, writeTags, writeFiches, afterSharedWrite }` |
-| `__QWP_METHODES` | methodes | `{ open, close }` |
-| `__UQ_SETTINGS` | settings | `{ open(sectionId?), openSetup, close, exportSettings, saveDebugJson, vakTops }` |
-| `__QWP_BOOTED` | content | double-injection guard |
+| `__PG_SHARED` | planner | ctx + API + DOM helpers used by lessons/methodes |
+| `__PG_TOGGLE` | planner | open/close the planner (action click, Alt+P) |
+| `__PG_OPEN_LESSONS` | planner | open (or boot) the planner on its **Lesfiches** tab |
+| `__PG_PRINT` | planner | open the planner on its **Afdrukken** tab (boots it first when needed) |
+| `__PG_TEST` | planner | debug handles |
+| `__PG_LESSONS` | lessons | `{ open, close, openPicker, runSequential, createUserTag, mount, unmount, isMounted, pendingCount, pendingSummary, backupPending, writeTags, writeFiches, afterSharedWrite }` |
+| `__PG_METHODES` | methodes | `{ open, close }` |
+| `__PG_SETTINGS` | settings | `{ open(sectionId?), openSetup, close, exportSettings, saveDebugJson, vakTops }` |
+| `__PG_BOOTED` | content | double-injection guard |
 
-Each consumer starts with `function S() { return window.__QWP_SHARED; }`. Adding a helper to a
+Each consumer starts with `function S() { return window.__PG_SHARED; }`. Adding a helper to a
 consumer that planner already has is a bug — export the existing one instead.
 
-`__QWP_SHARED` currently exposes: `ctx, API, API_ROOT, jget, qs, xsrfToken, writeHeaders,
+`__PG_SHARED` currently exposes: `ctx, API, API_ROOT, jget, qs, xsrfToken, writeHeaders,
 fetchTags, fetchOwnTags, fetchSharedTags, invalidateOwnTags, topTagsForOwner, childTags, tagTitle,
 tagColor, ownerName, h, detectContext, fetchMethods, fetchMethodLessons, fetchAllFichesByTag,
 storeGet, storeSet, goalsInkOn, ficheGoalFields, goalText, noteFicheThread, mapLimit`, and for settings.js:
@@ -92,7 +95,7 @@ computeTimeRows, isNoSchool, renderTimetable, reloadSlotVakLabels, reloadAndRend
 themaIdentity, setThemaVakOverride, ensureThemaKeys, normTitle, stripQuestiDecoration, fetchPeople,
 loadColleagueFiches, METHOD_PREFIX, openDiagnose, recentApiErrors, noteApiError, DAY_NAMES`, and for
 lessons.js (mounted tab): `refreshStaged, openReview`.
-`state` and `view` are the planner's own objects, by reference. `__QWP_LESSONS.createUserTag` is
+`state` and `view` are the planner's own objects, by reference. `__PG_LESSONS.createUserTag` is
 exported for settings.js too.
 
 ## UI conventions
@@ -100,17 +103,17 @@ exported for settings.js too.
 - **No HTML files.** All DOM is built with the hyperscript helper `h(tag, attrs, kids)` in
   `planner.js`, shared as `S().h`. `attrs` understands `class`, `text`, `style`, `on*` handlers;
   anything else becomes an attribute, and `null` values are skipped.
-- Each module owns a fullscreen overlay and a CSS prefix: `qwp-` (planner), `qwl-` (lessons),
-  `qwm-` (methodes), `qws-` (settings). Never style a bare element globally.
+- Each module owns a fullscreen overlay and a CSS prefix: `pg-` (planner), `pgl-` (lessons),
+  `pgm-` (methodes), `pgs-` (settings). Never style a bare element globally.
 - z-index: planner `2147483000` < settings `2147483020` < methodes `2147483050` < lessons `2147483100` — the manager opens
   *on top of* the methodes panel in pick mode.
 - Design tokens are duplicated per overlay as CSS custom properties (`--ink --muted --line
   --surface --accent #304651 --accent2 #e4e642 --change #137a3a --thema --danger`), matching
   Questi's own Angular-Material theme. The planner's PatchGoblin block adds the brand palette
-  ("Goblin", from the PatchGoblin brand sheet) on `#qwp-overlay`, token names kept from UnQuesti: `--uq-blue #8B5CF6` Mischief Purple, `--uq-blue-ink #6D3FE0` for text/white-on (active/selected, the **changed**
-  border on cards), `--uq-amber #7ED957` Goblin Green (Controleer fill with charcoal ink, badges, the 3px top strip on menus — no hard offset shadows; menus use a light border + soft shadow),
-  `--uq-orange #F59E0B` Warning Orange (attention: zonder doelen, warnings), `--uq-cyan #7ED957` (gepland marker,
-  focus ring, selection tint — never text). Ink is Charcoal `#1E1F27`; text on a Goblin Green fill is ALWAYS literal `#1E1F27`, never `var(--ink)` (which turns parchment in dark). White text on purple only on `--uq-blue-ink`. Icons come from the mascot sheet: `icon128`/`icon48` = the square tile, `icon16` = the head alone; the toolbar launcher shows `icons/head48.png` (web-accessible), since a charcoal tile vanishes on the charcoal button. Vak/tag colours
+  ("Goblin", from the PatchGoblin brand sheet) on `#pg-overlay`, token names `--pg-*`: `--pg-blue #8B5CF6` Mischief Purple, `--pg-blue-ink #6D3FE0` for text/white-on (active/selected, the **changed**
+  border on cards), `--pg-amber #7ED957` Goblin Green (Controleer fill with charcoal ink, badges, the 3px top strip on menus — no hard offset shadows; menus use a light border + soft shadow),
+  `--pg-orange #F59E0B` Warning Orange (attention: zonder doelen, warnings), `--pg-cyan #7ED957` (gepland marker,
+  focus ring, selection tint — never text). Ink is Charcoal `#1E1F27`; text on a Goblin Green fill is ALWAYS literal `#1E1F27`, never `var(--ink)` (which turns parchment in dark). White text on purple only on `--pg-blue-ink`. Icons come from the mascot sheet: `icon128`/`icon48` = the square tile, `icon16` = the head alone; the toolbar launcher shows `icons/head96.png` (web-accessible), since a charcoal tile vanishes on the charcoal button. Vak/tag colours
   on cards stay the teacher's own Questi tag colours.
 - Overlays set `html.qwX-locked` to freeze the page behind them.
 
@@ -118,19 +121,25 @@ exported for settings.js too.
 
 `chrome.storage.local` with a `localStorage` fallback. No sync, no IndexedDB.
 
+**v2.0 renamed every key `qwp_*` → `pg_*`.** Migration is automatic and per key: `storeGet` reads a
+`pg_*` key that does not exist yet from its old name (`OLD_STORE_KEYS` in `planner.js`), writes it
+under the new name and keeps the old copy (so going back to v1.x still works); the status line says
+how many parts were carried over (`migratedKeys()`). Every read must go through `storeGet` — a direct
+`chrome.storage.local.get` would skip the migration. A new key needs no entry in `OLD_STORE_KEYS`.
+
 | Key | Owner | Contents |
 |---|---|---|
-| `qwp_state_v6` | planner (+ settings UI) | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), `weeks` (print default only — Plannen always shows 2), `panels[0]` (sidebar list filter), `mainMode` (`plan`/`doelen`), `filterOpen`, `doelenWeek`, manual overrides, `saveThrottleMs`; settings fields `vakTags` (top-tag ids that are vakken, `null` = all), `vakOrder` (legend order, `null` = A→Z), `setupDone`, `writeVakDescription` (missing in stored state ⇒ `true`, brand-new install ⇒ `false`). `panelCount`, `pickerView`, `splitRatio`, `sideCollapsed` are legacy and unused |
-| `qwp_ctx_v1` | planner | detected context per Questi user id (`schoolId, schoolyear, school, calendars, calendarId, groupId, ownDefaultTagId`) — boot starts from it after one `/users/me`, full detection re-verifies in the background and the status says when it changed |
-| `qwp_lessons_v1` | lessons | last tag, page size, columns, sort |
-| `qwp_methodes_v1` | methodes | methode definitions, order, manual overrides |
-| `qwp_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
-| `qwp_threads_v1` | planner (print) + lessons | fiche lineage `{ "<thread>": newest fiche id seen }` — learned from every edit view read/written (the list has no `thread`) |
-| `qwp_goalcache_v1` | lessons (goals mode) + print | goals per fiche VERSION `{ "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }` — exact forever (an id never changes content), so a seen fiche costs no request |
-| `qwp_print_v1` | planner (Afdrukken tab) + settings | print choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool, meta: bool }` (`meta` = week no. + print date, default on) |
-| `qwp_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
+| `pg_state_v6` | planner (+ settings UI) | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), `weeks` (print default only — Plannen always shows 2), `panels[0]` (sidebar list filter), `mainMode` (`plan`/`doelen`), `filterOpen`, `doelenWeek`, manual overrides, `saveThrottleMs`; settings fields `vakTags` (top-tag ids that are vakken, `null` = all), `vakOrder` (legend order, `null` = A→Z), `setupDone`, `writeVakDescription` (missing in stored state ⇒ `true`, brand-new install ⇒ `false`). `panelCount`, `pickerView`, `splitRatio`, `sideCollapsed` are legacy and unused |
+| `pg_ctx_v1` | planner | detected context per Questi user id (`schoolId, schoolyear, school, calendars, calendarId, groupId, ownDefaultTagId`) — boot starts from it after one `/users/me`, full detection re-verifies in the background and the status says when it changed |
+| `pg_lessons_v1` | lessons | last tag, page size, columns, sort |
+| `pg_methodes_v1` | methodes | methode definitions, order, manual overrides |
+| `pg_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
+| `pg_threads_v1` | planner (print) + lessons | fiche lineage `{ "<thread>": newest fiche id seen }` — learned from every edit view read/written (the list has no `thread`) |
+| `pg_goalcache_v1` | lessons (goals mode) + print | goals per fiche VERSION `{ "<fiche id>": { g: {weet,ken,kan}, m: methode hint } }` — exact forever (an id never changes content), so a seen fiche costs no request |
+| `pg_print_v1` | planner (Afdrukken tab) + settings | print choices `{ mode: "plain" \| "goals1" \| "goals2", tabs: "word" \| "icon", legend: bool, meta: bool }` (`meta` = week no. + print date, default on) |
+| `pg_xhide_v1` | planner (print) | other-agenda items hidden from the Lesdoelen print `{ "<cal>\|r<id_repeat>" \| "<cal>\|i<item id>": true }` |
 
-**`qwp_state_v6` is restored field by field** (`mergeState` + `mergeUqSettings`): a new `state.x` that is
+**`pg_state_v6` is restored field by field** (`mergeState` + `mergeUqSettings`): a new `state.x` that is
 saved but not listed there silently resets on every reload (shipped once: vak view, abbreviations,
 sidebar width, Passend/Ruim). Add every new field to the restore list.
 
@@ -178,25 +187,25 @@ Writes: `PATCH /cal/items/{id}` (writes **do** send `schoolyear`; `groups` are o
 chips (`renderVakToggle`), `Ik | Collega ▾` (`renderSource` + `openSourceMenu`, colleagues and
 methodes), a folding filter (`applyFilterFold`; the button says "Filter •" when a folded filter
 still hides fiches), ONE fiche list, and `Alles · Instellingen · Debug · Controleer` pinned to the
-bottom. The list is the old panel 0 (`view.panels[0]`, ids `qwp-*-0`), so vak/subtag/union/grade/
+bottom. The list is the old panel 0 (`view.panels[0]`, ids `pg-*-0`), so vak/subtag/union/grade/
 mass-add helpers are unchanged; the 1/2/3 panels, Lijst/Kaart, splitter and sidebar toggle are gone.
 Row date: planned in the loaded weeks (by fiche **id**, staged state) → green "gepland"; used this
 school year → muted ✓; else last date or "nooit". Every old sidebar action lives in the **Alles**
 menu (`openAlles`) — add new tools there, not as loose buttons. **Instellingen** calls
-`window.__UQ_SETTINGS.open()` when that module exists, else the planner's own `openInstellingen`.
-Controleer's badge, the header's "N wijzigingen" and the launcher badge (`__QWP_PENDING_COUNT`) are
+`window.__PG_SETTINGS.open()` when that module exists, else the planner's own `openInstellingen`.
+Controleer's badge, the header's "N wijzigingen" and the launcher badge (`__PG_PENDING_COUNT`) are
 `totalStagedCount()` = `stagedCount()` (same filter as `buildCommitPlan`) + the manager's staged fiche
 edits and tags to create; week navigation's discard warning still uses `stagedCount()` (only calendar
 edits die with a week reload). Main column: header (← → step ONE week and `confirm()` before discarding staged
 edits, Vandaag, `Plannen | Doelen`), then `view.weeks = 2` ALWAYS — this week and next, **stacked**,
-one `.qwp-wk` section and 5-column grid per week (`weekSection`); one review covers both.
+one `.pg-wk` section and 5-column grid per week (`weekSection`); one review covers both.
 `renderTimetable` keeps the scroll position. Cards (`cellFor`) use the Lesdoelen-print look: top bar
 in the vak's top-tag colour with `goalsInkOn` ink, title below, green 2px border when dirty, dashed
 when unplanned (`unplanned` = no fiche/gym and a "Lesuur N" title — cosmetic only, never identity).
 **Doelen** mode expands `state.doelenWeek` and folds the other week into a bar; cards show WEET/KEN/
 KAN read-only from `goalsRecFor` after `loadPrintFicheGoals` (expanded week only, mapLimit 4, goal
 cache), and the header counts lesuren without goals (`goalsStateOf`). The review modal still draws
-both weeks side by side with the generic `.qwp-tt` rules — the PatchGoblin CSS is scoped to `.qwp-wk`.
+both weeks side by side with the generic `.pg-tt` rules — the PatchGoblin CSS is scoped to `.pg-wk`.
 Rows, breaks and no-school days are all derived from the data, never hardcoded. `vak` (subject) is not an API field — it is
 the teacher's per-timeslot tag mapping from `state.settings`. Commit path is
 `buildCommitPlan` → review diff → `doCommit`. Ctrl+Z undo stack, cap 30, cleared on week change.
@@ -245,7 +254,7 @@ Two traps, both of which shipped as bugs:
 `doCommit` must re-apply the prefix to Questi's decorated title (`themaTitleFor`), or the prefix
 never reaches the server. `themaCommitTitle`/`stripThemaPrefix` keep it idempotent.
 An explicit **manual override** outranks all of it: picking a Vak in the popup on a whole-week slot
-stores `state.themaVak[<repeatId|normalised origTitle>] = tagId` in `qwp_state_v6`, which
+stores `state.themaVak[<repeatId|normalised origTitle>] = tagId` in `pg_state_v6`, which
 `stampThemaKey` consults first. That is the escape hatch for a title no rule can resolve, so a new
 abbreviation never needs a code change. `THEMA_ALIAS` maps an item-title regex to a **tag-title**
 regex (not a `VAKKEN` id), so a vak with no `VAKKEN` entry — lichamelijke opvoeding — resolves too.
@@ -269,10 +278,10 @@ Layout: the 52px label column is **empty by design** on thema rows. It once held
 and because grid rows are auto-height a wrapped lesson title there stretched the whole row. The
 thema name sits in the band itself (a striped one-line strip in the stacked layout).
 
-**Boot speed.** `detectContext` = one `/users/me` + the cached context (`qwp_ctx_v1`, keyed by user id) when
+**Boot speed.** `detectContext` = one `/users/me` + the cached context (`pg_ctx_v1`, keyed by user id) when
 known, with `detectContextFull` (the old 5–6 request chain) verifying in the background; a different result
 corrects `ctx` and warns in the status line. `hydrateRange` reads item details through `mapLimit(…, 4)`
-instead of one by one. The toolbar launcher badge reads `__QWP_PENDING_COUNT` (no request).
+instead of one by one. The toolbar launcher badge reads `__PG_PENDING_COUNT` (no request).
 
 **Paint first, details after.** `hydrateRangeLive` resolves at the `/cal/items` LIST stage with
 `{ slots, done, total }`; every lesuur that needs a detail read is marked `_pending` until its
@@ -285,16 +294,16 @@ one gate: `computeDirty` returns false, `applyStoredVakken` and `applyThemaLesuu
 latter also while that week's bars are pending), `isTargetable`/empty pools exclude it, undo never
 restores a snapshot taken while it was unread, and `openReview`/`doCommit` plus the bulk tools (Kopieer
 vorige week, Titels opschonen, Vakken herstellen, mass-add) refuse via `busyLoading()` with the reason.
-Controleer gets `.qwp-wait` and a tooltip saying how many lesuren are still loading. `reloadAndRender`
+Controleer gets `.pg-wait` and a tooltip saying how many lesuren are still loading. `reloadAndRender`
 and `loadEverything` resolve only after `view.hydrateP` (settings.js re-reads titles after it; the
-health check needs `ctx.groupId`, which only a detail supplies; `qwp:loaded` fires after it). Doelen-mode
+health check needs `ctx.groupId`, which only a detail supplies; `pg:loaded` fires after it). Doelen-mode
 goal reads wait for the details too, so Questi only ever sees one 4-wide stream. `hydrateRange` (print)
 still waits for everything.
 
 **Opening week.** `detectViewedWeekStart` reads Questi's own `/cal/items` requests out of the
 performance timeline. It must match `/cal/items?` **only** (`/cal/items/count` is a MONTH query —
 matching it made `mondayOf` roll 1 Aug back to 27 Jul, i.e. a live August request produced a July
-week), require a week-shaped range, skip our own reads (marked `qwp=1` by `apiItems`), and sanity-
+week), require a week-shaped range, skip our own reads (marked `pg=1` by `apiItems`), and sanity-
 check the distance from today. `resolveOpenWeek()` is the single answer used by both the planner
 and print, and the status line says which rule fired. After our own write the page reloads via
 `reloadAndReopen` (note `pg_reopen` in sessionStorage); `content.js` reopens the planner and
@@ -322,11 +331,11 @@ thema vak gets its `"Lesuur N"` placeholder back (`placeholderTitleFor`: positio
 calendar's recurring lesuren that day) instead of keeping another vak's themafiche name.
 
 **Lesfiche-manager.** One `mgr` state, two hosts. **Mounted** (normal use): the planner's Lesfiches tab
-(`setTab("lesfiches")`) toggles `.qwp-tab-lf` on `#qwp-overlay` — CSS hides every `.qwp-plan-only` part
-and shows `#qwp-lf-side` / `#qwp-lf-main` — and calls `__QWP_LESSONS.mount(side, main, {onClose})`:
+(`setTab("lesfiches")`) toggles `.pg-tab-lf` on `#pg-overlay` — CSS hides every `.pg-plan-only` part
+and shows `#pg-lf-side` / `#pg-lf-main` — and calls `__PG_LESSONS.mount(side, main, {onClose})`:
 a tag tree in the sidebar (`renderTagTree`), header + selection bar + table + **side-sheet** editor
 (`openSheet` → `fillEditor`, same editor as the standalone modal) in main. The bottom bar stays.
-**Standalone** `#qwl-overlay`: pick mode, and a direct `open()`; it keeps its own "Wijzigingen
+**Standalone** `#pgl-overlay`: pick mode, and a direct `open()`; it keeps its own "Wijzigingen
 controleren" gate (`openReviewEdits` → `writePending` → `writeFiches`). Both hosts use the same element
 ids, so lookups go through `E(id)` (active host only) — never `document.getElementById`. While the
 standalone overlay is up over a mounted manager, the mounted list state is stashed
@@ -365,10 +374,10 @@ persist; titles and dates are re-fetched live every open. Note Questi rolls `sch
 so between the roll and 1 September nothing counts as given — hence the explicit year picker.
 
 **Afdrukken tab** (`buildPrintPanel`, built once inside `buildShell`; `showTab` swaps the column pairs via
-`.qwp-main.tab-print`). Sidebar: the same tabs (`tabsNav`), week ← →, Versie cards, Op het blad
+`.pg-main.tab-print`). Sidebar: the same tabs (`tabsNav`), week ← →, Versie cards, Op het blad
 (labels + legend for Lesdoelen, week no. + date), other agendas, "Opmerking voor deze week" (Gewoon
 adds "Lege notitieregels" when it is empty), a note when edits are staged or a detail failed, the
-orange "N kaarten zonder doelen · nu invullen" (own fiches → `openLesfichesTab` when `__QWP_LESSONS`
+orange "N kaarten zonder doelen · nu invullen" (own fiches → `openLesfichesTab` when `__PG_LESSONS`
 exists, else Plannen in Doelen mode; methode cards are typed in the preview), and **Bewaar als PDF** /
 **Afdrukken** pinned at the bottom — both open the browser print dialog; PDF says to pick "Opslaan als
 PDF". Main: the live A4 preview iframe; for the Lesdoelen versions a Voorkant/Achterkant switch hides
@@ -376,8 +385,8 @@ every other page on screen only (`@media screen` style injected by `applyPrintPa
 `plannerReady()` (context + tags + week list) and `view.hydrateP`, then follows the planner's first
 week unless the tab was stepped on its own. It prints the STORED planning: `plannerPrintView` reuses
 copies of the planner's slots when they cover the week, are fully read and nothing is staged; otherwise
-`fetchPrintView` reads the week itself. `window.__QWP_PRINT` = `openPrintTab` (boot("print") when the
-planner never opened). The old standalone `#qwp-print-overlay` is gone.
+`fetchPrintView` reads the week itself. `window.__PG_PRINT` = `openPrintTab` (boot("print") when the
+planner never opened). The old standalone `#pg-print-overlay` is gone.
 
 **Lesdoelen print.** The Afdrukken tab's "Versie" choice: Gewoon (the original layout, untouched) or
 Lesdoelen 1 A4 / 2 A4 (`printGoalsDocHtml`). Equal-height cards with WEET/KEN/KAN write lines
@@ -395,16 +404,16 @@ list row hides it — by `id_repeat` when it recurs, so in every week — and hi
 `fetchPrintExtras` returns the raw `items` per week for this, next to the `cells`/`inject` the plain
 layout uses.
 
-**Settings module** (`settings.js`, `#qws-overlay`). Owns no storage key: it edits the planner's
-`state` through `__QWP_SHARED` and persists with `saveState()`; print defaults go to `qwp_print_v1`.
+**Settings module** (`settings.js`, `#pgs-overlay`). Owns no storage key: it edits the planner's
+`state` through `__PG_SHARED` and persists with `saveState()`; print defaults go to `pg_print_v1`.
 Seven sections (Lesrooster, Vakken, Agenda, Collega's & methodes, Afdrukken, Delen & back-up, Over)
-and a 5-step first-run wizard that auto-opens once (planner dispatches `qwp:loaded` at the end of
+and a 5-step first-run wizard that auto-opens once (planner dispatches `pg:loaded` at the end of
 `loadEverything`; the wizard opens when `state.settings` is empty and `setupDone` is false; closing
-it sets `setupDone`). The old `openInstellingen` modal delegates to `__UQ_SETTINGS.open("lesrooster")`.
+it sets `setupDone`). The old `openInstellingen` modal delegates to `__PG_SETTINGS.open("lesrooster")`.
 The only Questi write is creating a tag (missing vak), always behind a confirm. Wizard lesrooster
 suggestions are bootstrap guesses (rule 3b) — fiche/description vak first, else the ORIGINAL item
 title matched to vak names — drawn with an orange border, and dropped unless confirmed.
-**Export/import** (`format: "unquesti-settings"`, `version: 1`) carries tags by **title + colour (+
+**Export/import** (`format: "patchgoblin-settings"`, `version: 1`) carries tags by **title + colour (+
 parent title), never by id**; import maps them onto the importer's own tags (exact → alias table →
 prefix, the last two flagged as a guess), offers "aanmaken in Questi" for missing ones, and applies
 only on Importeren. Thema overrides keyed `rep:<id_repeat>` are exported as the title of a loaded item
@@ -433,12 +442,11 @@ shape, add a check here.**
 
 **Writes have three outcomes: done, refused, onzeker.** Every write has a 30 s timeout (`timedFetch` in planner, `wfetch` in lessons). No answer, a dropped connection or a gateway status (502/503/504/408/524) is NOT "failed" — Questi may have committed it. Planner: `doCommit` → `verifyLanded` reads the item back → `"landed"` (a missing title PATCH is redone; PATCH is idempotent) / `"not"` (attachment absent by content id → retry is safe) / `"unknown"` (sets `slot._uncertain`; the next commit reads the item first and skips the attachment POST if that fiche is already there). Lessons: `createUserTag` (baseline = cached own tags), `renameUserTag` and `writeNewFiche` (baseline = 10 newest own fiches, read before the POST) settle it by reading back; a fiche PATCH or DELETE stays `onzeker` (`err.uncertain`, message starts with `UNSURE`). `finishSharedWrite` lists uncertain writes in their own warning. **Read-back:** a newly linked fiche is re-read once per lesuur, a fiche edit that touched goals/tags/grades/visibility is re-read and mismatches go to `trialMisses` — plain PATCHes are not, to keep traffic light. **Saves:** `storeSet` is the only storage writer (lessons/methodes/settings go through it); a throw or `chrome.runtime.lastError` goes to `noteApiError("storage", key)` and the status line ("Extension context invalidated" = stale tab, reload). **Zelftest** `checkRequestFormats` (lessons) builds the PATCH / new-fiche / tag-rename bodies from fixed samples offline and checks the captured rules, and fires a test `OpStapSelectionChanged` to prove `opstap-bridge.js` runs. Change a body builder → keep those checks passing.
 
-**Open question — can a methode fiche's content be read?** Nothing in the codebase has ever
-deliberately tried. It matters because "copy a methode fiche into my own library" (planned, parked
-until Questi ships the new-curriculum fiches) is impossible without it. `probeMethodLesson` in
-`lessons.js` answers it: it GETs a real methode lesson with `return_format` `edit`/`view`/`short`
-and reports whether `templateId`, `fields[]`, text content, goals and attachments come back. The
-copied Zelftest report includes the raw key names. Two related unknowns it does **not** answer,
+**Methode fiche content.** Only `GET /cal/methods/{KEY}/lessons/{id}` returns it (captured
+2026-08-16; `/cal/lessons/{id}` answers `1235` for a methode fiche). `probeMethodLesson` in `lessons.js`
+tries that methode route and `/cal/lessons/{id}?return_format=edit` and reports which keys come back,
+in the copied Zelftest report. "Copy a methode fiche into my own library" stays parked until Questi
+ships the new-curriculum fiches. Two related unknowns it does **not** answer,
 because both would need a write: whether `attachments: []` on a fiche PATCH wipes existing
 attachments, and where the write-side `attachmentId` comes from (it matches neither `content.id`
 nor `id_attachment`). Test those by hand on a throwaway fiche.
@@ -452,7 +460,7 @@ version. `buildPatch` sends every extra field exactly as Questi's editor does, `
 fields share one `"null"` key. Goals mode in the manager (`makeGoalsTable`) stages into `mgr.pending`
 like any edit and backs up ≥5 goal writes first. Goal reads are **viewport-driven** (IntersectionObserver,
 max 4 in flight) and print caps its reads at 4 (`mapLimit`) — keep Questi traffic light, never a burst. A planned lesuur keeps its fiche **version**, so print
-follows the fiche's `thread` (same for every version; `qwp_threads_v1`) to the newest version, then the
+follows the fiche's `thread` (same for every version; `pg_threads_v1`) to the newest version, then the
 newest own fiche with the same title, and marks the card "nieuwere versie".
 
 **New fiche (beta).** "+ Nieuwe fiche" in the Lesfiches tab builds a fiche in the side sheet
@@ -463,11 +471,11 @@ template's text fields, WEET/KEN/KAN and leerplandoelen. It is staged as `mgr.pe
 `methods` field has no captured create shape and is left out, said in the sheet. Op.Stap
 leerplandoelen use Katholiek Onderwijs Vlaanderen's own `<op-stap-selector>` web component, which
 Questi loads only once its own editor opened (`op-stap-selector.latest.js`); the bridge loads that same
-script on the extension's `uq-opstap-load` event and marks `<html data-uq-opstap>` once it is defined
+script on the extension's `pg-opstap-load` event and marks `<html data-pg-opstap>` once it is defined
 (`ensureOpstap`). `opstapSelector` places it (mode FULL,
-marked `data-uq`) and reads `OpStapSelectionChanged` `{ selectedKeys: ["/content/<uuid>"] }`. The
+marked `data-pg`) and reads `OpStapSelectionChanged` `{ selectedKeys: ["/content/<uuid>"] }`. The
 event detail does not reach the isolated world, so **`opstap-bridge.js` runs in the page world**
-(second manifest content-script entry, `"world": "MAIN"`) and copies it to `data-uq-sel`. Skip the
+(second manifest content-script entry, `"world": "MAIN"`) and copies it to `data-pg-sel`. Skip the
 `{ selectedKeys: [], version: null }` events the modal fires on open. Goal ids are UUID strings —
 never cast them. ZILL templates: no picker, said in the sheet. Keep the MAIN-world entry when
 releasing (beta→stable only touches the CSS list).
@@ -477,7 +485,7 @@ releasing (beta→stable only touches the CSS list).
 `grades`/`visibility` are a **trial** — the create call's keys, never captured on PATCH — so writePending
 reads the new version back and reports a mismatch instead of trusting it. Template, attachments,
 methode doelen and leerplandoelen are read-only (goal tree + attachment upload are not built).
-Traffic rules: fiche reads are viewport-driven and cached per version (`qwp_goalcache_v1` carries goals
+Traffic rules: fiche reads are viewport-driven and cached per version (`pg_goalcache_v1` carries goals
 AND tags), parallel reads go through `mapLimit(…, 4)`, `ficheEditTags` is memoised per id.
 
 ## Working on this repo
@@ -493,4 +501,4 @@ AND tags), parallel reads go through `mapLimit(…, 4)`, `ficheEditTags` is memo
   stable copy (Alt+Shift+P, dormant while stable is active), keeps its CSS **out** of the manifest
   (the worker injects it, see `content.js`), and checks/updates from its own branch. To make one:
   rename, drop the manifest `css`, point `install.bat`, `update.bat` and the version check at the
-  branch. Releasing reverses all of that — v1.3.0 was released from the `unquesti` beta this way.
+  branch. Releasing reverses all of that — v1.3.0–v1.5.0 were released from the old `unquesti` beta branch (now `beta`) this way.

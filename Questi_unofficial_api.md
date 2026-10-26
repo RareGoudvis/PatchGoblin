@@ -128,7 +128,7 @@ Useful tricks PatchGoblin uses:
   on screen. Match **`/cal/items?` only**: `/cal/items/count` is a **month** query (its `startdate`
   is the 1st of the month — rolling that back to a Monday once opened the planner on a July week
   from an August view). Also require a week-shaped range (≤ 14 days) and skip your own reads
-  (PatchGoblin marks them with an extra `qwp=1` param, which Questi ignores).
+  (PatchGoblin marks them with an extra `pg=1` param, which Questi ignores).
 - **Own default tag.** Own-fiche lists need your personal "Alle eigen lesfiches" tag id
   (`ownDefaultTagId`, see [§7](#7-lesfiche-reads)). Resolution order: sniff `default_tagId=` from
   Questi's own `/cal/lessons` request (skipping `shared_userId` ones) → `/cal/lessons/tags?filter=own`,
@@ -464,9 +464,9 @@ call it yet.)
   or opening the picker wipes the selection.
 - **Why a MAIN-world script:** a content script runs in an isolated world, and a `CustomEvent`'s
   `detail` object does not cross into it. `opstap-bridge.js` is a second content-script entry with
-  `"world": "MAIN"` that copies each detail (for elements marked `data-uq`) into a `data-uq-sel`
+  `"world": "MAIN"` that copies each detail (for elements marked `data-pg`) into a `data-pg-sel`
   attribute as JSON; the extension observes that attribute. The bridge also loads the component
-  script on an `uq-opstap-load` event and marks `<html data-uq-opstap="1">` once
+  script on an `pg-opstap-load` event and marks `<html data-pg-opstap="1">` once
   `customElements` has it.
 
 ## 12. Methode fiches (vendor libraries)
@@ -583,18 +583,18 @@ Further rules:
 - **Writes are gated.** Every mutation is staged and goes through one review the user approves.
 - **Dutch UI, English code/comments/commits.**
 - **Reuse before writing.** Shared helpers live in `planner.js` and are exported through
-  `__QWP_SHARED`. Function declarations hoist — a duplicate silently shadows the original.
+  `__PG_SHARED`. Function declarations hoist — a duplicate silently shadows the original.
 
 ## 17. Files and load order
 
 | File | Role |
 |---|---|
 | `manifest.json` | MV3. Permissions `storage`, `activeTab`, `scripting`; hosts `questi.com` + `raw.githubusercontent.com` (update check). Two content-script entries: the isolated-world scripts + CSS, and `opstap-bridge.js` in the MAIN world at `document_start`. Alt+P command. |
-| `background.js` | Service worker. Relays the toolbar click / Alt+P to the tab (`QWP_TOGGLE`); answers `QWP_CHECK_VERSION` (fetches `version.json` from GitHub); for a beta copy injects the CSS (`QWP_INSERT_CSS`). |
-| `planner.js` / `planner.css` | The PatchGoblin window `#qwp-overlay`: Plannen, Afdrukken, the shared Controleer. Also context detection, the API layer, print documents and the Zelftest. Exports `__QWP_SHARED`. |
-| `lessons.js` / `lessons.css` | Lesfiche-manager: mounted as the planner's **Lesfiches** tab; standalone `#qwl-overlay` for read-only pick mode. Fiche + tag CRUD, new fiche, Op.Stap picker host. |
-| `methodes.js` / `methodes.css` | Methodevoortgang `#qwm-overlay`. Read-only progress tracker. |
-| `settings.js` / `settings.css` | Instellingen + first-run wizard `#qws-overlay`. Settings export/import, Zelftest `.json`. |
+| `background.js` | Service worker. Relays the toolbar click / Alt+P to the tab (`PG_TOGGLE`); answers `PG_CHECK_VERSION` (fetches `version.json` from GitHub); for a beta copy injects the CSS (`PG_INSERT_CSS`). |
+| `planner.js` / `planner.css` | The PatchGoblin window `#pg-overlay`: Plannen, Afdrukken, the shared Controleer. Also context detection, the API layer, print documents and the Zelftest. Exports `__PG_SHARED`. |
+| `lessons.js` / `lessons.css` | Lesfiche-manager: mounted as the planner's **Lesfiches** tab; standalone `#pgl-overlay` for read-only pick mode. Fiche + tag CRUD, new fiche, Op.Stap picker host. |
+| `methodes.js` / `methodes.css` | Methodevoortgang `#pgm-overlay`. Read-only progress tracker. |
+| `settings.js` / `settings.css` | Instellingen + first-run wizard `#pgs-overlay`. Settings export/import, Zelftest `.json`. |
 | `content.js` | Boot/relay, last in order. Injects the PatchGoblin launcher button + quick menu into Questi's calendar header, reopens the planner after a write-triggered reload, handles the beta/stable coexistence. Builds no other UI. |
 | `opstap-bridge.js` | MAIN-world bridge for the Op.Stap web component (Part 1, §11). |
 | `version.json`, `update.bat`, `install.bat` | Self-update and install (§25). |
@@ -615,31 +615,31 @@ There are no modules; files talk through `window` globals.
 
 | Global | Set by | Purpose |
 |---|---|---|
-| `__QWP_SHARED` | planner | ctx, API helpers, DOM helper `h`, storage, tag helpers, and (by reference) the planner's `state`/`view` for settings.js |
-| `__QWP_TOGGLE` | planner | open/close the planner |
-| `__QWP_OPEN_LESSONS` | planner | open the planner on its Lesfiches tab |
-| `__QWP_PRINT` | planner | open the planner on its Afdrukken tab |
-| `__QWP_TEST` | planner | debug handles |
-| `__QWP_PENDING_COUNT` | planner | staged-change count for the launcher badge |
-| `__QWP_LESSONS` | lessons | `open, close, openPicker, mount, unmount, createUserTag, writeTags, writeFiches, backupPending, pendingSummary, …` |
-| `__QWP_METHODES` | methodes | `open, close` |
-| `__UQ_SETTINGS` | settings | `open(sectionId?), openSetup, close, exportSettings, saveDebugJson, …` |
-| `__QWP_BOOTED` | content | double-injection guard |
+| `__PG_SHARED` | planner | ctx, API helpers, DOM helper `h`, storage, tag helpers, and (by reference) the planner's `state`/`view` for settings.js |
+| `__PG_TOGGLE` | planner | open/close the planner |
+| `__PG_OPEN_LESSONS` | planner | open the planner on its Lesfiches tab |
+| `__PG_PRINT` | planner | open the planner on its Afdrukken tab |
+| `__PG_TEST` | planner | debug handles |
+| `__PG_PENDING_COUNT` | planner | staged-change count for the launcher badge |
+| `__PG_LESSONS` | lessons | `open, close, openPicker, mount, unmount, createUserTag, writeTags, writeFiches, backupPending, pendingSummary, …` |
+| `__PG_METHODES` | methodes | `open, close` |
+| `__PG_SETTINGS` | settings | `open(sectionId?), openSetup, close, exportSettings, saveDebugJson, …` |
+| `__PG_BOOTED` | content | double-injection guard |
 
-Each consumer starts with `function S() { return window.__QWP_SHARED; }`. Before adding a helper to
+Each consumer starts with `function S() { return window.__PG_SHARED; }`. Before adding a helper to
 a consumer, check whether planner already has it and export that instead.
 
 ## 19. UI, CSS prefixes and themes
 
 - **No HTML files.** All DOM is built with the hyperscript helper `h(tag, attrs, kids)`
   (`attrs`: `class`, `text`, `style`, `on*`; anything else becomes an attribute; `null` is skipped).
-- Each module owns a fullscreen overlay and a CSS prefix — `qwp-` planner, `qwl-` lessons, `qwm-`
-  methodes, `qws-` settings — and namespaces all CSS under its overlay id. Overlays set
+- Each module owns a fullscreen overlay and a CSS prefix — `pg-` planner, `pgl-` lessons, `pgm-`
+  methodes, `pgs-` settings — and namespaces all CSS under its overlay id. Overlays set
   `html.qwX-locked` to freeze the page behind them.
 - z-index: planner < settings < methodes < lessons (the manager opens on top of methodes in pick mode).
 - **Themes:** light "Parchment" (default) and dark "Slate", set as `html[data-pg-theme]`. Every colour
   goes through CSS tokens (`--page --panel --surface --hover --soft --line --line2 --ink --muted
-  --faint` + the `--uq-*` brand palette); each stylesheet ends with its dark token block. Print
+  --faint` + the `--pg-*` brand palette); each stylesheet ends with its dark token block. Print
   documents keep literal colours and always print white. Vak colours on cards are the teacher's own
   Questi tag colours.
 - Design rule from the user: no decorative accent stripes (coloured left edges, top strips) on cards,
@@ -653,15 +653,21 @@ status line.
 
 | Key | Contents |
 |---|---|
-| `qwp_state_v6` | Planner state: lesrooster (slot → vak tag, keyed `"<dayIdx>\|<HH:MM>"`), colleagues, manual overrides, vak/thema overrides, theme, settings fields (`vakTags`, `vakOrder`, `setupDone`, `writeVakDescription`, …). Restored **field by field** (`mergeState` / `mergeUqSettings`) — a new field not added there resets on every reload. |
-| `qwp_ctx_v1` | Detected context per Questi user id. |
-| `qwp_lessons_v1` | Lesfiche-manager: last tag, page size, columns, sort. |
-| `qwp_methodes_v1` | Methode definitions, order, manual overrides (see §23). |
-| `qwp_goals_v1` | Local lesdoelen for cards without an own fiche (`"f:<ficheId>"` / `"i:<itemId>"`), hide flags. |
-| `qwp_threads_v1` | Fiche lineage `{ "<thread>": newest fiche id seen }`. |
-| `qwp_goalcache_v1` | Goals (and tags) per fiche **version** — exact forever, since a version never changes. |
-| `qwp_print_v1` | Print choices (`mode`, `tabs`, `legend`, `meta`). |
-| `qwp_xhide_v1` | Other-agenda items hidden from the Lesdoelen print. |
+| `pg_state_v6` | Planner state: lesrooster (slot → vak tag, keyed `"<dayIdx>\|<HH:MM>"`), colleagues, manual overrides, vak/thema overrides, theme, settings fields (`vakTags`, `vakOrder`, `setupDone`, `writeVakDescription`, …). Restored **field by field** (`mergeState` / `mergeUqSettings`) — a new field not added there resets on every reload. |
+| `pg_ctx_v1` | Detected context per Questi user id. |
+| `pg_lessons_v1` | Lesfiche-manager: last tag, page size, columns, sort. |
+| `pg_methodes_v1` | Methode definitions, order, manual overrides (see §23). |
+| `pg_goals_v1` | Local lesdoelen for cards without an own fiche (`"f:<ficheId>"` / `"i:<itemId>"`), hide flags. |
+| `pg_threads_v1` | Fiche lineage `{ "<thread>": newest fiche id seen }`. |
+| `pg_goalcache_v1` | Goals (and tags) per fiche **version** — exact forever, since a version never changes. |
+| `pg_print_v1` | Print choices (`mode`, `tabs`, `legend`, `meta`). |
+| `pg_xhide_v1` | Other-agenda items hidden from the Lesdoelen print. |
+
+**Migration (v2.0).** Before the PatchGoblin rebrand every key was named `qwp_*` (e.g. `qwp_state_v6`).
+`storeGet` reads a `pg_*` key that does not exist yet from its old `qwp_*` name, copies it to the new name
+and keeps the old copy, so an update keeps all settings and going back to v1.x still works. The status line
+says how many parts were carried over. Settings files exported before v2.0 (`format: "unquesti-settings"`)
+are still accepted by import.
 
 ## 21. The write path: staging → Controleer → write
 
@@ -736,7 +742,7 @@ Ctrl+Z undoes staged edits (stack of 30, cleared on week change).
   order is used and rows can be dragged.
 - **Methode fiches in the planner** are loaded as a pseudo-colleague `"method:<KEY>"`, badged
   "methode", and routed to `…/attachments/methodlesson` on commit.
-- **Settings export/import** (`format: "unquesti-settings"`) carries tags by title + colour (+ parent
+- **Settings export/import** (`format: "patchgoblin-settings"`) carries tags by title + colour (+ parent
   title), never by id, and maps them onto the importer's own tags.
 
 ## 24. Zelftest (self-diagnostics)
