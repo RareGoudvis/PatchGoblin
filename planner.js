@@ -1341,7 +1341,7 @@
         else { body.description = ""; descEcho = true; }
       }
       return {
-        itemId: s.itemId, label: (s.title || "lesuur") + " (" + DAY_ABBR[s.dayIdx] + " " + (s.time || "") + ", wk " + (s.weekIdx + 1) + ")",
+        itemId: s.itemId, key: slotKey(s), label: (s.title || "lesuur") + " (" + DAY_ABBR[s.dayIdx] + " " + (s.time || "") + ", wk " + (s.weekIdx + 1) + ")",
         old: { title: s.origTitle, desc: s.origDescription, fiche: s.origFicheTitle || "(geen)" },
         neu: { title: s.title, desc: writesDescriptions() ? descHtml(s) : (s.origDescription || ""), fiche: (s.isGym ? "(geen — gym)" : (s.ficheTitle || "(geen)")) },
         descEcho: descEcho,
@@ -1706,14 +1706,24 @@
   // What Controleer writes: the loaded weeks plus other weeks' staged slots. The review and the write
   // match rows by item id, so an other-week slot whose id is also in use here (only possible if
   // Questi gave a series one id) is held back — said in the review — rather than risk the wrong week.
+  // Keyed per occurrence (slotKey = item id + date): two occurrences of a series that share an item
+  // id are both written. `held` stays for callers but is always empty since v2.0.3.
   function commitSlots() {
-    var used = {}, out = (view.slots || []).slice(), held = [];
-    out.forEach(function (s) { used[String(s.itemId)] = true; });
+    var used = {}, out = (view.slots || []).slice();
+    out.forEach(function (s) { used[slotKey(s)] = true; });
     offscreenStaged().forEach(function (s) {
-      if (used[String(s.itemId)]) { held.push(s); return; }
-      used[String(s.itemId)] = true; out.push(s);
+      if (used[slotKey(s)]) return;
+      used[slotKey(s)] = true; out.push(s);
     });
-    return { slots: out, held: held };
+    return { slots: out, held: [] };
+  }
+  // Occurrences in `slots` whose item id is used by another occurrence there. The attachment POST and
+  // the item read carry no date, so for these PatchGoblin can link and read back per ITEM only — the
+  // result says so instead of claiming a per-week check.
+  function sharedItemIds(slots) {
+    var n = {}, out = {};
+    slots.forEach(function (s) { var k = String(s.itemId); n[k] = (n[k] || 0) + 1; if (n[k] > 1) out[k] = true; });
+    return out;
   }
   // Everything the ONE Controleer writes: calendar changes plus the Lesfiche-manager's staged fiche
   // edits and tags to create. The launcher badge (__PG_PENDING_COUNT), the Controleer badge and the
@@ -4872,10 +4882,14 @@
     if (bar) bar.style.width = pct + "%";
     if (cnt) cnt.textContent = done + " / " + total;
   }
-  function commitOverlayResult(ok, fails) {
+  function commitOverlayResult(ok, fails, unverified) {
     var ov = elId("pg-commit-overlay"); if (!ov) return;
-    var msg = elId("pg-commit-msg"); if (msg) { msg.textContent = ok + " weggeschreven, " + fails.length + " mislukt. Eerste fout: " + fails[0].error; msg.classList.add("err"); }
+    unverified = unverified || [];
+    var msg = elId("pg-commit-msg");
+    if (msg) { msg.textContent = ok + " weggeschreven, " + fails.length + " mislukt." + (fails.length ? " Eerste fout: " + fails[0].error : ""); msg.classList.add("err"); }
     var card = ov.querySelector(".pg-commit-card"); var sp = ov.querySelector(".pg-spinner"); if (sp) sp.style.display = "none";
+    var lines = unverifiedLines(unverified);
+    if (card && lines.length) card.appendChild(h("ul", { class: "pg-cr-result" }, lines.map(function (l) { return h("li", { class: "warn", text: l[1] }); })));
     if (card) card.appendChild(h("button", { class: "pg-btn", text: "Sluiten", onclick: hideCommitOverlay }));
   }
   function hideCommitOverlay() { var ov = elId("pg-commit-overlay"); if (ov) ov.remove(); }
@@ -5511,9 +5525,10 @@
     applyStoredVakken([s]);
     s.descKeep = { vak: s.vak };
   }
-  function slotByItemId(id) {
+  // `key` = slotKey (item id + date): one occurrence, even when a series shares its item id.
+  function slotByKey(key) {
     var all = commitSlots().slots;
-    for (var i = 0; i < all.length; i++) if (String(all[i].itemId) === String(id)) return all[i];
+    for (var i = 0; i < all.length; i++) if (slotKey(all[i]) === String(key)) return all[i];
     return null;
   }
   // Every way into Controleer (button, header count, launcher) goes through here: an error while
@@ -5534,7 +5549,7 @@
     cs.slots.forEach(function (s) {
       if (!s.isEditable || s.idCalendar === "cal_holidays" || s.isGym || !s.ficheContentId) return;
       var pf = ficheByFid[String(s.ficheContentId)]; if (!pf) return;
-      if (computeDirty(s)) follows[s.itemId] = pf; else bumps.push({ slot: s, fiche: pf });
+      if (computeDirty(s)) follows[slotKey(s)] = pf; else bumps.push({ slot: s, fiche: pf });
     });
     if (!lp.tags.length && !lp.fiches.length && !plan.length && !bumps.length) { setStatus("Geen wijzigingen om te controleren."); return; }
     var excl = { tag: {}, fiche: {}, cal: {}, bump: {} }, rows = [];
@@ -5579,20 +5594,20 @@
     })));
     var weekCount = {};
     var calRows = plan.map(function (p) {
-      var s = slotByItemId(p.itemId), what = [];
+      var s = slotByKey(p.key), what = [];
       if (p.old.fiche !== p.neu.fiche || p.fiche) what.push(s && s.isGym ? "Gym" : "Fiche");
       if ((p.old.title || "") !== (p.neu.title || "")) what.push("Titel");
       if (stripHtml(p.old.desc) !== stripHtml(p.neu.desc)) what.push("Vak");
       if (!what.length) what.push("Lesuur");
       if (s) { var wn = slotWeekNo(s); weekCount[wn] = (weekCount[wn] || 0) + 1; }
-      var pf = follows[p.itemId];
-      return row("cal", p.itemId, what.join(" · "), s ? slotWhere(s) : p.label,
+      var pf = follows[p.key];
+      return row("cal", p.key, what.join(" · "), s ? slotWhere(s) : p.label,
         [p.old.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.old.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (stripHtml(p.old.desc) || "—") : null],
         [p.neu.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.neu.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (stripHtml(p.neu.desc) || "—") : null],
         pf ? "krijgt de nieuwe versie van deze fiche" : (p.descEcho ? "beschrijving wordt eerst gelezen en ongewijzigd teruggeschreven" : null));
     }).concat(bumps.map(function (b) {
       var s = b.slot, wn = slotWeekNo(s); weekCount[wn] = (weekCount[wn] || 0) + 1;
-      return row("bump", s.itemId, "Fiche-versie", slotWhere(s), [(s.ficheTitle || b.fiche.title) + " (oud)"], [b.fiche.title + " (nieuw)"], "lesuur blijft verder ongewijzigd");
+      return row("bump", slotKey(s), "Fiche-versie", slotWhere(s), [(s.ficheTitle || b.fiche.title) + " (oud)"], [b.fiche.title + " (nieuw)"], "lesuur blijft verder ongewijzigd");
     }));
     if (calRows.length) {
       var grid = null;
@@ -5627,7 +5642,7 @@
       list.forEach(function (r) {
         if (r.kind === "tag") tagKeys.push(r.key);
         else if (r.kind === "fiche") ficheKeys.push(r.key);
-        else if (r.kind === "cal") { var s = slotByItemId(r.key); if (s) { discardSlot(s); nCal++; } }
+        else if (r.kind === "cal") { var s = slotByKey(r.key); if (s) { discardSlot(s); nCal++; } }
       });
       if ((tagKeys.length || ficheKeys.length) && L && L.discardPending) L.discardPending({ tagKeys: tagKeys, ficheKeys: ficheKeys });
       modal.remove();
@@ -5642,7 +5657,7 @@
       // A Fiche-versie row only makes sense while its fiche is being written.
       rows.forEach(function (r) {
         if (r.kind !== "bump") return;
-        var b = bumps.filter(function (x) { return String(x.slot.itemId) === String(r.key); })[0];
+        var b = bumps.filter(function (x) { return slotKey(x.slot) === String(r.key); })[0];
         var off = !!(b && excl.fiche[b.fiche.key]);
         r.cb.disabled = off; r.el.classList.toggle("dis", off);
       });
@@ -5651,9 +5666,8 @@
       goBtn.textContent = "Wegschrijven (" + n + ")"; goBtn.disabled = n ? null : "true";
       delBtn.innerHTML = ""; delBtn.appendChild(svgIcon("trash", 15)); delBtn.appendChild(document.createTextNode(" Weggooien (" + nDel + ")"));
       delBtn.disabled = nDel ? null : "true";
-      var away = offscreenStaged().length - cs.held.length;
-      sub.textContent = rows.length + (rows.length === 1 ? " wijziging" : " wijzigingen") + (away > 0 ? " (" + away + " uit andere weken)" : "") + (n !== rows.length ? " · " + n + " aangevinkt" : "") + " · nog niets is naar Questi gestuurd" +
-        (cs.held.length ? " · " + cs.held.length + " uit andere weken wacht: zelfde reeks als een lesuur hier, schrijf eerst deze weg" : "");
+      var away = offscreenStaged().length;
+      sub.textContent = rows.length + (rows.length === 1 ? " wijziging" : " wijzigingen") + (away > 0 ? " (" + away + " uit andere weken)" : "") + (n !== rows.length ? " · " + n + " aangevinkt" : "") + " · nog niets is naar Questi gestuurd";
       masterCb.checked = n === rows.length;
     }
     var aside = h("aside", { class: "pg-cr-aside" }, [
@@ -5690,8 +5704,8 @@
         leftOut: rows.length - chosen().length
       };
       lp.fiches.forEach(function (f) { sel.ficheIdByKey[f.key] = f.ficheId; });
-      plan.forEach(function (p) { if (!excl.cal[p.itemId]) sel.calIds[p.itemId] = true; });
-      bumps.forEach(function (b) { if (!excl.bump[b.slot.itemId] && !excl.fiche[b.fiche.key]) sel.bumpIds[b.slot.itemId] = true; });
+      plan.forEach(function (p) { if (!excl.cal[p.key]) sel.calIds[p.key] = true; });
+      bumps.forEach(function (b) { var k = slotKey(b.slot); if (!excl.bump[k] && !excl.fiche[b.fiche.key]) sel.bumpIds[k] = true; });
       if (!sel.tagKeys.length && !sel.ficheKeys.length && !Object.keys(sel.calIds).length && !Object.keys(sel.bumpIds).length) return;
       modal.remove();
       runSharedWrite(sel);
@@ -5735,20 +5749,21 @@
         if (m) {
           // A newly assigned fiche always follows (it stays staged even when left out of this run);
           // an already-attached one only when its row is written now or its Fiche-versie row is ticked.
-          if (!(newAssign || sel.calIds[s.itemId] || sel.bumpIds[s.itemId])) return;
+          if (!(newAssign || sel.calIds[slotKey(s)] || sel.bumpIds[slotKey(s)])) return;
           var oldTitle = s.ficheTitle || "";
           s.ficheContentId = m.newId; s.ficheTitle = m.subject || oldTitle;
           if (oldTitle && normTitle(s.title) === normTitle(oldTitle)) s.title = s.ficheTitle;
           rep.remapped++;
-        } else if (failedFid[fid] && newAssign && sel.calIds[s.itemId]) {
-          held[s.itemId] = true;
+        } else if (failedFid[fid] && newAssign && sel.calIds[slotKey(s)]) {
+          held[slotKey(s)] = true;
           rep.held.push(slotWhere(s) + " — fiche ‘" + failedFid[fid] + "’ werd niet bijgewerkt");
         }
       });
-      var plan = buildCommitPlan(cs.slots).filter(function (p) { return (sel.calIds[p.itemId] || sel.bumpIds[p.itemId]) && !held[p.itemId]; });
+      var plan = buildCommitPlan(cs.slots).filter(function (p) { return (sel.calIds[p.key] || sel.bumpIds[p.key]) && !held[p.key]; });
+      markSharedItems(plan);
       if (!plan.length) { finishSharedWrite(rep, sel, [], 0, []); return; }
       setStatus("3/3 · Agenda wegschrijven…");
-      _commitAfter = function (ok, fails) { finishSharedWrite(rep, sel, plan, ok, fails); };
+      _commitAfter = function (ok, fails, unverified) { finishSharedWrite(rep, sel, plan, ok, fails, unverified); };
       _approvedPlan = plan;
       doCommit();
     }).catch(function (e) {
@@ -5756,20 +5771,21 @@
       finishSharedWrite(rep, sel, [], 0, [{ label: "wegschrijven", error: String((e && e.message) || e) }]);
     });
   }
-  function finishSharedWrite(rep, sel, plan, ok, calFails) {
+  function finishSharedWrite(rep, sel, plan, ok, calFails, unverified) {
+    unverified = unverified || [];
     var L = lessonsApi();
     // Written rows are no longer staged: take their new state as the stored one, so anything left
     // out (or held back) stays staged on screen without a reload.
     plan.forEach(function (p) {
       if (!p.done) return;
-      var s = slotByItemId(p.itemId); if (!s) return;
+      var s = slotByKey(p.key); if (!s) return;
       s.origTitle = s.title; s.origDescription = p.patchBody.description || "";
       s.origFicheContentId = s.ficheContentId; s.origFicheTitle = s.ficheTitle;
     });
     var tagFails = (rep.tags && rep.tags.fails) || [], ficheFails = (rep.fiches && rep.fiches.fails) || [];
     var trial = (rep.fiches && rep.fiches.trialMisses) || [];
     var tagsOk = (rep.tags && rep.tags.created.length) || 0, fichesOk = rep.fiches ? Object.keys(rep.fiches.map).length : 0;
-    var problems = tagFails.length + ficheFails.length + calFails.length + rep.held.length + trial.length + (rep.backup && !rep.backup.downloaded ? 1 : 0);
+    var problems = tagFails.length + ficheFails.length + calFails.length + rep.held.length + trial.length + unverified.length + (rep.backup && !rep.backup.downloaded ? 1 : 0);
     var wrote = tagsOk + fichesOk + ok;
     var leftover = totalStagedCount();
     try { if (L && L.afterSharedWrite) L.afterSharedWrite(); } catch (e) {}
@@ -5797,6 +5813,7 @@
     rep.held.forEach(function (t) { lines.push(["warn", "Niet weggeschreven: " + t + ". Dit lesuur blijft klaargezet met de huidige versie — probeer opnieuw na de fiche."]); });
     if (plan.length) lines.push(calFails.length ? ["warn", "Agenda: " + ok + " lesuur/lesuren weggeschreven, " + calFails.length + " mislukt — " + calFails.map(function (f) { return f.label + ": " + f.error; }).slice(0, 4).join(" · ")] : ("Agenda: " + ok + " lesuur/lesuren weggeschreven."));
     else if (calFails.length) lines.push(["warn", "Fout: " + calFails[0].error]);
+    lines = lines.concat(unverifiedLines(unverified));
     if (sel.leftOut || leftover) lines.push(leftover + " wijziging(en) blijven klaargezet" + (sel.leftOut ? " (waarvan " + sel.leftOut + " bewust uitgevinkt)" : "") + " — zie Controleer.");
     if (calFails.length && leftover === calFails.length) reloadAndRender();   // only failures left: show what did persist
     else renderTimetable();
@@ -5826,19 +5843,21 @@
   function doCommit() {
     if (busyLoading()) return;
     if (!_approvedPlan || !_approvedPlan.length) { _commitAfter = null; setStatus("Niets goedgekeurd."); return; }
-    var plan = _approvedPlan, i = 0, ok = 0, fails = [];
+    var plan = _approvedPlan, i = 0, ok = 0, fails = [], unverified = [];
+    markSharedItems(plan);
     setStatus("Bezig met wegschrijven…");
     showCommitOverlay(plan.length);
     function finish() {
       _approvedPlan = null;
       var cb = elId("pg-commit"); if (cb) { cb.setAttribute("disabled", "true"); cb.classList.remove("armed"); }
       // The shared Controleer (runSharedWrite) reports all three phases itself.
-      if (_commitAfter) { var after = _commitAfter; _commitAfter = null; after(ok, fails); return; }
-      if (fails.length) {
+      if (_commitAfter) { var after = _commitAfter; _commitAfter = null; after(ok, fails, unverified); return; }
+      if (fails.length || unverified.length) {
         var first = fails[0];
-        setStatus(ok + " ok, " + fails.length + " fout: " + first.label + " — " + first.error + (fails.length > 1 ? " (+ " + (fails.length - 1) + " meer, zie console)" : ""));
-        console.error("[PG] commit failures:", JSON.stringify(fails));
-        commitOverlayResult(ok, fails);
+        setStatus(first ? (ok + " ok, " + fails.length + " fout: " + first.label + " — " + first.error + (fails.length > 1 ? " (+ " + (fails.length - 1) + " meer, zie console)" : ""))
+          : (ok + " weggeschreven, waarvan " + unverified.length + " niet (volledig) nagelezen — zie overzicht."));
+        if (fails.length) console.error("[PG] commit failures:", JSON.stringify(fails));
+        commitOverlayResult(ok, fails, unverified);
         reloadAndRender(); // refresh the planner for what did persist
         return;
       }
@@ -5868,7 +5887,7 @@
           if (!p.fiche) return null;
           // A row whose last write was uncertain may already carry this fiche: look before POSTing
           // again, so a retry never attaches the same fiche twice.
-          var slot = slotByItemId(p.itemId);
+          var slot = slotByKey(p.key);
           var before = (slot && slot._uncertain) ? fetchItemDetail(p.itemId).then(function (d) { return attachedContentId(d) === String(p.fiche.contentId); }) : Promise.resolve(false);
           return before.then(function (already) {
             if (already) return null;
@@ -5881,16 +5900,28 @@
         .then(function () {
           if (!p.fiche) return;
           return fetchItemDetail(p.itemId).then(function (d) {
-            if (attachedContentId(d) !== String(p.fiche.contentId)) { var e = new Error("fiche staat niet bij het lesuur volgens Questi (nagelezen)"); e.readBack = true; throw e; }
-          }, function () { p.notVerified = true; });
+            var match = attachedContentId(d) === String(p.fiche.contentId);
+            // A shared item id: the read has no date, so it may show the series' other occurrence.
+            // Neither a match nor a mismatch proves anything for THIS week — say so, never fail it
+            // (a retry would POST the fiche again).
+            if (p.sharedItem) { p.notVerified = "shared"; return; }
+            if (!match) { var e = new Error("fiche staat niet bij het lesuur volgens Questi (nagelezen)"); e.readBack = true; throw e; }
+          }, function () { p.notVerified = "read"; });
         })
-        .then(function () { ok++; p.done = true; markUncertain(p, false); })
+        .then(function () {
+          ok++; p.done = true; markUncertain(p, false);
+          if (p.notVerified) unverified.push({ label: p.label, why: p.notVerified });
+        })
         // Continue on error. No clear answer (gateway timeout, no answer, dropped connection) may
         // still have landed → read the item back: done, finished (title PATCH redone), not written,
         // or — when even the read fails — uncertain, which the next write checks first.
         .catch(function (e) {
           if (isGatewayError(e) && !e.readBack) return verifyLanded(p).then(function (v) {
-            if (v === "landed") { ok++; p.done = true; markUncertain(p, false); return; }
+            if (v === "landed") {
+              ok++; p.done = true; markUncertain(p, false);
+              if (p.sharedItem && p.fiche) unverified.push({ label: p.label, why: "shared" });
+              return;
+            }
             if (v === "not") { fails.push({ label: p.label, error: "niet weggeschreven (" + (e.message || "geen antwoord") + ") — opnieuw proberen is veilig" }); markUncertain(p, false); return; }
             fails.push({ label: p.label, error: UNSURE + " — Questi antwoordde niet en nalezen lukte niet", uncertain: true }); markUncertain(p, true);
           });
@@ -5907,7 +5938,22 @@
   // (a PATCH is safe to repeat).
   var UNSURE = "onzeker";
   function attachedContentId(d) { var a = d && ficheAttachment(d.attachments); return a && a.content ? String(a.content.id) : ""; }
-  function markUncertain(p, on) { var s = slotByItemId(p.itemId); if (s) s._uncertain = !!on; }
+  function markUncertain(p, on) { var s = slotByKey(p.key); if (s) s._uncertain = !!on; }
+  // Rows whose item id also belongs to another occurrence in this run or among the staged slots.
+  function markSharedItems(plan) {
+    var shared = sharedItemIds(commitSlots().slots), n = {};
+    plan.forEach(function (p) { n[String(p.itemId)] = (n[String(p.itemId)] || 0) + 1; });
+    plan.forEach(function (p) { p.sharedItem = !!(shared[String(p.itemId)] || n[String(p.itemId)] > 1); });
+  }
+  // Result lines for writes that went through but could not be fully read back.
+  function unverifiedLines(unverified) {
+    var lines = [], shared = unverified.filter(function (u) { return u.why === "shared"; }), read = unverified.filter(function (u) { return u.why !== "shared"; });
+    if (read.length) lines.push(["warn", read.length + " lesuur/lesuren weggeschreven maar niet nagelezen (Questi antwoordde niet op het nalezen) — " +
+      read.map(function (u) { return u.label; }).slice(0, 4).join(" · ") + ". Kijk ze na in Questi."]);
+    if (shared.length) lines.push(["warn", shared.length + " lesuur/lesuren delen hun Questi-id met een ander lesuur van dezelfde reeks: de fiche is gekoppeld en per item nagelezen, niet per week — " +
+      shared.map(function (u) { return u.label; }).slice(0, 4).join(" · ") + ". Kijk na of elke week de juiste fiche heeft."]);
+    return lines;
+  }
   function verifyLanded(p) {
     return new Promise(function (res) { setTimeout(res, 1500); })
       .then(function () { return fetchItemDetail(p.itemId); })
@@ -5917,7 +5963,9 @@
         var attached = attachedContentId(d), has = !!(d.has_attachments || attached);
         var ficheOk = p.fiche ? attached === String(p.fiche.contentId) : (p.keepsFiche ? has : !has);
         if (ficheOk && titleOk) return "landed";
-        if (p.fiche && attached !== String(p.fiche.contentId)) return "not";   // the attachment never landed: a retry is safe
+        // A shared item id: the read may show the series' other occurrence, so a missing fiche
+        // proves nothing — stay uncertain rather than call a second POST safe.
+        if (p.fiche && attached !== String(p.fiche.contentId)) return p.sharedItem ? "unknown" : "not";   // the attachment never landed: a retry is safe
         if (!ficheOk) return "not";
         return patchItem(p.itemId, p.patchBody, p.range).then(function () { return "landed"; }, function () { return "unknown"; });
       }).catch(function () { return "unknown"; });

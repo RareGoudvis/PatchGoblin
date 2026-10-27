@@ -152,7 +152,10 @@ GET /cal/items?schoolId=<schoolId>&calendars[]=<calendarId>&calendars[]=cal_holi
   id_repeat, is_editable, has_attachments, id_calendar, is_published_students,
   is_published_parents, groups, translation }`.
 - `id_repeat` identifies a recurring series (stable across weeks and renames). Several occurrences
-  may share an `id`, so key an occurrence by `id` + date.
+  may share an `id`, so key an occurrence by `id` + date. ⚠ Only the item PATCH takes an occurrence
+  window: `GET /cal/items/{id}` and the attachment POSTs carry no date. For occurrences that share an
+  id, PatchGoblin writes each one but reports its fiche link as checked per item, not per week
+  (untested: whether the POST then hits one occurrence or the series — capture pending).
 - ⚠ **The list `title` is not the stored title** (since about October 2026). For an item with a
   fiche attached, the list's `title` is the computed `title_lessons`, decorated like
   `"* <fiche subject> (1)"`. Questi's own calendar shows that decorated text, and no title PATCH
@@ -525,15 +528,17 @@ How PatchGoblin settles "maybe written":
 | Write | Verification |
 |---|---|
 | Calendar item (`verifyLanded`, planner) | Wait 1.5 s, re-read `/cal/items/{id}`. Fiche attached (by `content.id`) **and** title as sent → *landed*. Fiche attached but title not → redo the title PATCH (a PATCH is safe to repeat) → *landed*. Attachment missing → *not written*, retry is safe. Read fails → *unknown*: the slot is flagged, and the next commit reads the item first and skips the attachment POST if that fiche is already there (an attachment POST must never run twice). |
-| New fiche (`writeNewFiche` + `verifyCreatedFiche`) | Before the POST, read the 10 newest own fiches as a baseline. After an unclear answer, wait 1.5 s and read them again: a fiche with this exact subject that was not in the baseline = created after all (no second POST). None → not created. Read fails → stays uncertain. |
+| New fiche (`writeNewFiche` + `findCreatedFiche`) | Before the POST, read the 10 newest own fiches as a baseline. After an unclear answer, wait 1.5 s and read them again: a fiche with this exact subject that was not in the baseline = created after all (no second POST). None → not created. Read fails → stays uncertain, and the baseline is kept on the staged fiche (`p.createUnsure`): the next attempt runs the same check first and only POSTs when the fiche is certainly not there. Once a POST returned an id, that id is kept (`p.createdId`); a failed read-back or WEET/KEN/KAN PATCH after it is reported, and the goals come back as an ordinary staged edit on the new id — never a second POST. |
+| Fiche PATCH (`writeFiches` + `findNewVersion`) | One baseline of the 10 newest own fiches per write run (every id the run mints joins it). After an unclear answer, wait 1.5 s, read the list again and read the edit view of each fiche not in the baseline: one with the same `thread` = the PATCH landed (no second PATCH; its new id is used). None → not written, retry is safe. Read fails → stays uncertain with a marker (`p.unsure`); the next attempt checks first. There is no endpoint that lists a thread's versions — this relies on a new version showing up at the top of the `new_items` list, the same assumption the create check makes. |
 | Tag create (`createUserTag`) | Baseline = the cached own tags. Re-read own tags: a new tag with the same (lower-cased) title and parent = created. |
-| Tag rename (`renameUserTag`) | Re-read own tags: title and parent as sent = landed. |
-| Fiche PATCH / DELETE | Not settled automatically — reported as *onzeker*. |
+| Tag rename (`renameUserTag`) | Re-read own tags: title, colour and parent as sent = landed. |
+| Fiche DELETE | Not settled automatically — reported as *onzeker*. Before any delete, a backup is downloaded; if the download or any fiche read fails, deleting needs an explicit confirm. |
 
 Further rules:
 
 - **Read-back of normal successes is selective**, to keep traffic light: a newly linked fiche is
-  re-read once per lesuur (Questi has silently dropped attachments before); a fiche edit that
+  re-read once per lesuur (Questi has silently dropped attachments before) — when that read fails,
+  the lesuur is reported as *weggeschreven, niet nagelezen*, never as a plain success; a fiche edit that
   touched goals/tags/grades/visibility is re-read and mismatches are reported. Plain PATCHes are not.
 - **HTTP 429** — the planner's write path retries with backoff 1 s → 2 s → 4 s (max 3 retries), then
   gives up. (The Lesfiche-manager's writes do not retry on 429; they run one at a time with a short
