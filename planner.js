@@ -2329,8 +2329,9 @@
       if (!D.blocks.length) h += '<div class="tcr"><div class="tli tmut">geen lessen</div></div>';
       D.blocks.forEach(function (L) {
         var rec = goalsRecFor(goalsKeyFor(L.slot)), hide = rec.hide || {};
+        var fg = L.slot.ficheContentId ? _printFicheGoals[L.slot.ficheContentId] : null;
         h += '<div class="tcr"><div class="tli"><span class="tcb" style="background:' + todoTint(L.col) + '"></span><span class="tlt' + (L.p.main ? "" : " tmut") + '">' + esc(L.p.main || L.lbl) + "</span>" +
-          (L.toets ? '<span class="ttg">TOETS</span>' : "") + "</div>" +
+          (L.toets ? '<span class="ttg">TOETS</span>' : "") + (fg && fg.src === "newer" ? '<span class="tnv">nieuwere versie</span>' : "") + "</div>" +
           GOALS_KINDS.map(function (k) {
             if (hide[k.key]) return '<div class="tcg"></div>';
             var t = String(rec[k.key] || "").trim();
@@ -2402,6 +2403,9 @@
     '.tcb { width: 11px; height: 11px; border: 1.5px solid #1E1F27; border-radius: 3px; flex: 0 0 auto; }' +
     '.tlt { font-weight: 600; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.15; }' +
     '.tmut { color: #8A8E99; font-weight: 500; font-style: italic; }' +
+    '.tnv { flex: 0 0 auto; border: 1px solid #B9BDC6; color: #5B5F6B; border-radius: 3px; padding: 0 3px; font-size: 7px; font-weight: 700; white-space: nowrap; }' +
+    '.ttg + .tnv { margin-left: 3px; }' +
+    '.tlt + .tnv { margin-left: auto; }' +
     '.ttg { margin-left: auto; background: #F59E0B; color: #1E1F27; border-radius: 3px; padding: 0 4px; font-size: 7.5px; font-weight: 900; letter-spacing: .08em; flex: 0 0 auto; }' +
     '.tcg { position: relative; min-height: 0; overflow: hidden; border-left: 1px solid #E6E8EC; padding: 0 8px; display: flex; align-items: center; }' +
     '.tgt { font-size: var(--gfs); line-height: 1.2; color: #3E424D; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: var(--gl); -webkit-box-orient: vertical; }' +
@@ -2478,10 +2482,13 @@
   function isMethodSlot(s) { return !!(s && s.ficheContentId && (s.ficheIsMethod || view.methodFicheIds[String(s.ficheContentId)])); }
   function goalsEditableFor(s) { return !!s && (!s.ficheContentId || isMethodSlot(s)); }
   // Goals read from the attached fiche for print. A planned lesuur keeps the fiche VERSION it was
-  // planned with, so goals typed afterwards live on a newer version: when the attached one has none,
-  // take the newest own fiche with the same title (read-only) and mark the card. Reset per print window.
+  // planned with, while goals are usually typed or finished later, on a newer version. So print always
+  // follows the fiche to its newest version — via its thread when known, else the newest own fiche with
+  // the same title that provably belongs to it — and takes that version's goals when it has any; the
+  // card is marked "nieuwere versie". No newer version, or one without goals → the attached version's.
+  // Read-only. Reset per print window.
   var _printFicheGoals = {};    // ficheContentId -> { goals: {weet,ken,kan}|null, src: "fiche"|"newer"|"none" }
-  var _ownFicheByTitle = null;  // normalised subject -> id of the current own fiche with that title
+  var _ownFicheByTitle = null;  // promise: { map: normalised subject -> newest own fiche id, since: lowest id covered }
   function resetPrintFicheGoals() { _printFicheGoals = {}; _ownFicheByTitle = null; }
   function normSubject(t) { return String(t || "").replace(/\s+/g, " ").trim().toLowerCase(); }
   function fetchFicheEdit(id) {
@@ -2492,72 +2499,93 @@
     GOALS_KINDS.forEach(function (k) { var v = gf[k.key] ? goalText(gf[k.key].content) : ""; if (v) { out[k.key] = v; any = true; } });
     return any ? out : null;
   }
-  function ownFicheByTitle() {
-    if (_ownFicheByTitle) return Promise.resolve(_ownFicheByTitle);
-    if (ctx.ownDefaultTagId == null) return Promise.resolve({});
-    return fetchAllFichesByTag(ctx.ownerId, ctx.ownDefaultTagId).then(function (r) {
-      var map = {};
-      (r.items || []).forEach(function (f) { var k = normSubject(f.subject); if (k && (!map[k] || Number(f.id) > Number(map[k]))) map[k] = f.id; });
-      _ownFicheByTitle = map; return map;
-    }).catch(function () { return {}; });
+  // Newest own fiche per title, but only as far back as `minId`: the list comes newest first
+  // (sorting=new_items), so paging stops at the first page with nothing newer than the oldest planned
+  // version — usually one request — and never goes past OWN_TITLE_PAGES pages.
+  var OWN_TITLE_PAGES = 5;
+  function ownFicheByTitle(minId) {
+    if (_ownFicheByTitle) return _ownFicheByTitle;
+    if (ctx.ownDefaultTagId == null) return Promise.resolve({ map: {} });
+    var map = {};
+    function page(p) {
+      return fetchFichesByTag(ctx.ownerId, ctx.ownDefaultTagId, p * 100, 100).then(function (r) {
+        var items = r.items || [], newer = false;
+        items.forEach(function (f) {
+          if (Number(f.id) > Number(minId)) newer = true;
+          var k = normSubject(f.subject); if (k && (!map[k] || Number(f.id) > Number(map[k]))) map[k] = f.id;
+        });
+        if (newer && items.length === 100 && p + 1 < OWN_TITLE_PAGES) return page(p + 1);
+      });
+    }
+    _ownFicheByTitle = page(0).then(function () { return { map: map }; }).catch(function () { return { map: map }; });
+    return _ownFicheByTitle;
   }
   // Fiche lineage, saved under pg_threads_v1: { "<thread>": newest fiche id seen }. Every version of
   // a fiche shares its edit view's `thread` (captured 2026-10-25), but the fiche LIST does not carry
   // it — so the newest version is learned from every edit view read or written here (goals mode reads
   // each fiche it shows). Lets print follow a fiche through renames; another browser falls back to title.
-  var THREADS_KEY = "pg_threads_v1", _threads = {}, _threadsSaveT = null;
+  // _idThread is the reverse (version id -> thread), in memory, for versions whose goals come from cache.
+  var THREADS_KEY = "pg_threads_v1", _threads = {}, _threadsSaveT = null, _idThread = {};
   storeGet(THREADS_KEY).then(function (v) { _threads = Object.assign(v || {}, _threads); });
   function noteFicheThread(edit) {
     if (!edit || edit.thread == null || edit.id == null) return;
+    _idThread[String(edit.id)] = String(edit.thread);
     var k = String(edit.thread), cur = _threads[k];
     if (cur != null && Number(cur) >= Number(edit.id)) return;
     _threads[k] = edit.id;
     clearTimeout(_threadsSaveT);
     _threadsSaveT = setTimeout(function () { storeSet(THREADS_KEY, _threads); }, 500);
   }
-  // A newer version's goals for `edit` (the attached, goal-less version): via its thread first, then
-  // the newest own fiche with the same title. Resolves goals or null.
-  function newerVersionGoals(edit) {
-    var id = edit && edit.id;
-    function tryId(nid) {
-      if (!nid || String(nid) === String(id)) return Promise.resolve(null);
-      return fetchFicheEdit(nid).then(function (e2) { noteFicheThread(e2); return goalsOfEdit(e2); }).catch(function () { return null; });
-    }
-    var viaThread = edit && edit.thread != null ? _threads[String(edit.thread)] : null;
-    return tryId(viaThread).then(function (g) {
-      if (g) return g;
-      return ownFicheByTitle().then(function (map) {
-        var byTitle = map[normSubject(edit && edit.subject)];
-        return String(byTitle) === String(viaThread) ? null : tryId(byTitle);
-      });
-    });
-  }
+  function tagIdsOf(edit) { return ((edit && edit.tags) || []).map(function (t) { return String(t && t.id != null ? t.id : t); }); }
   // Read the goals of every own fiche on the sheet; resolves true when something new arrived.
   function loadPrintFicheGoals(pv) {
-    var ids = {};
+    var ids = {}, subj = {};
     (pv.slots || []).forEach(function (s) {
       if (!s || !s.ficheContentId || s.isGym || isMethodSlot(s)) return;
-      if (!(s.ficheContentId in _printFicheGoals)) ids[s.ficheContentId] = true;
+      if (!(s.ficheContentId in _printFicheGoals)) { ids[s.ficheContentId] = true; subj[s.ficheContentId] = s.ficheTitle || ""; }
     });
     var list = Object.keys(ids);
     if (!list.length) return Promise.resolve(false);
     list.forEach(function (id) { _printFicheGoals[id] = { goals: null, src: "loading" }; });
+    var minId = Math.min.apply(null, list.map(Number));
     // At most 4 reads at a time, and a version the Lesfiche-manager already read (pg_goalcache_v1 —
     // a fiche id never changes content) costs none — keeps print from bursting Questi.
     return storeGet("pg_goalcache_v1").then(function (cache) {
       cache = cache || {};
-      return mapLimit(list, 4, function (id) {
+      function cachedGoals(id) {
         var hit = cache[id] && cache[id].g, hg = {};
         if (hit) GOALS_KINDS.forEach(function (k) { if (hit[k.key]) hg[k.key] = hit[k.key]; });
-        if (Object.keys(hg).length) { _printFicheGoals[id] = { goals: hg, src: "fiche" }; return Promise.resolve(); }
-        return fetchFicheEdit(id).then(function (edit) {
-          noteFicheThread(edit);
-          var g = goalsOfEdit(edit);
-          if (g) { _printFicheGoals[id] = { goals: g, src: "fiche" }; return; }
-          return newerVersionGoals(edit).then(function (g2) {
-            _printFicheGoals[id] = g2 ? { goals: g2, src: "newer" } : { goals: null, src: "none" };
+        return Object.keys(hg).length ? hg : null;
+      }
+      function readEdit(id) { return fetchFicheEdit(id).then(function (e) { noteFicheThread(e); return e; }); }
+      function goalsOfId(id) { var c = cachedGoals(id); return c ? Promise.resolve(c) : readEdit(id).then(goalsOfEdit); }
+      // The newest version of `id` with goals, or null. A thread hit is exact. A title hit is only the
+      // same fiche when its thread matches, or — thread unknown — it shares a tag with the planned
+      // version: two own fiches may share a title ("Inhaalblok" for spelling and for WO).
+      function newerGoals(id, attached) {
+        var th = attached && attached.thread != null ? String(attached.thread) : _idThread[String(id)];
+        var viaThread = th != null ? _threads[th] : null;
+        if (viaThread != null && Number(viaThread) > Number(id)) return goalsOfId(viaThread);
+        return ownFicheByTitle(minId).then(function (r) {
+          var t = r.map[normSubject(subj[id] || (attached && attached.subject))];
+          if (t == null || Number(t) <= Number(id)) return null;
+          return readEdit(t).then(function (e) {
+            var same;
+            if (th != null && e && e.thread != null) same = String(e.thread) === th;
+            else {
+              var mine = attached ? tagIdsOf(attached) : ((cache[id] && cache[id].t) || []).map(String);
+              same = tagIdsOf(e).some(function (x) { return mine.indexOf(x) >= 0; });
+            }
+            return same ? goalsOfEdit(e) : null;
           });
-        }).catch(function () { _printFicheGoals[id] = { goals: null, src: "none" }; });
+        }).catch(function () { return null; });
+      }
+      return mapLimit(list, 4, function (id) {
+        var own = cachedGoals(id), attached = null;
+        var first = own ? Promise.resolve() : readEdit(id).then(function (e) { attached = e; own = goalsOfEdit(e); });
+        return first.then(function () { return newerGoals(id, attached); }).then(function (ng) {
+          _printFicheGoals[id] = ng ? { goals: ng, src: "newer" } : own ? { goals: own, src: "fiche" } : { goals: null, src: "none" };
+        }).catch(function () { _printFicheGoals[id] = own ? { goals: own, src: "fiche" } : { goals: null, src: "none" }; });
       });
     }).then(function () { return true; });
   }

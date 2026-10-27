@@ -492,8 +492,13 @@ version. `buildPatch` sends every extra field exactly as Questi's editor does, `
 fields share one `"null"` key. Goals mode in the manager (`makeGoalsTable`) stages into `mgr.pending`
 like any edit and backs up ≥5 goal writes first. Goal reads are **viewport-driven** (IntersectionObserver,
 max 4 in flight) and print caps its reads at 4 (`mapLimit`) — keep Questi traffic light, never a burst. A planned lesuur keeps its fiche **version**, so print
-follows the fiche's `thread` (same for every version; `pg_threads_v1`) to the newest version, then the
-newest own fiche with the same title, and marks the card "nieuwere versie".
+ALWAYS follows it to its newest version (`loadPrintFicheGoals`): the fiche's `thread` (same for every version;
+`pg_threads_v1`, plus the in-memory reverse `_idThread` for versions read from the goal cache), else the newest
+own fiche with the same title — accepted only when its thread matches, or (thread unknown) it shares a tag
+with the planned version, because two own fiches can share a title ("Inhaalblok" for two vakken). That
+title list pages newest-first and stops at the oldest planned version (max `OWN_TITLE_PAGES`). A newer version
+WITH goals wins and the card says "nieuwere versie" (Lesdoelen `.gc-src`, Te doen `.tnv`); else the planned
+version's goals.
 
 **New fiche (beta).** "+ Nieuwe fiche" in the Lesfiches tab builds a fiche in the side sheet
 (`openNewFiche`): template picker (`fetchTemplates`), title, leerjaren, zichtbaarheid, tags, the
