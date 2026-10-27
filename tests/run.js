@@ -117,6 +117,37 @@ test("fiche edit: no answer and nothing saved → 'retry is safe', one PATCH", f
   return x.L.writeFiches([f.id]).then(function (r) {
     assert.strictEqual(r.fails.length, 1); assert.ok(!r.fails[0].uncertain); assert.ok(/veilig/.test(r.fails[0].error));
     assert.ok(x.T.mgr.pending[f.id] && !x.T.mgr.pending[f.id].unsure, "stays staged, no marker");
+    assert.strictEqual(srv.count("PATCH lesson"), 1, "no automatic retry");
+  });
+});
+
+test("fiche edit: baseline read failed, answer lost after save → still found (same thread + title), no second PATCH", function () {
+  var srv = makeServer(), f = srv.addFiche({ subject: "Breuken" }), x = load(srv);
+  stageEdit(x.T, f, { subject: "Breuken 2" });
+  srv.fault("GET list", "fail"); srv.fault("PATCH lesson", "lost");
+  return x.L.writeFiches([f.id]).then(function (r) {
+    assert.strictEqual(r.fails.length, 0, JSON.stringify(r.fails));
+    assert.strictEqual(srv.count("PATCH lesson"), 1);
+    assert.strictEqual(srv.fiches[r.map[f.id].newId].subject, "Breuken 2");
+  });
+});
+
+test("fiche edit: changed again while the earlier write is uncertain → newer change written on top, nothing lost", function () {
+  var srv = makeServer(), f = srv.addFiche({ subject: "Breuken" }), x = load(srv);
+  stageEdit(x.T, f, { subject: "Breuken 2" });
+  srv.fault("PATCH lesson", "lost");
+  var origFetch = srv.fetch, patched = false;
+  srv.fetch = function (u, o) { if (o && o.method === "PATCH") patched = true; if (patched && (!o || o.method === "GET") && new URL(u, "https://q.t").pathname === "/api/cal/lessons") { srv.calls.push("GET list"); return Promise.resolve({ ok: false, status: 500, json: function () { return Promise.resolve({ status: "error" }); } }); } return origFetch(u, o); };
+  return x.L.writeFiches([f.id]).then(function (r) {
+    assert.ok(r.fails[0].uncertain);
+    srv.fetch = origFetch;
+    x.T.stagePending({ id: f.id, subject: "Breuken" }, null, { subject: "Breuken 3" }, [{ label: "Titel", old: "Breuken", nw: "Breuken 3" }]);
+    return x.L.writeFiches([f.id]);
+  }).then(function (r2) {
+    assert.strictEqual(r2.fails.length, 0, JSON.stringify(r2.fails));
+    assert.strictEqual(r2.map[f.id].oldId, f.id, "slots still remap from the version they point at");
+    assert.strictEqual(srv.fiches[r2.map[f.id].newId].subject, "Breuken 3", "the newer change landed");
+    assert.strictEqual(srv.count("PATCH lesson"), 2, "first write once, newer change once");
   });
 });
 

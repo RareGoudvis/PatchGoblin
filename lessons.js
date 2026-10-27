@@ -211,6 +211,12 @@
   // schoolId }; the reply is the stored tag (Questi lower-cases the title). That capture was on a
   // head tag: WITHOUT `parent` Questi makes the tag a head tag (shipped in v1.5.0 — a renamed subtag
   // lost its vak), so `parent` is always sent, with the create call's key (0 = head tag).
+  // "#ABC", "aabbcc" and "#aabbcc" are one colour: compare tag colours in one form.
+  function hexColor(c) {
+    var x = String(c || "").trim().toLowerCase().replace(/^#/, "");
+    if (/^[0-9a-f]{3}$/.test(x)) x = x.replace(/(.)/g, "$1$1");
+    return x;
+  }
   function tagPatchBody(title, color, parent) { return { title: title, color: color, parent: Number(parent) || 0, schoolId: sid() }; }
   function renameUserTag(id, title, color, parent) {
     var body = tagPatchBody(title, color, parent);
@@ -223,7 +229,7 @@
         return pause(1500).then(readOwnTagsFresh).then(function (list) {
           var t = list.filter(function (x) { return String(x.id) === String(id); })[0];
           if (t && String(t.title || "").trim().toLowerCase() === title.trim().toLowerCase() && (Number(t.parent) || 0) === body.parent &&
-              String(t.color || "").trim().toLowerCase() === String(color || "").trim().toLowerCase()) return t;
+              hexColor(t.color) === hexColor(color)) return t;
           throw new Error("niet weggeschreven (geen antwoord van Questi) — opnieuw proberen is veilig");
         }, function () { throw e; });
       });
@@ -1289,6 +1295,9 @@
     var goalsChanged = !!(e.goals && Object.keys(e.goals).length);
     var meaningful = (e.subject != null && e.subject !== origSubject) || (e.tags != null) || (e.createTags && e.createTags.length) || textChanged || goalsChanged
       || e.grades != null || e.visibility != null || !!(e.newFields && e.newFields.length);
+    // Changed again while an earlier write is still uncertain: if that write turns out to have
+    // landed, this newer state must still be written on top of it (writeFiches).
+    if (meaningful && e.unsure) e.editedSinceUnsure = true;
     if (meaningful) mgr.pending[f.id] = e; else delete mgr.pending[f.id];
     notifyPending();
   }
@@ -1353,6 +1362,7 @@
     function learn(newId) { if (baseP) baseP.then(function (k) { if (k) k[newId] = true; }); }
     return runSequential(keys, function (id) {
       var p = mgr.pending[id]; if (!p) return Promise.resolve();
+      var startId = p.fiche.id;   // the version slots point at, even when a landed earlier write moves p.fiche.id
       if (p.isNew) return writeNewFiche(p).then(function (res) {
         map[id] = { oldId: null, newId: res.newId, subject: res.subject, created: true };
         learn(res.newId);
@@ -1369,24 +1379,34 @@
       var editP = p.edit ? Promise.resolve(p.edit) : readFicheEdit(p.fiche.id);
       return editP.then(function (edit) {
         p.edit = edit;
-        // An earlier attempt got no clear answer: find out whether it landed before writing again.
-        // A PATCH mints a new version, so repeating one that did land would leave a second version.
-        return (p.unsure ? settleEarlierPatch(p) : Promise.resolve(null)).then(function (landed) {
-          if (landed) return landed;
+        function write() {
           return baseline().then(function (known) {
-            return writePatch(p.fiche.id, buildPatch(p.fiche.id, edit, opts)).catch(function (e) {
+            var body = buildPatch(p.fiche.id, p.edit, opts);
+            return writePatch(p.fiche.id, body).catch(function (e) {
               if (!e || !e.uncertain) throw e;
-              p.unsure = { known: known, thread: edit.thread, oldId: p.fiche.id };
+              p.unsure = { known: known, thread: p.edit.thread, oldId: p.fiche.id, subject: body.subject };
+              delete p.editedSinceUnsure;
               return settleEarlierPatch(p, e);
             }).then(function (r) {
               if (r === null) throw new Error("niet weggeschreven (geen duidelijk antwoord van Questi, nagelezen) — opnieuw proberen is veilig");
               return r;
             });
           });
+        }
+        // An earlier attempt got no clear answer: find out whether it landed before writing again.
+        // A PATCH mints a new version, so repeating one that did land would leave a second version.
+        return (p.unsure ? settleEarlierPatch(p) : Promise.resolve(null)).then(function (landed) {
+          if (!landed) return write();
+          if (!p.editedSinceUnsure) return landed;
+          // It landed, but the fiche was changed again since: write the current state on top of the
+          // landed version (fresh edit view — field ids change with every version).
+          delete p.editedSinceUnsure;
+          learn(landed.id); p.fiche.id = landed.id;
+          return readFicheEdit(landed.id).then(function (fresh) { p.edit = fresh; return write(); });
         });
       }).then(function (result) {
         if (result && result.id != null) learn(result.id);
-        var newId = result && result.id != null ? result.id : p.fiche.id, oldId = p.fiche.id;
+        var newId = result && result.id != null ? result.id : p.fiche.id, oldId = startId;
         map[id] = { oldId: oldId, newId: newId, subject: (result && result.subject != null) ? result.subject : (p.subject != null ? p.subject : ficheName(p.fiche)) };
         if (p.edit && S().noteFicheThread) S().noteFicheThread({ thread: p.edit.thread, id: newId });
         p.fiche.id = newId; if (result && result.subject != null) p.fiche.subject = result.subject;
@@ -1645,7 +1665,7 @@
           var unsure = !!(e && e.uncertain);
           missing.push("aangemaakt, maar WEET/KEN/KAN " + (unsure ? "onzeker (geen antwoord)" : "niet toegevoegd") + " — staan klaar als wijziging");
           return { newId: newId, subject: subject, missing: missing,
-            restage: { goals: lost, edit: edit, unsure: unsure ? { known: known, thread: edit.thread, oldId: newId } : null } };
+            restage: { goals: lost, edit: edit, unsure: unsure ? { known: known, thread: edit.thread, oldId: newId, subject: subject } : null } };
         });
       }, function () {
         // Created, but the new fiche could not be read: say so, keep the goals staged on its id.
@@ -1682,11 +1702,14 @@
       return hit ? { id: hit.id } : null;
     });
   }
-  // A version of `thread` minted after the baseline (not in it, not the old id) = the PATCH landed →
-  // { id, subject }. None → null. Any failed read rejects: then it cannot be told.
-  function findNewVersion(thread, oldId, known) {
+  // A version of `thread` other than the old id = the PATCH landed → { id, subject }. Candidates: the
+  // fiches not in the baseline; without a baseline, the ones titled as sent (the old id was the
+  // newest version, so any other version of its thread is ours). None → null. A failed read rejects.
+  function findNewVersion(thread, oldId, known, subject) {
     return pause(1500).then(newestOwnFiches).then(function (list) {
-      var cands = list.filter(function (f) { return !known[f.id] && String(f.id) !== String(oldId); });
+      var cands = list.filter(function (f) {
+        return String(f.id) !== String(oldId) && (known ? !known[f.id] : String(f.subject || "") === String(subject || ""));
+      });
       return cands.reduce(function (chain, f) {
         return chain.then(function (found) {
           if (found) return found;
@@ -1714,8 +1737,8 @@
   }
   function settleEarlierPatch(p, err) {
     var u = p.unsure;
-    if (!u || !u.known || u.thread == null) return Promise.reject(stillUnsure(err, "geen vergelijkingslijst"));
-    return findNewVersion(u.thread, u.oldId, u.known).then(function (hit) { delete p.unsure; return hit; },
+    if (!u || u.thread == null || (!u.known && u.subject == null)) return Promise.reject(stillUnsure(err, "geen vergelijkingslijst"));
+    return findNewVersion(u.thread, u.oldId, u.known, u.subject).then(function (hit) { delete p.unsure; return hit; },
       function () { throw stillUnsure(err, "nalezen mislukt"); });
   }
 
@@ -2475,5 +2498,5 @@
     writeTags: writeTags, writeFiches: writeFiches, afterSharedWrite: afterSharedWrite, discardPending: discardPending
   };
   // tests/run.js only: it sets __PG_TEST_HOOKS before loading this file. Never set in the extension.
-  if (window.__PG_TEST_HOOKS) window.__PG_LESSONS_TEST = { mgr: mgr, renameUserTag: renameUserTag, deleteBackupProblem: deleteBackupProblem };
+  if (window.__PG_TEST_HOOKS) window.__PG_LESSONS_TEST = { mgr: mgr, renameUserTag: renameUserTag, deleteBackupProblem: deleteBackupProblem, stagePending: stagePending };
 })();
