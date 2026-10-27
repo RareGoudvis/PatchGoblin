@@ -641,7 +641,7 @@
       mgr.ownTags.filter(function (k) { return String(k.parent) === String(t.id); })
         .sort(function (a, b) { return (a.title || "").localeCompare((b.title || ""), undefined, { numeric: true }); })
         .forEach(function (k) {
-          tree.appendChild(node((k.title || "").trim(), k.color || t.color, 1, String(mgr.tagFilter) === String(k.id) && mgr.unionParent == null, function () { loadList(k.id); }, null, k));
+          tree.appendChild(node((k.title || "").trim(), cssHex(k.color) ? k.color : t.color, 1, String(mgr.tagFilter) === String(k.id) && mgr.unionParent == null, function () { loadList(k.id); }, null, k));
         });
       pendingUnder(t.id).forEach(function (p) { tree.appendChild(node(p.title, p.color, 1, false, function () { dropPendingTag(p); }, newBadge())); });
     });
@@ -1297,7 +1297,11 @@
     // edit drops the staged goal of that field, and a goals-mode edit drops the text of its field.
     var dropLabels = [], goalF = e.edit ? S().ficheGoalFields(e.edit) : {};
     if (opts.text && e.goals) GOAL_KINDS.forEach(function (k) {
-      if (goalF[k] && Object.prototype.hasOwnProperty.call(opts.text, fieldKey(goalF[k])) && Object.prototype.hasOwnProperty.call(e.goals, k)) { delete e.goals[k]; dropLabels.push(k.toUpperCase()); }
+      // The editor prefills a staged goal (goalHtml) and saves every text field: an untouched one is not a newer edit.
+      if (goalF[k] && Object.prototype.hasOwnProperty.call(opts.text, fieldKey(goalF[k])) && Object.prototype.hasOwnProperty.call(e.goals, k)) {
+        if (opts.text[fieldKey(goalF[k])] === goalHtml(e.goals[k])) { delete opts.text[fieldKey(goalF[k])]; return; }
+        delete e.goals[k]; dropLabels.push(k.toUpperCase());
+      }
     });
     if (opts.goals && e.text && !opts.text) Object.keys(opts.goals).forEach(function (k) {
       if (goalF[k] && Object.prototype.hasOwnProperty.call(e.text, fieldKey(goalF[k]))) { delete e.text[fieldKey(goalF[k])]; dropLabels.push(goalF[k].title || ""); }
@@ -1391,13 +1395,17 @@
   // uses it to point agenda slots at the newest version. A failed key stays staged.
   // → Promise<{ map: { key: {oldId,newId,subject} }, fails: [{ key, title, error }], trialMisses: [] }>
   function writeFiches(keys, onProgress) {
-    if (writeBusy) return Promise.resolve({ map: {}, trialMisses: [], busy: true,
+    if (busyNow()) return Promise.resolve({ map: {}, trialMisses: [], busy: true,
       fails: keys.map(function (k) { var p = mgr.pending[k]; return { key: k, title: p ? ficheName(p.fiche) : ("#" + k), error: BUSY_MSG }; }) });
-    writeBusy = true;
-    return writeFichesRun(keys, onProgress).then(function (r) { writeBusy = false; return r; }, function (e) { writeBusy = false; throw e; });
+    writeBusy = Date.now();
+    return writeFichesRun(keys, onProgress).then(function (r) { writeBusy = 0; return r; }, function (e) { writeBusy = 0; throw e; });
   }
   // One write run at a time: two runs over the same staged edit would each PATCH it (two versions).
-  var writeBusy = false, BUSY_MSG = "Er loopt al een schrijfbeurt — wacht tot die klaar is en probeer dan opnieuw.";
+  // writeBusy = when the run started. Reads have no timeout, so a run whose GET never answers would
+  // block writing until a reload: after BUSY_MAX_MS the guard lets a new run through.
+  var BUSY_MAX_MS = 10 * 60 * 1000;
+  function busyNow() { return writeBusy && Date.now() - writeBusy < BUSY_MAX_MS; }
+  var writeBusy = 0, BUSY_MSG = "Er loopt al een schrijfbeurt — wacht tot die klaar is en probeer dan opnieuw.";
   // Staged again while its write ran (writeFiches compares p.rev): keep only what is newer than what
   // that write sent (`sent`, the staged values at its start) and move the entry to the new version.
   // Re-sending a written new field or create_tags would add it twice.
@@ -1956,8 +1964,8 @@
   function writeTags(keys, onProgress) {
     var created = [];
     var todo = mgr.pendingTags.filter(function (p) { return keys.indexOf(p.key) >= 0; });
-    if (writeBusy) return Promise.resolve({ created: [], busy: true, fails: todo.map(function (p) { return { key: p.key, title: p.title, error: BUSY_MSG }; }) });
-    writeBusy = true;
+    if (busyNow()) return Promise.resolve({ created: [], busy: true, fails: todo.map(function (p) { return { key: p.key, title: p.title, error: BUSY_MSG }; }) });
+    writeBusy = Date.now();
     return runSequential(todo, function (p) {
       var body = { title: p.title, color: p.color || "#e0e0e0", schoolId: sid() };
       if (p.parent) body.parent = Number(p.parent);
@@ -1972,11 +1980,11 @@
         created.push({ key: p.key, tag: tag });
       }, function (e) { if (e && e.uncertain) p.unsure = true; throw e; });
     }, onProgress).then(function (fails) {
-      writeBusy = false;
+      writeBusy = 0;
       if (created.length) { mgr.dirtyWrites = true; S().invalidateOwnTags(); renderTagBar(); }
       notifyPending();
       return { created: created, fails: fails.map(function (fl) { return { key: fl.item.key, title: fl.item.title, error: fl.error, uncertain: fl.uncertain }; }) };
-    }, function (e) { writeBusy = false; throw e; });
+    }, function (e) { writeBusy = 0; throw e; });
   }
   // After the shared Controleer: redraw whatever host is active (new ids, cleared badges).
   function afterSharedWrite() {

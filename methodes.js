@@ -224,11 +224,13 @@
     return S().storeGet("pg_threads_v1").then(function (threads) {
       threads = threads || {};
       return S().mapLimit(stale, 4, function (oldId) {
-        // GONE = the old version could not be read (deleted): remembered, so it is not re-read every open.
+        // GONE = Questi answered but the version has no thread: remembered, so it is not re-read every
+        // open. A failed read (deleted fiche or a network blip) is tried again next open.
         var known = m.threadOf[oldId];
         var thP = known != null ? Promise.resolve({ thread: known, subject: null })
-          : readEdit(oldId).then(function (e) { return { thread: e && e.thread != null ? String(e.thread) : GONE, subject: e && e.subject }; }, function () { return { thread: GONE }; });
+          : readEdit(oldId).then(function (e) { return { thread: e && e.thread != null ? String(e.thread) : GONE, subject: e && e.subject }; }, function () { return { thread: null }; });
         return thP.then(function (o) {
+          if (o.thread == null) return;
           m.threadOf[oldId] = o.thread;
           if (o.thread === GONE) return;
           var newest = threads[o.thread];
@@ -764,7 +766,7 @@
       "﻿" + lines.join("\r\n"), "text/csv;charset=utf-8");
   }
   // A cell starting with = + - @ tab or CR is a formula to Excel/Sheets — a fiche title must stay text.
-  function csv(s) { s = String(s == null ? "" : s); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[;"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+  function csv(s) { s = String(s == null ? "" : s); if (/^([=@\t\r]|[+\-]\S)/.test(s)) s = "'" + s;   /* + or - followed by a space ("- Les 1") is no formula */ return /[;"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 
   // ========================================================================
   //  Back-up — move the whole tracker between machines (school laptop ↔ home pc)

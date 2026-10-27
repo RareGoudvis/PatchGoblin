@@ -255,16 +255,24 @@
   // Our own saves come back through the same event: they are recognised by value (the last few
   // writes per key, so two quick saves never mistake the older echo for a foreign change).
   var SYNC_KEYS = { pg_state_v6: true, pg_goals_v1: true };
-  var _ownWrites = {};   // key → JSON of this tab's recent writes, oldest first
+  var _ownWrites = {};   // key → canonical JSON of this tab's recent writes, oldest first
+  // chrome.storage hands values back with object keys sorted, so a plain JSON.stringify of what we
+  // wrote never equals the echo: compare with keys sorted at every level.
+  function canonJson(v) {
+    return JSON.stringify(v, function (k, x) {
+      if (!x || typeof x !== "object" || Array.isArray(x)) return x;
+      var o = {}; Object.keys(x).sort().forEach(function (key) { o[key] = x[key]; }); return o;
+    });
+  }
   function noteOwnWrite(key, val) {
     if (!SYNC_KEYS[key]) return;
     var list = _ownWrites[key] || (_ownWrites[key] = []);
-    try { list.push(JSON.stringify(val)); } catch (e) { return; }
+    try { list.push(canonJson(val)); } catch (e) { return; }
     if (list.length > 5) list.shift();
   }
   function isOwnWrite(key, val) {
     var list = _ownWrites[key] || [], j;
-    try { j = JSON.stringify(val); } catch (e) { return false; }
+    try { j = canonJson(val); } catch (e) { return false; }
     var i = list.indexOf(j);
     if (i < 0) return false;
     list.splice(i, 1);
@@ -648,7 +656,9 @@
       c.calendars = (cals || []).map(function (c) { return { id: calIdOf(c), name: c.name || c.title || String(calIdOf(c)), color: safeHex(c.color || c.colour || c.hex) }; })
         .filter(function (c) { return c.id && c.id !== "cal_holidays"; });
       console.log("[PG] /cal/calendars →", ids);
-      if (!c.calendarId && ids.length) c.calendarId = ids[0];
+      // A verification takes a calendar only from the items (busiest one): in a week without lessons
+      // the first calendar in the list is a guess, and would replace the one the planner shows.
+      if (!c.calendarId && ids.length && !verify) c.calendarId = ids[0];
       var wr = thisWeekRange();
       var calList = (ids.length ? ids : (c.calendarId ? [c.calendarId] : [])).concat(["cal_holidays"]);
       return apiItems(wr.start, wr.end, calList.length ? calList : null);
@@ -3437,12 +3447,14 @@
   // answers 1235 for a methode fiche and a result for a fiche we may read.
   var _ficheKind = {};   // contentId → "lesson" (read fine); methode ids live in view.methodFicheIds
   function noteFicheKind(id, j) {
-    if (j && /^\s*1235\b/.test(String(j.error_msg || ""))) view.methodFicheIds[String(id)] = true;
+    // Only the commit reads this (ficheKindOf); view.methodFicheIds stays what a methode list taught,
+    // so print and goals handling are unchanged.
+    if (j && /^\s*1235\b/.test(String(j.error_msg || ""))) _ficheKind[String(id)] = "method";
     else if (j && j.result) _ficheKind[String(id)] = "lesson";
   }
   // "method" | "lesson" | null (not known). isMethod: the slot's own flag (true/false/null).
   function ficheKindOf(id, isMethod) {
-    if (isMethod === true || view.methodFicheIds[String(id)]) return "method";
+    if (isMethod === true || view.methodFicheIds[String(id)] || _ficheKind[String(id)] === "method") return "method";
     if (isMethod === false || _ficheKind[String(id)] === "lesson") return "lesson";
     return null;
   }

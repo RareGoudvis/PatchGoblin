@@ -593,6 +593,14 @@ function pstTick() { return new Promise(function (r) { setImmediate(r); }); }
 function pstFlush(n) { var p = Promise.resolve(); for (var i = 0; i < (n || 20); i++) p = p.then(pstTick); return p; }
 
 // ---- Fake chrome.storage.local, shared by every tab of one "browser" ---------------------------
+// chrome.storage hands values back with object keys sorted at every level (a plain JSON copy would
+// keep insertion order and hide a bug that compared a save with its own echo as strings).
+function pstSorted(v) {
+  return JSON.parse(JSON.stringify(v, function (k, x) {
+    if (!x || typeof x !== "object" || Array.isArray(x)) return x;
+    var o = {}; Object.keys(x).sort().forEach(function (key) { o[key] = x[key]; }); return o;
+  }));
+}
 function pstDisk() {
   var disk = { data: {}, failGets: 0, listeners: [] };
   disk.chrome = function () {
@@ -602,14 +610,14 @@ function pstDisk() {
         get: function (keys, cb) {
           setImmediate(function () {
             if (disk.failGets > 0) { disk.failGets--; c.runtime.lastError = { message: "IO error: simulated" }; cb(undefined); c.runtime.lastError = null; return; }
-            var o = {}; keys.forEach(function (k) { if (k in disk.data) o[k] = JSON.parse(JSON.stringify(disk.data[k])); }); cb(o);
+            var o = {}; keys.forEach(function (k) { if (k in disk.data) o[k] = pstSorted(disk.data[k]); }); cb(o);
           });
         },
         set: function (o, cb) {
           setImmediate(function () {
             var changes = {};
             Object.keys(o).forEach(function (k) {
-              var nv = JSON.parse(JSON.stringify(o[k]));
+              var nv = pstSorted(o[k]);
               changes[k] = { oldValue: disk.data[k], newValue: nv };
               disk.data[k] = nv;
             });
@@ -693,11 +701,13 @@ pstTest("storage: two tabs — a save in one tab is merged into the other, own e
     assert.strictEqual(A.api.state().mainMode, "plan", "per-tab view state is not taken over");
     assert.strictEqual(A.api.state().writeVakDescription, false, "an unchanged field is not reset by the merge");
     // A saves twice quickly; the older echo must not undo the newer in-memory value.
+    A.statuses.length = 0;
     A.api.state().vakSeen = { a: 1 }; A.api.saveState();
     A.api.state().vakSeen = { a: 2 }; A.api.saveState();
     return pstFlush();
   }).then(function () {
     assert.deepStrictEqual(A.api.state().vakSeen, { a: 2 });
+    assert.ok(!A.statuses.some(function (t) { return /ander tabblad/.test(t); }), "A's own saves are not taken for another tab's");
     assert.strictEqual(disk.data.pg_state_v6.settings["1|09:20"], 22, "A's save kept B's change");
     assert.deepStrictEqual(B.api.state().vakSeen, { a: 2 }, "and B learned A's");
     // pg_goals_v1: B writes a goal, A's in-memory goals follow; A's unflushed edit is kept.
@@ -862,7 +872,7 @@ mthTest("M1: an edited fiche is followed to its newest version, order + override
     X.reads.length = 0;
     return X.T.followNewVersions(m, byId).then(function (n2) {
       assert.strictEqual(n2, 0);
-      assert.deepStrictEqual(X.reads, [], "nothing read again: 100's thread is known, the deleted 300 is remembered");
+      assert.deepStrictEqual(X.reads, ["300"], "only the unreadable 300 is tried again; 100's thread is known");
     });
   });
 });
