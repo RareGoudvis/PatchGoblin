@@ -11,7 +11,7 @@ REM
 REM  Alles staat op EEN regel hieronder: het bestand vervangt zichzelf tijdens het
 REM  bijwerken, en cmd leest een .bat regel per regel terwijl het loopt.
 REM ============================================================================
-set "PG_DEST=%~dp0" & set "PG_SELF=%~f0" & powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=[IO.File]::ReadAllText($env:PG_SELF); iex $s.Substring($s.LastIndexOf('#=P'+'S=') + 5)" & pause & exit /b
+set "PG_DEST=%~dp0" & set "PG_SELF=%~f0" & powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=Get-Content -Raw -LiteralPath $env:PG_SELF; iex $s.Substring($s.LastIndexOf('#=P'+'S=') + 5)" & pause & exit /b
 
 #=PS=
 $ErrorActionPreference = 'Stop'
@@ -20,16 +20,18 @@ $dest = $env:PG_DEST.TrimEnd('\')
 Write-Host '=== PatchGoblin bijwerken ==='
 Write-Host ('Map: ' + $dest)
 Write-Host ''
-$work = Join-Path $env:TEMP ('pg-update-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+$work = Join-Path $env:TEMP ('pg-update-' + (Get-Random))
 $bak = $null
 function Version-Of($file) { (Get-Content -Raw -Encoding UTF8 $file | ConvertFrom-Json).version }
 try {
   New-Item -ItemType Directory -Path $work | Out-Null
   $zip = Join-Path $work 'pg.zip'
   Write-Host 'Downloaden van GitHub...'
-  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}   # not allowed in Constrained Language Mode
   Invoke-WebRequest -UseBasicParsing -Uri $repo -OutFile $zip
-  Expand-Archive -Path $zip -DestinationPath (Join-Path $work 'x') -Force
+  # Expand-Archive is a script module a locked-down PC may refuse to load; tar.exe (Windows 10+) unpacks a ZIP too.
+  try { Expand-Archive -Path $zip -DestinationPath (Join-Path $work 'x') -Force }
+  catch { New-Item -ItemType Directory -Force -Path (Join-Path $work 'x') | Out-Null; tar -xf $zip -C (Join-Path $work 'x'); if ($LASTEXITCODE) { throw 'uitpakken mislukt' } }
   # The ZIP holds one folder named after the repo and branch; take it whatever it is called.
   $src = @(Get-ChildItem (Join-Path $work 'x') -Directory)[0].FullName
 

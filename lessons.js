@@ -129,19 +129,32 @@
   // "null" would write one field's text into every extra field.
   function fieldKey(f) { return f.template_field_id != null ? String(f.template_field_id) : "x" + f.id; }
   var GOAL_KINDS = ["weet", "ken", "kan"];
+  // Goals are typed as plain text but stored as field HTML: escape it, keep the line breaks.
+  function goalHtml(text) {
+    return String(text == null ? "" : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\r?\n/g, "<br>");
+  }
+  // Goal field HTML as goals mode compares it (planner's goalText; plainText when it is missing).
+  function goalCmp(html) { return S().goalText ? S().goalText(html) : plainText(html); }
   // Build a PATCH body that changes ONLY what opts specifies and preserves the rest.
   // opts.goals = { weet?, ken?, kan? }: plain text for the WEET/KEN/KAN extra fields — updates an
-  // existing field, or appends a new one when the text is non-empty.
+  // existing field, or appends a new one when the text is non-empty. Written as HTML (goalHtml); a
+  // field whose text did not change keeps its stored markup.
   function buildPatch(ficheId, edit, opts) {
     opts = opts || {};
-    var tags = opts.tags != null ? opts.tags : (edit.tags || []).map(function (t) { return t.id; });
+    // tags[] is a full replace: an edit view without a tags array would send [] and wipe them.
+    if (opts.tags == null && !Array.isArray(edit.tags)) throw new Error("niet weggeschreven — de tags van deze fiche konden niet gelezen worden (Questi vervangt alle tags); open de fiche opnieuw en probeer nog eens");
+    // Tag ids as numbers, like the captured calls (the editor and mass-tag hold them as strings).
+    var tags = (opts.tags != null ? opts.tags : edit.tags.map(function (t) { return t.id; })).map(function (t) { var n = Number(t); return isNaN(n) ? t : n; });
     var goals = opts.goals || {}, goalFields = S().ficheGoalFields(edit), maxOrder = 0;
     var fields = (edit.fields || []).map(function (f) {
       if (typeof f.order === "number" && f.order > maxOrder) maxOrder = f.order;
       var key = fieldKey(f);
       var has = opts.text && Object.prototype.hasOwnProperty.call(opts.text, key);
       var content = has ? opts.text[key] : (f.content != null ? f.content : "");
-      GOAL_KINDS.forEach(function (k) { if (goalFields[k] === f && Object.prototype.hasOwnProperty.call(goals, k)) content = goals[k]; });
+      GOAL_KINDS.forEach(function (k) {
+        if (goalFields[k] !== f || !Object.prototype.hasOwnProperty.call(goals, k)) return;
+        if (!(S().goalText && S().goalText(content) === String(goals[k] || "").trim())) content = goalHtml(goals[k]);
+      });
       // Extra field: exactly what Questi's own editor sends — { id, content }, no template_field_id.
       if (f.template_field_id == null) return f.type === "text" ? { id: f.id, content: content } : { id: f.id };
       var item = { template_field_id: f.template_field_id, id: f.id };
@@ -150,7 +163,7 @@
     });
     GOAL_KINDS.forEach(function (k) {
       if (goalFields[k] || !goals[k]) return;
-      fields.push({ field_type: "text", title: k.toUpperCase(), description: "", order: ++maxOrder, content: goals[k] });
+      fields.push({ field_type: "text", title: k.toUpperCase(), description: "", order: ++maxOrder, content: goalHtml(goals[k]) });
     });
     (opts.newFields || []).forEach(function (nf) {
       fields.push({ field_type: "text", title: nf.title, description: "", order: ++maxOrder, content: nf.content || "" });
@@ -167,8 +180,10 @@
   function writePatch(ficheId, body) {
     return wfetch(api() + "/lessons/" + ficheId + "?return_format=short",
       { method: "PATCH", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
-      .then(resolveJson("PATCH lesson", ficheId, body)); // → result (has NEW id)
+      .then(resolveJson("PATCH lesson", ficheId, body)).then(needId); // → result (has NEW id)
   }
+  // A 2xx whose body is unreadable or carries no id may well have been saved: uncertain, not "failed".
+  function needId(r) { if (!r || r.id == null) throw unsureError("antwoord zonder id"); return r; }
   // Bodyless DELETE: NO Content-Type — Questi 500s on application/json with an empty body
   // (the captured delete omits content-type). Only Accept + x-xsrf-token.
   function bodylessHeaders() { var hd = { "Accept": "application/json" }; var t = S().xsrfToken(); if (t) hd["x-xsrf-token"] = t; return hd; }
@@ -181,13 +196,17 @@
   // Create a user tag. body: { title, color, schoolId, [parent] }. → new tag object.
   // Without a clear answer it reads the own tags back: a tag with this title + parent that was not
   // there before (the known list is cached, so the baseline costs no request) was created after all.
+  // fetchOwnTags answers [] on a failed read, so an empty list is re-read; without a baseline an
+  // existing tag would pass for "created after all", so no baseline → no POST.
   function createUserTag(body) {
     var known = {};
-    return S().fetchOwnTags().then(function (list) { (list || []).forEach(function (t) { known[t.id] = true; }); }, function () {})
+    return S().fetchOwnTags().then(function (list) { return (list && list.length) ? list : readOwnTagsFresh(); })
+      .then(function (list) { list.forEach(function (t) { known[t.id] = true; }); },
+        function () { throw new Error("niet aangemaakt — je tags konden niet gelezen worden om te vergelijken; opnieuw proberen is veilig"); })
       .then(function () {
         return wfetch(api() + "/lessons/user-tags",
           { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) })
-          .then(resolveJson("POST user-tag", body.title, body));
+          .then(resolveJson("POST user-tag", body.title, body)).then(needId);
       })
       .catch(function (e) {
         if (!e || !e.uncertain) throw e;
@@ -195,7 +214,9 @@
         return pause(1500).then(readOwnTagsFresh).then(function (list) {
           var hit = list.filter(function (t) { return !known[t.id] && String(t.title || "").trim().toLowerCase() === want && (Number(t.parent) || 0) === par; })[0];
           if (hit) return hit;
-          throw new Error("niet aangemaakt (" + e.message.replace(/^onzeker \(([^)]*)\).*$/, "$1") + ") — opnieuw proberen is veilig");
+          // Not seen yet is no proof: a slow Questi may still commit it (writeTags looks again first).
+          e.message = UNSURE + " (" + e.message.replace(/^onzeker \(([^)]*)\).*$/, "$1") + ") — de tag is (nog) niet te zien; kijk na in Questi of probeer later opnieuw";
+          throw e;
         }, function () { throw e; });
       });
   }
@@ -247,7 +268,9 @@
   // ---------- Small data helpers ----------
   function ownTagById(id) { for (var i = 0; i < mgr.ownTags.length; i++) if (String(mgr.ownTags[i].id) === String(id)) return mgr.ownTags[i]; return null; }
   function tagName(id) { var t = ownTagById(id); return t ? (t.title || "").trim() : ("#" + id); }
-  function tagHex(id) { var t = ownTagById(id); return (t && t.color) || "#c7ccd1"; }
+  function tagHex(id) { var t = ownTagById(id); return cssHex(t && t.color, "#c7ccd1"); }
+  // Tag colours come from Questi (a colleague's tags too) and go into style attributes: only a real hex.
+  function cssHex(c, fallback) { return (S().safeHex ? S().safeHex(c) : null) || fallback; }
   function ficheName(f) { return (f && f.subject) || "(zonder titel)"; }
   function gradesOf(f) { return (f && f.grades && f.grades.length) ? f.grades.join(", ") : "—"; }
   function usedOf(f) { var d = f && f.last_used_date; if (!d) return "nooit"; return String(d).slice(0, 10); }
@@ -524,7 +547,7 @@
   // ========================================================================
   function chipEl(label, color, active, onclick, num) {
     return h("button", { class: "pgl-tagchip" + (active ? " active" : ""), onclick: onclick }, [
-      color ? h("span", { class: "pgl-dot", style: "background:" + color }) : null,
+      color ? h("span", { class: "pgl-dot", style: "background:" + cssHex(color, "#c7ccd1") }) : null,
       h("span", { text: label }),
       (typeof num === "number" && num > 0) ? h("span", { class: "pgl-tagnum", text: String(num) }) : null
     ]);
@@ -577,6 +600,7 @@
       return span;
     }
     function node(label, color, depth, active, onclick, extra, tag, kind) {
+      color = cssHex(color, null);
       var edit = (tag && tag.type === "user") ? act(h("span", { class: "pgl-tedit", role: "button", tabindex: "0", title: "Naam, kleur of hoofdtag wijzigen", "aria-label": "Tag " + label + " wijzigen", text: "✎" }), function () { openRenameTag(tag); }) : null;
       var el = h("button", { class: "pgl-tnode d" + depth + (kind ? " " + kind : "") + (active ? " active" : "") + (onclick ? "" : " off"), role: "treeitem", "aria-selected": active ? "true" : "false", onclick: onclick || null, disabled: onclick ? null : "true" }, [
         kind === "view" ? null : h("span", { class: "pgl-tsq", style: "background:" + (color || "#c9d2d7") }),
@@ -1179,7 +1203,7 @@
         return h("button", { class: "pgl-pill" + (on ? " add" : ""), onclick: function () {
           if (tagSet[String(tg.id)]) delete tagSet[String(tg.id)]; else tagSet[String(tg.id)] = true;
           drawTags();
-        } }, [h("span", { class: "pgl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: on ? "✓" : "" })]);
+        } }, [h("span", { class: "pgl-dot", style: "background:" + cssHex(tg.color, "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: on ? "✓" : "" })]);
       }
       function drawTags() {
         renderTagGroups(tagPick, tagPill);
@@ -1192,10 +1216,12 @@
       // --- Text fields: the template's, then the fiche's own extra fields (WEET/KEN/KAN included).
       var textFields = (edit.fields || []).filter(function (x) { return x.type === "text"; });
       textFields.sort(function (a, b) { return (a.template_field_id == null) - (b.template_field_id == null); });
-      var areas = {};
+      var areas = {}, goalF = S().ficheGoalFields(edit);
       textFields.forEach(function (fld) {
         var ta = h("textarea", { class: "pgl-textarea", rows: "4" });
         ta.value = (pend && pend.text && Object.prototype.hasOwnProperty.call(pend.text, fieldKey(fld))) ? pend.text[fieldKey(fld)] : (fld.content != null ? fld.content : "");
+        // A WEET/KEN/KAN staged in goals mode is the newer text (staging here drops it again).
+        GOAL_KINDS.forEach(function (k) { if (goalF[k] === fld && pend && pend.goals && Object.prototype.hasOwnProperty.call(pend.goals, k)) ta.value = goalHtml(pend.goals[k]); });
         areas[fieldKey(fld)] = ta;
         section((fld.title || "Tekst") + (fld.template_field_id == null ? "  · extra veld" : ""), [ta]);
       });
@@ -1263,8 +1289,19 @@
   // Merge a staged change into pending[id] (title/text and/or tags/createTags). `edit` may be
   // null (inline title edit) — writePending reads the edit snapshot lazily before writing.
   function stagePending(f, edit, opts, changes) {
-    var e = mgr.pending[f.id] || { fiche: f, edit: null, changes: [] };
+    var e = mgr.pending[f.id] || { fiche: f, edit: null, changes: [], origId: f.id };
     e.fiche = f; if (edit) e.edit = edit;
+    // writeFiches compares this to see whether the entry changed while it was being written.
+    e.rev = (e.rev || 0) + 1;
+    // The later edit of a WEET/KEN/KAN field wins: buildPatch applies goals after text, so a text
+    // edit drops the staged goal of that field, and a goals-mode edit drops the text of its field.
+    var dropLabels = [], goalF = e.edit ? S().ficheGoalFields(e.edit) : {};
+    if (opts.text && e.goals) GOAL_KINDS.forEach(function (k) {
+      if (goalF[k] && Object.prototype.hasOwnProperty.call(opts.text, fieldKey(goalF[k])) && Object.prototype.hasOwnProperty.call(e.goals, k)) { delete e.goals[k]; dropLabels.push(k.toUpperCase()); }
+    });
+    if (opts.goals && e.text && !opts.text) Object.keys(opts.goals).forEach(function (k) {
+      if (goalF[k] && Object.prototype.hasOwnProperty.call(e.text, fieldKey(goalF[k]))) { delete e.text[fieldKey(goalF[k])]; dropLabels.push(goalF[k].title || ""); }
+    });
     if (opts.subject !== undefined) e.subject = opts.subject;
     if (opts.text !== undefined) e.text = opts.text;
     if (opts.tags !== undefined) e.tags = opts.tags;
@@ -1273,7 +1310,6 @@
     if (opts.visibility !== undefined) e.visibility = opts.visibility;
     if (opts.newFields !== undefined) e.newFields = (opts.newFields && opts.newFields.length) ? opts.newFields : null;
     // Goals (goals mode): one kind at a time; typing a kind back to its stored text unstages it.
-    var dropLabels = [];
     if (opts.goals) {
       e.goals = e.goals || {};
       var gf = e.edit ? S().ficheGoalFields(e.edit) : {}, given = opts.goalsOrig || {};
@@ -1355,6 +1391,49 @@
   // uses it to point agenda slots at the newest version. A failed key stays staged.
   // → Promise<{ map: { key: {oldId,newId,subject} }, fails: [{ key, title, error }], trialMisses: [] }>
   function writeFiches(keys, onProgress) {
+    if (writeBusy) return Promise.resolve({ map: {}, trialMisses: [], busy: true,
+      fails: keys.map(function (k) { var p = mgr.pending[k]; return { key: k, title: p ? ficheName(p.fiche) : ("#" + k), error: BUSY_MSG }; }) });
+    writeBusy = true;
+    return writeFichesRun(keys, onProgress).then(function (r) { writeBusy = false; return r; }, function (e) { writeBusy = false; throw e; });
+  }
+  // One write run at a time: two runs over the same staged edit would each PATCH it (two versions).
+  var writeBusy = false, BUSY_MSG = "Er loopt al een schrijfbeurt — wacht tot die klaar is en probeer dan opnieuw.";
+  // Staged again while its write ran (writeFiches compares p.rev): keep only what is newer than what
+  // that write sent (`sent`, the staged values at its start) and move the entry to the new version.
+  // Re-sending a written new field or create_tags would add it twice.
+  function keepRestaged(id, q, sent, newId, writtenEdit) {
+    if (q.subject === sent.subject) q.subject = null;
+    if (q.text === sent.text) delete q.text;
+    else if (q.text) q.rebaseFrom = q.edit || writtenEdit;   // its extra-field keys name the old version's ids
+    if (q.tags === sent.tags) q.tags = null;
+    if (q.createTags === sent.createTags) q.createTags = null;
+    if (q.goals) Object.keys(q.goals).forEach(function (k) { if (sent.goals && q.goals[k] === sent.goals[k]) delete q.goals[k]; });
+    if (q.grades === sent.grades) q.grades = null;
+    if (q.visibility === sent.visibility) q.visibility = null;
+    if (q.newFields === sent.newFields) q.newFields = null;
+    q.changes = (q.changes || []).filter(function (c) { return sent.changes.indexOf(c) < 0; });
+    delete q.unsure; delete q.editedSinceUnsure;
+    var left = q.subject != null || (q.text && Object.keys(q.text).length) || q.tags != null || (q.createTags && q.createTags.length) ||
+      (q.goals && Object.keys(q.goals).length) || q.grades != null || q.visibility != null || (q.newFields && q.newFields.length);
+    delete mgr.pending[id];
+    if (!left) return;
+    q.fiche.id = newId; q.origId = newId; q.edit = null;   // field ids change per version: re-read before writing
+    mgr.pending[newId] = q;
+  }
+  // Extra text fields key on their id ("x"+id), which every version renews: map a text staged on an
+  // older version onto the same field (title, then position among equal titles) of `edit`.
+  function rebaseText(text, from, edit, missed) {
+    var out = {};
+    function extras(e, title) { return (e.fields || []).filter(function (f) { return f.type === "text" && f.template_field_id == null && String(f.title || "") === title; }); }
+    Object.keys(text).forEach(function (k) {
+      var old = k.charAt(0) === "x" ? (from.fields || []).filter(function (f) { return "x" + f.id === k; })[0] : null;
+      if (!old) { out[k] = text[k]; return; }
+      var title = String(old.title || ""), nf = extras(edit, title)[extras(from, title).indexOf(old)];
+      if (nf) out[fieldKey(nf)] = text[k]; else missed(title || "tekstveld");
+    });
+    return out;
+  }
+  function writeFichesRun(keys, onProgress) {
     var trialMisses = [], map = {}, baseP = null;
     // One baseline of the newest own fiches per run, taken lazily before the first edit PATCH. A PATCH
     // without a clear answer is settled against it (findNewVersion); every id this run mints joins it.
@@ -1362,7 +1441,12 @@
     function learn(newId) { if (baseP) baseP.then(function (k) { if (k) k[newId] = true; }); }
     return runSequential(keys, function (id) {
       var p = mgr.pending[id]; if (!p) return Promise.resolve();
-      var startId = p.fiche.id;   // the version slots point at, even when a landed earlier write moves p.fiche.id
+      // The version slots point at: the one staged on, even when a landed earlier write (or one that
+      // landed under a later failure) moved p.fiche.id.
+      if (p.origId == null) p.origId = p.fiche.id;
+      var startId = p.origId, curId = p.fiche.id;
+      var rev0 = p.rev, sent = { subject: p.subject, text: p.text, tags: p.tags, createTags: p.createTags, goals: p.goals && Object.assign({}, p.goals),
+        grades: p.grades, visibility: p.visibility, newFields: p.newFields, changes: p.changes || [] };
       if (p.isNew) return writeNewFiche(p).then(function (res) {
         map[id] = { oldId: null, newId: res.newId, subject: res.subject, created: true };
         learn(res.newId);
@@ -1370,8 +1454,8 @@
         delete mgr.pending[id]; mgr.createdAny = true;
         if (res.restage) restageNewFicheGoals(res);
       });
-      var opts = {}; if (p.subject != null) opts.subject = p.subject; if (p.text) opts.text = p.text; if (p.tags != null) opts.tags = p.tags; if (p.createTags && p.createTags.length) opts.create_tags = p.createTags;
-      if (p.goals && Object.keys(p.goals).length) opts.goals = p.goals;
+      var opts = {}; if (p.subject != null) opts.subject = p.subject; if (p.tags != null) opts.tags = p.tags; if (p.createTags && p.createTags.length) opts.create_tags = p.createTags;
+      if (p.goals && Object.keys(p.goals).length) opts.goals = Object.assign({}, p.goals);
       if (p.grades) opts.grades = p.grades;
       if (p.visibility) opts.visibility = p.visibility;
       if (p.newFields && p.newFields.length) opts.newFields = p.newFields;
@@ -1379,17 +1463,20 @@
       var editP = p.edit ? Promise.resolve(p.edit) : readFicheEdit(p.fiche.id);
       return editP.then(function (edit) {
         p.edit = edit;
+        if (p.text && p.rebaseFrom) p.text = rebaseText(p.text, p.rebaseFrom, edit, function (t) { trialMisses.push(ficheName(p.fiche) + ": veld '" + t + "' niet teruggevonden in de nieuwe versie — niet geschreven"); });
+        delete p.rebaseFrom;
+        if (p.text) opts.text = p.text;
         function write() {
           return baseline().then(function (known) {
             var body = buildPatch(p.fiche.id, p.edit, opts);
             return writePatch(p.fiche.id, body).catch(function (e) {
               if (!e || !e.uncertain) throw e;
-              p.unsure = { known: known, thread: p.edit.thread, oldId: p.fiche.id, subject: body.subject };
+              // A copy: ids this run mints later join `known`, and the scan stops at the first known id.
+              p.unsure = { known: known && Object.assign({}, known), thread: p.edit.thread, oldId: p.fiche.id, subject: body.subject };
               delete p.editedSinceUnsure;
-              return settleEarlierPatch(p, e);
-            }).then(function (r) {
-              if (r === null) throw new Error("niet weggeschreven (geen duidelijk antwoord van Questi, nagelezen) — opnieuw proberen is veilig");
-              return r;
+              // Right after the write a miss is not proof: a slow Questi may still commit it. The
+              // marker stays and the next attempt looks again before it writes (settleEarlierPatch).
+              return settleEarlierPatch(p, e, true);
             });
           });
         }
@@ -1410,12 +1497,18 @@
         map[id] = { oldId: oldId, newId: newId, subject: (result && result.subject != null) ? result.subject : (p.subject != null ? p.subject : ficheName(p.fiche)) };
         if (p.edit && S().noteFicheThread) S().noteFicheThread({ thread: p.edit.thread, id: newId });
         p.fiche.id = newId; if (result && result.subject != null) p.fiche.subject = result.subject;
-        if (p.tags != null) mgr.tagChips[newId] = p.tags.map(function (x) { return x; });
-        else if (mgr.tagChips[oldId]) mgr.tagChips[newId] = mgr.tagChips[oldId];
-        if (oldId !== newId) delete mgr.tagChips[oldId];
-        if (mgr.selected[oldId]) { delete mgr.selected[oldId]; mgr.selected[newId] = true; }
+        var chips = opts.tags != null ? opts.tags.slice() : (mgr.tagChips[curId] || mgr.tagChips[oldId]);
+        [oldId, curId].forEach(function (x) {
+          if (String(x) === String(newId)) return;
+          delete mgr.tagChips[x];
+          if (mgr.selected[x]) { delete mgr.selected[x]; mgr.selected[newId] = true; }
+        });
+        if (chips) mgr.tagChips[newId] = chips;
         // The new version is a new id: goals mode reads it fresh, which also shows what landed.
-        delete mgr.pending[id];
+        // Staged again while this write ran: what is newer stays staged, on the new version.
+        var q = mgr.pending[id];
+        if (q && (q !== p || q.rev !== rev0)) keepRestaged(id, q, sent, newId, p.edit);
+        else delete mgr.pending[id];
         if (!opts.grades && !opts.visibility && !opts.goals && opts.tags == null) return;
         // Risky parts are read back from the new version: leerjaren/zichtbaarheid (a trial — never
         // captured on PATCH), WEET/KEN/KAN and the tag set. Plain title/text edits are not, to keep
@@ -1424,7 +1517,7 @@
           if (opts.goals) {
             var gf = S().ficheGoalFields(after);
             Object.keys(opts.goals).forEach(function (k) {
-              var want = plainText(opts.goals[k]), got = plainText(gf[k] && gf[k].content);
+              var want = goalCmp(goalHtml(opts.goals[k])), got = goalCmp(gf[k] ? gf[k].content : "");
               if (want !== got) trialMisses.push(ficheName(p.fiche) + ": " + k.toUpperCase() + (want ? "" : " (leegmaken)"));
             });
           }
@@ -1524,7 +1617,7 @@
         return h("button", { class: "pgl-pill" + (on ? " add" : ""), onclick: function () {
           if (tset[String(tg.id)]) delete tset[String(tg.id)]; else tset[String(tg.id)] = true;
           st.tags = Object.keys(tset).map(Number); drawTags();
-        } }, [h("span", { class: "pgl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: on ? "✓" : "" })]);
+        } }, [h("span", { class: "pgl-dot", style: "background:" + cssHex(tg.color, "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: on ? "✓" : "" })]);
       }
       function drawTags() { renderTagGroups(tagPick, pill); tagSum.innerHTML = ""; var ids = Object.keys(tset); tagSum.appendChild(ids.length ? chipRow(ids.map(Number)) : h("span", { class: "pgl-note", text: "geen tags" })); }
       drawTags();
@@ -1601,7 +1694,7 @@
       else if (fld.type === "goals") fields.push({ field_type: "goals", template_field_id: fld.id, selected_goals: (st.selected[fld.id] || []).slice() });   // ids as given: numbers (ZILL) or UUID strings (Op.Stap)
     });
     var order = 0;
-    GOAL_KINDS.forEach(function (k) { if (String(st.goals[k] || "").trim()) fields.push({ field_type: "text", title: k.toUpperCase(), description: "", order: ++order, content: st.goals[k] }); });
+    GOAL_KINDS.forEach(function (k) { if (String(st.goals[k] || "").trim()) fields.push({ field_type: "text", title: k.toUpperCase(), description: "", order: ++order, content: goalHtml(st.goals[k]) }); });
     return { schoolId: sid(), subject: st.subject.trim(), grades: st.grades || [], visibility: st.visibility || "school",
       tags: (st.tags || []).map(Number), create_tags: [], attachments: [], templateId: tpl.id, fields: fields };
   }
@@ -1626,7 +1719,7 @@
   // lead to a second POST. A later step that fails (read-back, WEET/KEN/KAN PATCH) is reported and
   // its goals come back as an ordinary staged edit on the new id (`restage`), not as a new fiche.
   // A POST without a clear answer keeps its baseline on p.createUnsure; the next attempt looks for
-  // the fiche first and only POSTs when it is certainly not there.
+  // the fiche first and only POSTs when it is certainly not there. No baseline → no POST at all.
   function writeNewFiche(p) {
     var body = buildNewFicheBody(p.draft, p.template), wantGoals = {};
     GOAL_KINDS.forEach(function (k) { if (String(p.draft.goals[k] || "").trim()) wantGoals[k] = p.draft.goals[k]; });
@@ -1635,14 +1728,14 @@
     var created = p.createdId != null ? Promise.resolve({ id: p.createdId })
       : (p.createUnsure ? settleEarlierCreate(p) : Promise.resolve(null)).then(function (hit) {
         if (hit) return hit;
-        return ownFicheBaseline().then(function (k) { known = k; }, function () {}).then(function () {
+        return ownFicheBaseline().then(function (k) { known = k; }, function () {
+          throw new Error("niet aangemaakt — je fiches konden niet gelezen worden om te vergelijken; opnieuw proberen is veilig");
+        }).then(function () {
           return createFiche(body).catch(function (e) {
-            if (!e || !e.uncertain || !known) throw e;
+            if (!e || !e.uncertain) throw e;
             p.createUnsure = { known: known, subject: body.subject };
-            return settleEarlierCreate(p, e).then(function (r) {
-              if (r === null) throw new Error("niet aangemaakt (geen duidelijk antwoord van Questi, nagelezen) — opnieuw proberen is veilig");
-              return r;
-            });
+            // Not found right away is not proof (a slow Questi may still commit it): the marker stays.
+            return settleEarlierCreate(p, e, true);
           });
         });
       });
@@ -1659,7 +1752,8 @@
         if (!Object.keys(lost).length) return { newId: newId, subject: subject, missing: missing };
         // Questi dropped the WEET/KEN/KAN extras from the create: add them the way the editor does.
         if (known) known[newId] = true;
-        return writePatch(newId, buildPatch(newId, edit, { goals: lost })).then(function (r2) {
+        // buildPatch may refuse (no tags[] to echo): that too is "not added", never a lost create.
+        return Promise.resolve().then(function () { return writePatch(newId, buildPatch(newId, edit, { goals: lost })); }).then(function (r2) {
           return { newId: (r2 && r2.id != null) ? r2.id : newId, subject: subject, missing: missing, goalsPatched: true };
         }, function (e) {
           var unsure = !!(e && e.uncertain);
@@ -1694,22 +1788,47 @@
     });
   }
   function ownFicheBaseline() { return newestOwnFiches().then(function (l) { var k = {}; l.forEach(function (f) { k[f.id] = true; }); return k; }); }
-  // A fiche with this exact title that was not in the baseline = created after all → { id }.
-  // None → null (not created, a POST is safe). A failed read rejects: still uncertain.
+  // Settling a write pages through the own list (newest first) until it reaches a fiche that was
+  // there BEFORE the write (isOld) — everything newer has then been seen — or the end of the list.
+  // check(newer) → Promise<hit | null> looks at the fiches above that point. Running out of pages
+  // first is not "absent": it rejects, so the write stays uncertain.
+  var SCAN_NUM = 25, SCAN_PAGES = 4;
+  function scanOwnFiches(isOld, check) {
+    function page(n) {
+      return jget(lessonsUrl(allOwnTagId(), SCAN_NUM, n * SCAN_NUM)).then(function (j) {
+        var r = j && j.result, list = Array.isArray(r) ? r : ((r && (r.lessons || r.items)) || []);
+        if (!Array.isArray(list)) throw new Error("geen lijst");
+        var cut = -1;
+        for (var i = 0; i < list.length; i++) if (isOld(list[i])) { cut = i; break; }
+        return check(cut < 0 ? list : list.slice(0, cut)).then(function (hit) {
+          if (hit || cut >= 0 || list.length < SCAN_NUM) return hit || null;
+          if (n + 1 >= SCAN_PAGES) throw new Error("te veel nieuwere fiches om na te lezen");
+          return page(n + 1);
+        });
+      });
+    }
+    return pause(1500).then(function () { return page(0); });
+  }
+  // Titles as Questi may echo them back (entities, markup, case): compared in one form.
+  function subjectKey(s) {
+    return plainText(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#0?39;/g, "'").replace(/&amp;/g, "&").trim().toLowerCase();
+  }
+  function sameSubject(a, b) { return subjectKey(a) === subjectKey(b); }
+  // A fiche with this title that was not in the baseline = created after all → { id }.
+  // None → null (not seen). A failed or unfinished read rejects: still uncertain.
   function findCreatedFiche(subject, known) {
-    return pause(1500).then(newestOwnFiches).then(function (list) {
-      var hit = list.filter(function (f) { return !known[f.id] && String(f.subject || "") === String(subject || ""); })[0];
-      return hit ? { id: hit.id } : null;
+    return scanOwnFiches(function (f) { return known[f.id]; }, function (newer) {
+      var hit = newer.filter(function (f) { return sameSubject(f.subject, subject); })[0];
+      return Promise.resolve(hit ? { id: hit.id } : null);
     });
   }
   // A version of `thread` other than the old id = the PATCH landed → { id, subject }. Candidates: the
   // fiches not in the baseline; without a baseline, the ones titled as sent (the old id was the
-  // newest version, so any other version of its thread is ours). None → null. A failed read rejects.
+  // newest version, so any other version of its thread is ours). The old id still listed means the
+  // PATCH did not land, so the scan stops there too. None → null. A failed read rejects.
   function findNewVersion(thread, oldId, known, subject) {
-    return pause(1500).then(newestOwnFiches).then(function (list) {
-      var cands = list.filter(function (f) {
-        return String(f.id) !== String(oldId) && (known ? !known[f.id] : String(f.subject || "") === String(subject || ""));
-      });
+    return scanOwnFiches(function (f) { return (known && known[f.id]) || String(f.id) === String(oldId); }, function (newer) {
+      var cands = newer.filter(function (f) { return known || sameSubject(f.subject, subject); });
       return cands.reduce(function (chain, f) {
         return chain.then(function (found) {
           if (found) return found;
@@ -1723,23 +1842,33 @@
   // Settle p.createUnsure / p.unsure. → the landed result, or null (certainly not written: write now).
   // When it still cannot be told, rejects with an uncertain error and keeps the marker, so the
   // next attempt checks again instead of writing.
+  // `fresh` = the check right after the uncertain write itself. Not finding it then is no proof: a
+  // write that timed out at 30 s may still be committed by a slow Questi after the read-back, and a
+  // dropped connection cannot be told from a lost answer. So a fresh miss keeps the marker and says
+  // "onzeker"; only a miss on a LATER attempt (when a late commit would show) clears it and writes.
   function stillUnsure(err, why) {
     var e = err && err.uncertain ? err : unsureError(why);
-    e.message = UNSURE + " (" + why + ") — Questi gaf geen duidelijk antwoord en nalezen lukte niet. Er is niets opnieuw geschreven; " +
-      (why === "geen vergelijkingslijst" ? "kijk de fiche na in Questi en verwerp deze wijziging als ze er al staat." : "probeer later opnieuw of kijk de fiche na in Questi.");
+    e.message = UNSURE + " (" + why + ") — Questi gaf geen duidelijk antwoord en " +
+      (why === "nog niet te zien" ? "de wijziging is (nog) niet te zien. " : "nalezen lukte niet. ") + "Er is niets opnieuw geschreven; " +
+      (why === "geen vergelijkingslijst" ? "kijk de fiche na in Questi en verwerp deze wijziging als ze er al staat."
+        : "kijk de fiche na in Questi of probeer later opnieuw — dan wordt eerst opnieuw gekeken.");
     e.uncertain = true; return e;
   }
-  function settleEarlierCreate(p, err) {
+  function settleEarlierCreate(p, err, fresh) {
     var u = p.createUnsure;
     if (!u || !u.known) return Promise.reject(stillUnsure(err, "geen vergelijkingslijst"));
-    return findCreatedFiche(u.subject, u.known).then(function (hit) { delete p.createUnsure; return hit; },
-      function () { throw stillUnsure(err, "nalezen mislukt"); });
+    return findCreatedFiche(u.subject, u.known).then(function (hit) {
+      if (!hit && fresh) throw stillUnsure(err, "nog niet te zien");
+      delete p.createUnsure; return hit;
+    }, function () { throw stillUnsure(err, "nalezen mislukt"); });
   }
-  function settleEarlierPatch(p, err) {
+  function settleEarlierPatch(p, err, fresh) {
     var u = p.unsure;
     if (!u || u.thread == null || (!u.known && u.subject == null)) return Promise.reject(stillUnsure(err, "geen vergelijkingslijst"));
-    return findNewVersion(u.thread, u.oldId, u.known, u.subject).then(function (hit) { delete p.unsure; return hit; },
-      function () { throw stillUnsure(err, "nalezen mislukt"); });
+    return findNewVersion(u.thread, u.oldId, u.known, u.subject).then(function (hit) {
+      if (!hit && fresh) throw stillUnsure(err, "nog niet te zien");
+      delete p.unsure; return hit;
+    }, function () { throw stillUnsure(err, "nalezen mislukt"); });
   }
 
   // ---- Leerplandoelen: Katholiek Onderwijs Vlaanderen's own Op.Stap picker ----
@@ -1827,19 +1956,27 @@
   function writeTags(keys, onProgress) {
     var created = [];
     var todo = mgr.pendingTags.filter(function (p) { return keys.indexOf(p.key) >= 0; });
+    if (writeBusy) return Promise.resolve({ created: [], busy: true, fails: todo.map(function (p) { return { key: p.key, title: p.title, error: BUSY_MSG }; }) });
+    writeBusy = true;
     return runSequential(todo, function (p) {
       var body = { title: p.title, color: p.color || "#e0e0e0", schoolId: sid() };
       if (p.parent) body.parent = Number(p.parent);
-      return createUserTag(body).then(function (tag) {
+      // An earlier create got no clear answer: a tag with this title + parent now = it landed late.
+      var earlier = !p.unsure ? Promise.resolve(null) : readOwnTagsFresh().then(function (list) {
+        var want = String(body.title || "").trim().toLowerCase(), par = Number(body.parent) || 0;
+        return list.filter(function (t) { return String(t.title || "").trim().toLowerCase() === want && (Number(t.parent) || 0) === par; })[0] || null;
+      }, function () { throw unsureError("nalezen mislukt — er is niets opnieuw geschreven"); });
+      return earlier.then(function (hit) { return hit || createUserTag(body); }).then(function (tag) {
         mgr.pendingTags = mgr.pendingTags.filter(function (x) { return x.key !== p.key; });
         if (tag && tag.id != null) mgr.ownTags.push(tag);
         created.push({ key: p.key, tag: tag });
-      });
+      }, function (e) { if (e && e.uncertain) p.unsure = true; throw e; });
     }, onProgress).then(function (fails) {
+      writeBusy = false;
       if (created.length) { mgr.dirtyWrites = true; S().invalidateOwnTags(); renderTagBar(); }
       notifyPending();
       return { created: created, fails: fails.map(function (fl) { return { key: fl.item.key, title: fl.item.title, error: fl.error, uncertain: fl.uncertain }; }) };
-    });
+    }, function (e) { writeBusy = false; throw e; });
   }
   // After the shared Controleer: redraw whatever host is active (new ids, cleared badges).
   function afterSharedWrite() {
@@ -1870,7 +2007,7 @@
         else if (remSet[tg.id]) { delete remSet[tg.id]; }
         else { addSet[tg.id] = true; }
         renderPick();
-      } }, [h("span", { class: "pgl-dot", style: "background:" + (tg.color || "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: addSet[tg.id] ? "＋" : (remSet[tg.id] ? "－" : "") })]);
+      } }, [h("span", { class: "pgl-dot", style: "background:" + cssHex(tg.color, "#c7ccd1") }), h("span", { text: (tg.title || "").trim() }), h("span", { class: "pgl-pill-mark", text: addSet[tg.id] ? "＋" : (remSet[tg.id] ? "－" : "") })]);
     }
     function renderPick() { renderTagGroups(pickWrap, pill); }
     renderPick();
@@ -2196,7 +2333,7 @@
     return { schoolId: sid(), subject: row.titel || "", grades: row.leerjaar ? [row.leerjaar] : [], visibility: "school", tags: tagIds || [], create_tags: [], attachments: [], templateId: template && template.id, fields: fields };
   }
   function createFiche(body) {
-    return wfetch(api() + "/lessons?return_format=short", { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) }).then(resolveJson("POST lesson", body.subject, body));
+    return wfetch(api() + "/lessons?return_format=short", { method: "POST", credentials: "include", headers: S().writeHeaders(), body: JSON.stringify(body) }).then(resolveJson("POST lesson", body.subject, body)).then(needId);
   }
   // Minimal preview view — only reachable when importEnabled (dormant scaffold for now).
   function openImportView() {

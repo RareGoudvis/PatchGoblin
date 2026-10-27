@@ -33,6 +33,12 @@ chrome.commands.onCommand.addListener(function (command) {
 // (cross-origin fetch is clean here — host is in host_permissions, no page CSP/CORS in play).
 // Never throws back to the caller; on any failure it just returns { ok:false }.
 var PG_VERSION_URL = "https://raw.githubusercontent.com/RareGoudvis/PatchGoblin/" + (PG_IS_BETA ? "beta" : "main") + "/version.json";
+// The banner links to version.json `url`; only our own GitHub repo or guide is accepted, so a
+// tampered file can never point the link at another site (or a javascript: URL).
+function pgSafeUpdateUrl(u) {
+  u = typeof u === "string" ? u.trim() : "";
+  return (u.indexOf("https://github.com/RareGoudvis/") === 0 || u.indexOf("https://raregoudvis.github.io/PatchGoblin") === 0) ? u : null;
+}
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (!msg) return;
   if (msg.type === "PG_INSERT_CSS") {
@@ -45,7 +51,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   fetch(PG_VERSION_URL, { cache: "no-store" })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (j) {
-      if (j && j.version) sendResponse({ ok: true, latest: String(j.version), url: j.url || PG_VERSION_URL });
+      if (j && j.version) sendResponse({ ok: true, latest: String(j.version), url: pgSafeUpdateUrl(j.url) || PG_VERSION_URL });
       else sendResponse({ ok: false });
     })
     .catch(function () { sendResponse({ ok: false }); });

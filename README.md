@@ -78,6 +78,16 @@ Op een pc die door de school beheerd wordt, staat ontwikkelaarsmodus soms uit. G
 eigen computer. Op een Mac: download de ZIP (groene knop **Code → Download ZIP**), pak hem uit en
 kies die map bij stap 3.
 
+**Is `install.bat` geblokkeerd** (de browser weigert het, Windows toont "Windows heeft uw pc
+beschermd", of de school blokkeert .bat)? Open dan PowerShell (Start → typ *PowerShell*), plak
+deze regel en druk Enter — er wordt niets gedownload dat je moet openen:
+
+```
+irm https://raw.githubusercontent.com/RareGoudvis/PatchGoblin/main/install.ps1 | iex
+```
+
+Dezelfde regel werkt PatchGoblin later ook bij (met controle en back-up, net als `update.bat`).
+
 **Bijwerken.** Meldt PatchGoblin een nieuwe versie, dubbelklik dan `update.bat` in
 `%LOCALAPPDATA%\PatchGoblin`. Het kijkt de download eerst na, maakt een back-up van je huidige
 versie (in `%LOCALAPPDATA%\PatchGoblin-backups`) en zet die vanzelf terug als het vervangen

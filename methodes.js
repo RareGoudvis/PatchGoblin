@@ -45,9 +45,9 @@
     });
   }
   function saveState() { S().storeSet(STORE_KEY, mstate); }
-  function nextId() {
+  function nextId(list) {
     var n = 0;
-    mstate.methodes.forEach(function (m) { var k = parseInt(String(m.id).replace(/\D/g, ""), 10); if (k > n) n = k; });
+    (list || mstate.methodes).forEach(function (m) { var k = parseInt(String(m.id).replace(/\D/g, ""), 10); if (k > n) n = k; });
     return "m_" + (n + 1);
   }
 
@@ -58,7 +58,8 @@
     blocks: {},         // ficheId -> block label (from subtag, or parsed from the title)
     blockOrder: [],     // block labels in the order they should appear (subtag order)
     numbered: false,    // did the titles yield usable lesson numbers?
-    loading: false, err: ""
+    loading: false, err: "",
+    info: ""            // neutral note, e.g. how many fiches were followed to a newer version
   };
   var GRADES = ["K0", "K1", "K2", "K3", "L1", "L2", "L3", "L4", "L5", "L6", "NLG"];
 
@@ -132,7 +133,7 @@
   // ---------- Loading a methode's lessons ----------
   function loadMethode(m) {
     if (!m) { mm.lessons = []; mm.blocks = {}; render(); return Promise.resolve(); }
-    mm.loading = true; mm.err = ""; render();
+    mm.loading = true; mm.err = ""; mm.info = ""; render();
     var p = (m.source === "questi") ? loadQuestiMethode(m) : loadTagMethode(m);
     return p.then(function () {
       mm.numbered = hasNumbering(mm.lessons);
@@ -176,9 +177,8 @@
   function loadTagMethode(m) {
     var owner = m.ownerId != null ? m.ownerId : "self";
     var kids = S().childTags(m.tagId, owner) || [];
-    var wanted = {}; (m.order || []).forEach(function (id) { wanted[String(id)] = true; });
-    var byId = {};
-    mm.blocks = {};
+    var byId = {}, blockOf = {};
+    mm.blocks = {}; mm.info = "";
     // childTags() is already sorted by title with numeric collation, so "Blok 2" lands before
     // "Blok 10". That order is the order the thema's appear in the table.
     mm.blockOrder = kids.map(function (t) { return (t.title || "").trim(); });
@@ -189,15 +189,79 @@
     // One call per thema, which also tells us which thema each fiche belongs to.
     kids.forEach(function (t) {
       jobs.push(S().fetchAllFichesByTag(owner, t.id).then(function (res) {
-        ((res && res.items) || []).forEach(function (f) { byId[String(f.id)] = f; if (wanted[String(f.id)]) mm.blocks[String(f.id)] = (t.title || "").trim(); });
+        ((res && res.items) || []).forEach(function (f) { byId[String(f.id)] = f; blockOf[String(f.id)] = (t.title || "").trim(); });
       }));
     });
     return Promise.all(jobs).then(function () {
+      return followNewVersions(m, byId);
+    }).then(function (followed) {
       mm.lessons = (m.order || []).map(function (id) { return byId[String(id)]; }).filter(Boolean);
+      mm.lessons.forEach(function (f) { var b = blockOf[String(f.id)]; if (b) mm.blocks[String(f.id)] = b; });
+      if (followed) mm.info = followed + " fiche(s) intussen bewerkt in Questi — gevolgd naar de nieuwste versie (volgorde en handmatige status blijven).";
       // A fiche that was deleted in Questi silently drops out — say so rather than hide it.
       var missing = (m.order || []).length - mm.lessons.length;
       if (missing > 0) mm.err = missing + " fiche(s) niet meer gevonden in Questi — via 'Fiches kiezen' bijwerken.";
     });
+  }
+
+  // Every fiche PATCH mints a new id, so an edited fiche (even just WEET/KEN/KAN) no longer matches
+  // the id stored in m.order / m.overrides. All versions share the edit view's `thread`; the planner
+  // keeps { thread: newest id seen } in pg_threads_v1. For each stored id that is not in the list:
+  // thread from m.threadOf, else one edit-view read of that old version; then the newest version is
+  // the pg_threads_v1 entry when it is in the list, else a same-title fiche in the list whose own
+  // edit view carries that thread. Reads go 4 at a time and only happen for ids that went missing.
+  // Remaps order + overrides in place and persists. → Promise<number followed>
+  var GONE = "?";
+  function followNewVersions(m, byId) {
+    var stale = (m.order || []).map(String).filter(function (id) { return !byId[id]; });
+    if (!stale.length) return Promise.resolve(0);
+    var members = {}; (m.order || []).forEach(function (id) { members[String(id)] = true; });
+    if (!m.threadOf) m.threadOf = {};
+    function readEdit(id) {
+      return S().fetchFicheEdit(id).then(function (e) { if (e && S().noteFicheThread) S().noteFicheThread(e); return e; });
+    }
+    var remap = {};
+    return S().storeGet("pg_threads_v1").then(function (threads) {
+      threads = threads || {};
+      return S().mapLimit(stale, 4, function (oldId) {
+        // GONE = the old version could not be read (deleted): remembered, so it is not re-read every open.
+        var known = m.threadOf[oldId];
+        var thP = known != null ? Promise.resolve({ thread: known, subject: null })
+          : readEdit(oldId).then(function (e) { return { thread: e && e.thread != null ? String(e.thread) : GONE, subject: e && e.subject }; }, function () { return { thread: GONE }; });
+        return thP.then(function (o) {
+          m.threadOf[oldId] = o.thread;
+          if (o.thread === GONE) return;
+          var newest = threads[o.thread];
+          if (newest != null && byId[String(newest)] && !members[String(newest)]) { remap[oldId] = String(newest); return; }
+          // Not learned on this machine yet: check the same-title fiches in the list that are not
+          // members already (normally one). Without a known title there is nothing cheap to check.
+          var title = String(o.subject || "").trim().toLowerCase(); if (!title) return;
+          var cands = Object.keys(byId).filter(function (id) {
+            return !members[id] && Number(id) > Number(oldId) && String(byId[id].subject || "").trim().toLowerCase() === title;
+          });
+          var best = null;   // mapLimit resolves without results: collect the newest hit here
+          return S().mapLimit(cands, 4, function (cid) {
+            return readEdit(cid).then(function (e) {
+              if (e && e.thread != null && String(e.thread) === o.thread && (best == null || Number(cid) > Number(best))) best = cid;
+            });
+          }).then(function () { if (best != null) remap[oldId] = best; });
+        });
+      });
+    }).then(function () {
+      var n = 0, seen = {};
+      m.order = (m.order || []).map(function (id) {
+        var to = remap[String(id)];
+        if (!to || seen[to]) return String(id);
+        seen[to] = true; n++;
+        if (m.overrides && m.overrides[String(id)] && !m.overrides[to]) m.overrides[to] = m.overrides[String(id)];
+        if (m.overrides) delete m.overrides[String(id)];
+        m.threadOf[to] = m.threadOf[String(id)];
+        delete m.threadOf[String(id)];
+        return to;
+      });
+      saveState();
+      return n;
+    }, function (err) { console.warn("[PGM] nieuwere fiche-versies zoeken:", err); return 0; });
   }
 
   // ========================================================================
@@ -335,7 +399,8 @@
   function renderNote(m) {
     var el = mm.els.note; el.innerHTML = ""; el.className = "pgm-note";
     if (!m) return;
-    if (mm.err) { el.className = "pgm-note show warn"; el.textContent = mm.err; return; }
+    if (mm.err) { el.className = "pgm-note show warn"; el.textContent = mm.err + (mm.info ? " " + mm.info : ""); return; }
+    if (mm.info) { el.className = "pgm-note show"; el.textContent = mm.info; return; }
     // The August dead zone: Questi has rolled the year but 1 September has not arrived, so
     // nothing can count as given yet. Say so instead of showing a silently empty 0/N.
     var y = activeStartYear();
@@ -698,7 +763,8 @@
     download("methodevoortgang-" + String(m.name).replace(/[^\w-]+/g, "_").toLowerCase() + ".csv",
       "﻿" + lines.join("\r\n"), "text/csv;charset=utf-8");
   }
-  function csv(s) { s = String(s == null ? "" : s); return /[;"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+  // A cell starting with = + - @ tab or CR is a formula to Excel/Sheets — a fiche title must stay text.
+  function csv(s) { s = String(s == null ? "" : s); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[;"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 
   // ========================================================================
   //  Back-up — move the whole tracker between machines (school laptop ↔ home pc)
@@ -749,35 +815,83 @@
       rd.readAsText(f);
     });
   }
+  // What a methode IS, independent of its local id: the vendor library (+ leerjaar) or the own hoofdtag.
+  function methodeIdentity(x) {
+    if (!x) return null;
+    if (x.source === "questi" && x.methodKey != null) return "q:" + x.methodKey + "|" + (x.grade || "");
+    if (x.source === "tag" && x.tagId != null) return "t:" + x.tagId + "|" + (x.ownerId != null ? x.ownerId : "self");
+    return null;
+  }
+  function nameKey(s) { return String(s || "").trim().toLowerCase(); }
+  // Local ids (m_1, m_2…) are per machine, so a backup's id says nothing about which local methode
+  // it is. Match by source identity first, then by name; each local methode is replaced at most once.
+  // → [{ x: imported, match: local methode | null }]
+  function planImport(list) {
+    var claimed = {};
+    function find(test) {
+      for (var i = 0; i < mstate.methodes.length; i++) {
+        var l = mstate.methodes[i];
+        if (!claimed[l.id] && test(l)) { claimed[l.id] = true; return l; }
+      }
+      return null;
+    }
+    var plan = list.map(function (x) { return { x: x, match: null }; });
+    plan.forEach(function (p) {
+      var idt = methodeIdentity(p.x);
+      if (idt) p.match = find(function (l) { return methodeIdentity(l) === idt; });
+    });
+    plan.forEach(function (p) {
+      var nk = nameKey(p.x.name);
+      if (!p.match && nk) p.match = find(function (l) { return nameKey(l.name) === nk; });
+    });
+    return plan;
+  }
   function confirmImport(data) {
-    var mine = {}; mstate.methodes.forEach(function (x) { mine[x.id] = true; });
-    var upd = data.methodes.filter(function (x) { return mine[x.id]; });
-    var add = data.methodes.filter(function (x) { return !mine[x.id]; });
+    var plan = planImport(data.methodes.filter(function (x) { return x && typeof x === "object"; }));
+    var skipped = data.methodes.length - plan.length;
+    var upd = plan.filter(function (p) { return p.match; }).length, add = plan.length - upd;
     var body = [
-      h("div", { class: "pgm-modal-note", text: add.length + " nieuwe methode(s), " + upd.length + " bestaande worden overschreven." })
+      h("div", { class: "pgm-modal-note", text: add + " nieuwe methode(s), " + upd + " bestaande worden vervangen." + (skipped ? " " + skipped + " onleesbare regel(s) overgeslagen." : "") })
     ];
     // Fiche ids belong to one school. Importing another school's file would produce a table
     // full of "niet meer gevonden", so flag it rather than let it fail silently later.
     if (data.schoolId != null && ctx().schoolId != null && String(data.schoolId) !== String(ctx().schoolId)) {
       body.push(h("div", { class: "pgm-modal-note", text: "⚠ Dit bestand komt van school " + data.schoolId + ", jij zit op " + ctx().schoolId + ". De lesfiche-ids zullen niet kloppen." }));
     }
-    data.methodes.forEach(function (x) {
+    plan.forEach(function (p) {
+      var x = p.x;
       body.push(h("div", { class: "pgm-pickrow" }, [
-        h("div", { class: "pgm-pickrow-t", text: (mine[x.id] ? "overschrijven · " : "nieuw · ") + (x.name || x.id) }),
-        h("div", { class: "pgm-pickrow-d", text: (x.source === "questi" ? "Questi-methode" : "eigen lesfiches") + " · " + ((x.order || []).length) + " lessen" })
+        h("div", { class: "pgm-pickrow-t", text: (x.name || x.id || "(zonder naam)") + " · " + (p.match ? "vervangt " + (p.match.name || p.match.id) : "nieuw") }),
+        h("div", { class: "pgm-pickrow-d", text: (x.source === "questi" ? "Questi-methode" : "eigen lesfiches") + " · " + (Array.isArray(x.order) ? x.order.length : 0) + " lessen" })
       ]));
     });
     var dlg = modal("Importeren bevestigen", body, [
       h("button", { class: "pgm-btn", text: "Importeren", onclick: function () {
-        var byId = {};
-        mstate.methodes.forEach(function (x) { byId[x.id] = x; });
-        data.methodes.forEach(function (x) { byId[x.id] = x; });
-        mstate.methodes = Object.keys(byId).map(function (k) { return byId[k]; });
-        if (!mstate.activeId || !byId[mstate.activeId]) mstate.activeId = mstate.methodes.length ? mstate.methodes[0].id : null;
+        applyImportPlan(plan);
         saveState(); dlg.close(); render();
         S().fetchOwnTags().then(function () { return loadMethode(activeMethode()); });
       } })
     ]);
+  }
+  // Apply planImport's result to mstate (no save, no render).
+  function applyImportPlan(plan) {
+    var list = mstate.methodes.slice(), used = {};
+    list.forEach(function (l) { used[String(l.id)] = true; });
+    plan.forEach(function (p) {
+      var x = {}; for (var k in p.x) if (Object.prototype.hasOwnProperty.call(p.x, k)) x[k] = p.x[k];
+      if (p.match) {
+        // Replaced in place: keeps the local id (activeId and chip position follow).
+        x.id = p.match.id;
+        list[list.indexOf(p.match)] = x;
+      } else {
+        // New here: keep the file's id only when nothing local uses it yet.
+        if (x.id == null || used[String(x.id)]) x.id = nextId(list);
+        used[String(x.id)] = true;
+        list.push(x);
+      }
+    });
+    mstate.methodes = list;
+    if (!mstate.activeId || !activeMethode()) mstate.activeId = mstate.methodes.length ? mstate.methodes[0].id : null;
   }
 
   // ========================================================================
@@ -800,4 +914,6 @@
 
   // ---------- Export ----------
   window.__PG_METHODES = { open: open, close: close };
+  // Internals for the offline checks only; never set in the extension.
+  if (window.__PG_TEST_HOOKS) window.__PG_METHODES_TEST = { mstate: mstate, planImport: planImport, applyImportPlan: applyImportPlan, followNewVersions: followNewVersions };
 })();

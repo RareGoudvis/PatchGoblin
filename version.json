@@ -1,5 +1,5 @@
 {
-  "version": "2.0.4",
+  "version": "2.1.0",
   "url": "https://github.com/RareGoudvis/PatchGoblin",
   "notes": "Stable channel (branch 'main'). Bump this and manifest.json 'version' together on every release."
 }

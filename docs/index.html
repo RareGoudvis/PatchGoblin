@@ -220,9 +220,20 @@ footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
     </li>
   </ol>
 
-  <h3 id="handmatig" style="margin-top:28px">Lukt install.bat niet? Handmatig installeren</h3>
+  <h3 id="geblokkeerd" style="margin-top:28px">Is install.bat geblokkeerd? Eén regel in PowerShell</h3>
   <div class="box" style="margin-top:12px">
-    <p>Op een computer van school blokkeert Windows soms <b>.bat</b>-bestanden of PowerShell. Dan installeer je met de hand — het resultaat is hetzelfde.</p>
+    <p>Weigert je browser het bestand, toont Windows <b>“Windows heeft uw pc beschermd”</b>, of blokkeert je school <b>.bat</b>-bestanden? Dan hoef je niets te downloaden:</p>
+    <ol>
+      <li>Klik op <b>Start</b>, typ <b>PowerShell</b> en druk <kbd>Enter</kbd>.</li>
+      <li>Kopieer deze regel, plak hem in het blauwe venster (rechtermuisklik plakt) en druk <kbd>Enter</kbd>:<br><code>irm https://raw.githubusercontent.com/RareGoudvis/PatchGoblin/main/install.ps1 | iex</code></li>
+      <li>Het doet hetzelfde als install.bat: het zet PatchGoblin in <span class="path">%LOCALAPPDATA%\PatchGoblin</span>, kopieert die map naar je klembord en opent de extensiepagina. Ga verder bij stap 3 hierboven.</li>
+    </ol>
+    <p><b>Bijwerken:</b> plak dezelfde regel opnieuw. Staat PatchGoblin er al, dan kijkt het de download eerst na, maakt het een back-up en zet het die terug als het vervangen mislukt — net als update.bat.</p>
+  </div>
+
+  <h3 id="handmatig" style="margin-top:28px">Lukt ook dat niet? Handmatig installeren</h3>
+  <div class="box" style="margin-top:12px">
+    <p>Blokkeert je computer ook PowerShell, of heb je een Mac? Dan installeer je met de hand — het resultaat is hetzelfde.</p>
     <ol>
       <li>Open <a href="https://github.com/RareGoudvis/PatchGoblin" target="_blank" rel="noopener">PatchGoblin op GitHub</a>, klik op de groene knop <b>Code</b> en kies <b>Download ZIP</b>.</li>
       <li>Pak de ZIP uit naar een <b>vaste map</b> die je niet meer verplaatst of verwijdert, bv. <span class="path">Documenten\PatchGoblin</span>. Laat ze niet in Downloads staan: de browser leest de extensie elke keer uit die map.</li>
@@ -343,7 +354,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
     <ol>
       <li>Open de map <span class="path">%LOCALAPPDATA%\PatchGoblin</span> (plakken in de adresbalk van Verkenner) en dubbelklik <b>update.bat</b>. Het controleert de download eerst en maakt een back-up van je vorige versie (in <span class="path">%LOCALAPPDATA%\PatchGoblin-backups</span>); lukt het vervangen niet, dan zet het die vanzelf terug.</li>
       <li>Klik op de extensiepagina bij PatchGoblin op het pijltje <b>↻</b> (opnieuw laden).</li>
-      <li>Geen update.bat mogelijk? Zie <a href="#handmatig">handmatig installeren</a> — bijwerken gaat net zo.</li>
+      <li>Is update.bat geblokkeerd? Plak <a href="#geblokkeerd">de PowerShell-regel</a> opnieuw; gaat ook dat niet, zie <a href="#handmatig">handmatig installeren</a>.</li>
       <li>Herlaad je Questi-agenda met <kbd>F5</kbd>.</li>
     </ol>
   </div>

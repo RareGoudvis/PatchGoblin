@@ -46,7 +46,10 @@
   function subjectTops() { return S().topTagsForOwner(ownTags(), ctx().ownerId).filter(isSubjectTop); }
   function tagById(id) { return id == null || id === "" ? null : S().anyTagById(id); }
   function tagName(t) { return ((t && t.title) || "").trim(); }
-  function tagHex(t) { return (t && t.color) || "#c7ccd1"; }
+  // Tag colours (and colours from an import file) go into style attributes and into a Questi POST,
+  // so only a real hex colour passes; anything else is null and the caller picks a fallback.
+  function safeHex(c) { return S().safeHex ? S().safeHex(c) : null; }
+  function tagHex(t) { return safeHex(t && t.color) || "#c7ccd1"; }
   function childrenOf(id) { return ownTags().filter(function (t) { return String(t.parent) === String(id); }); }
   function sameId(a, b) { return a != null && b != null && String(a) === String(b); }
   function inList(list, id) { return (list || []).some(function (x) { return sameId(x, id); }); }
@@ -87,12 +90,14 @@
     try { S().computeTimeRows(); } catch (e) { return []; }
     return (S().view.timeRows || []).slice();
   }
+  var DEFAULT_TAG_COLOR = "#e0e0e0";
   // Create a vak tag in Questi. Callers ALWAYS confirm first. Uses the Lesfiche-manager's create
   // call (same endpoint, same body), then refreshes the shared own-tag cache.
   function createTag(title, color, parentId) {
     var L = window.__PG_LESSONS;
     if (!L || !L.createUserTag) return Promise.reject(new Error("Lesfiche-module niet geladen"));
-    var body = { title: title, color: color || "#e0e0e0", schoolId: ctx().schoolId };
+    // Callers that take a colour from a file say so in their confirm (importColor); this is the last guard.
+    var body = { title: title, color: safeHex(color) || DEFAULT_TAG_COLOR, schoolId: ctx().schoolId };
     if (parentId != null) body.parent = Number(parentId);
     return L.createUserTag(body).then(function (tag) {
       S().invalidateOwnTags();
@@ -674,6 +679,29 @@
   }
   function refKey(ref) { return norm(ref.parent || "") + ">" + norm(ref.title); }
   function refLabel(ref) { return (ref.parent ? ref.parent + " › " : "") + ref.title; }
+  // A hand-edited or damaged file: drop entries that are no object, carry a vak that is no object,
+  // or (lesrooster) a day outside ma–vr, before anything reads them. → number of entries dropped.
+  function sanitizeImport(data) {
+    var junk = 0;
+    function isObj(x) { return !!x && typeof x === "object" && !Array.isArray(x); }
+    ["vakken", "lesrooster", "themas"].forEach(function (p) {
+      if (data[p] == null) return;
+      if (!Array.isArray(data[p])) { junk++; delete data[p]; return; }
+      data[p] = data[p].filter(function (e) {
+        var ok = isObj(e);
+        if (ok && p !== "vakken") ok = p === "themas" ? (e.vak == null || isObj(e.vak)) : isObj(e.vak);
+        if (ok && p === "lesrooster") {
+          var d = Number(e.day);
+          ok = e.day !== "" && e.day != null && Math.floor(d) === d && d >= 0 && d <= 4;
+          if (ok) e.day = d;
+        }
+        if (!ok) junk++;
+        return ok;
+      });
+    });
+    if (data.agenda != null && !isObj(data.agenda)) { junk++; delete data.agenda; }
+    return junk;
+  }
   // One mapping row per distinct exported tag.
   function buildImport(data) {
     var rows = [], byKey = {};
@@ -725,8 +753,10 @@
         try { data = JSON.parse(String(rd.result || "")); } catch (e) { showError("Dit bestand is geen geldige JSON."); return; }
         if (!data || (data.format !== EXPORT_FORMAT && OLD_EXPORT_FORMATS.indexOf(data.format) < 0)) { showError("Dit is geen PatchGoblin-instellingenbestand (veld ‘format’ ontbreekt of klopt niet)."); return; }
         if (typeof data.version !== "number") { showError("Dit bestand heeft geen schemaversie."); return; }
-        var b = buildImport(data);
-        imp = { name: f.name, data: data, rows: b.rows, byKey: b.byKey, parts: {} };
+        var b, junk;
+        try { junk = sanitizeImport(data); b = buildImport(data); }
+        catch (e) { console.warn("[PGS] import:", e); showError("Dit bestand kon niet gelezen worden: " + ((e && e.message) || e) + ". Er is niets overgenomen."); return; }
+        imp = { name: f.name, data: data, rows: b.rows, byKey: b.byKey, parts: {}, junk: junk };
         ["lesrooster", "vakken", "themas", "agenda", "afdrukken", "collegas"].forEach(function (p) { imp.parts[p] = partPresent(data, p) && p !== "collegas"; });
         renderPreview();
       };
@@ -752,6 +782,7 @@
       var d = imp.data;
       preview.appendChild(h("div", { class: "pgs-card-t", text: "Voorbeeld: " + imp.name }));
       preview.appendChild(h("span", { class: "pgs-muted", text: "Uit " + (d.tool || "?") + (d.from && d.from.school ? " · " + d.from.school : "") + (d.exported_at ? " · " + String(d.exported_at).slice(0, 10) : "") }));
+      if (imp.junk) preview.appendChild(note(imp.junk + " onleesbare regel(s) in het bestand overgeslagen (geen geldig lesuur, vak of thema).", "warn"));
       if (d.version > EXPORT_VERSION) preview.appendChild(note("Dit bestand komt uit een nieuwere versie (schema " + d.version + "). Onderdelen die deze versie niet kent, worden overgeslagen.", "warn"));
       // Tag mapping
       if (imp.rows.length) {
@@ -774,7 +805,7 @@
             extra = h("label", { class: "pgs-check small" }, [c, h("span", { text: "aanmaken in Questi" })]);
           }
           map.appendChild(h("div", { class: "pgs-maprow" }, [
-            h("span", { class: "pgs-swatch sm", style: "background:" + (r.ref.color || "#c7ccd1") }),
+            h("span", { class: "pgs-swatch sm", style: "background:" + (safeHex(r.ref.color) || "#c7ccd1") }),
             h("span", { class: "pgs-mapfrom", text: refLabel(r.ref) }), h("span", { class: "pgs-muted", text: "→" }), sel,
             h("span", { class: "pgs-chip " + chip[1], text: r.create ? "wordt aangemaakt" : chip[0] }), extra
           ]));
@@ -814,7 +845,11 @@
       if (creates.length) {
         confirmBox("Tags aanmaken in Questi", [
           "Deze tag(s) worden aangemaakt in je Questi-lesfiches:",
-          h("ul", { class: "pgs-ul" }, creates.map(function (r) { return h("li", { text: refLabel(r.ref) }); })),
+          h("ul", { class: "pgs-ul" }, creates.map(function (r) {
+            // A colour from the file that is no hex colour is not sent as-is: say which one replaces it.
+            var bad = r.ref.color != null && r.ref.color !== "" && !safeHex(r.ref.color);
+            return h("li", { text: refLabel(r.ref) + (bad ? " (kleur in het bestand ongeldig — wordt " + DEFAULT_TAG_COLOR + ")" : "") });
+          })),
           "Daarna worden de instellingen overgenomen. Verwijderen kan later in Lesfiches → Tags."
         ], "Aanmaken en importeren", go);
       } else go();
@@ -991,6 +1026,7 @@
       step: 0, importing: false, imported: null,
       vakTags: Array.isArray(s.vakTags) ? s.vakTags.slice() : null,
       settings: Object.assign({}, s.settings || {}), guesses: null,
+      start: Object.assign({}, s.settings || {}),   // what the wizard showed; applyWizard marks changes touched
       // A new install has false here (the setup default); a re-run keeps what the user has.
       writeDesc: s.writeVakDescription === true,
       themaVak: tv, calendar: s.workingCalendarId == null ? "" : String(s.workingCalendarId),
@@ -1177,8 +1213,15 @@
     var s = st(), dropped = 0;
     if (wz.guesses) Object.keys(wz.guesses).forEach(function (k) { if (wz.settings[k] == null) dropped++; });
     s.vakTags = compactVakTags(wz.vakTags);
+    var before = wz.start || {};
     Object.keys(s.settings).forEach(function (k) { delete s.settings[k]; });
     Object.keys(wz.settings).forEach(function (k) { if (wz.settings[k] != null && wz.settings[k] !== "") s.settings[k] = +wz.settings[k]; });
+    // An hour set or cleared here is the teacher's choice, like in Instellingen → Lesrooster:
+    // mark it touched so fillRosterFromSeen never refills a cleared hour from the agenda.
+    var touched = s.rosterTouched || (s.rosterTouched = {});
+    Object.keys(before).concat(Object.keys(s.settings)).forEach(function (k) {
+      if (String(before[k] == null ? "" : before[k]) !== String(s.settings[k] == null ? "" : s.settings[k])) touched[k] = true;
+    });
     s.writeVakDescription = !!wz.writeDesc;
     var groups = themaGroups();
     groups.forEach(function (g) {

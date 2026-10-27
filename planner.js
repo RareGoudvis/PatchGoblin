@@ -67,6 +67,9 @@
   // Instellingen used to store a VAKKEN string per slot ("taal"); it now stores a
   // live top-tag id. Convert any legacy values once the vak→tag map is built.
   function migrateSettingsToTagIds() {
+    // No own tags = the tag read failed (or the account has none yet): nothing to match against, so a
+    // legacy value would be deleted for no reason. Leave it for the next load.
+    if (!ownTagsList().length) return;
     var changed = false;
     Object.keys(state.settings).forEach(function (k) {
       var v = state.settings[k];
@@ -83,11 +86,24 @@
   var STORE_KEY = "pg_state_v6";
   function mkPanel(vak, sort) { return { source: "self", sortDir: sort || "az", filterVak: vak || null, filterTagId: null, hideUsed: false, gradeFilter: null }; }
   var state = { colleagues: [], settings: {}, weeks: 1, panelCount: 2, pickerView: "list", splitRatio: 0.58, sideCollapsed: null, workingCalendarId: null, manualSchoolId: null, manualSchoolyear: null, manualOwnTagId: null, themaVak: {}, slotVak: {}, saveThrottleMs: 250, mainMode: "plan", filterOpen: false, doelenWeek: 0, panels: [mkPanel(null, "az"), mkPanel(null, "az"), mkPanel(null, "az")] };
+  // A FAILED read is not "no settings": the defaults stay in memory, but saving them would overwrite
+  // the real pg_state_v6 with empties (the next learnVakSeen save did exactly that). So until one
+  // load succeeds, saveState() writes nothing and the status line says why.
+  var _stateLoadFailed = false;
   function loadState() {
     return new Promise(function (res) {
       function done() { applyTheme(); res(state); }
       try {
-        storeGet(STORE_KEY).then(function (s) { if (s) { try { mergeState(s); } catch (e) {} } done(); }, done);
+        storeRead(STORE_KEY).then(function (s) {
+          _stateLoadFailed = false;
+          if (s) { try { mergeState(s); } catch (e) {} }
+          done();
+        }, function (err) {
+          _stateLoadFailed = true;
+          try { console.warn("[PG] instellingen lezen mislukt:", err); } catch (e) {}
+          setStatus("⚠ Je instellingen konden niet gelezen worden — PatchGoblin bewaart niets tot dat lukt. Herlaad deze pagina (F5).");
+          done();
+        });
       } catch (e) { done(); }
     });
   }
@@ -151,7 +167,10 @@
     state.writeVakDescription = s.writeVakDescription != null ? !!s.writeVakDescription : true;
   }
   function writesDescriptions() { return state.writeVakDescription !== false; }
-  function saveState() { storeSet(STORE_KEY, state); }
+  function saveState() {
+    if (_stateLoadFailed) { storageFailed(STORE_KEY, "instellingen niet gelezen — niet bewaard om ze niet te overschrijven"); return; }
+    storeSet(STORE_KEY, state);
+  }
   // Generic key/value store shared with the other modules — same chrome.storage.local
   // path as the planner's own state, with the same localStorage fallback.
   // v2.0 renamed every key qwp_* → pg_* (PatchGoblin). Migration is per key and automatic: a pg_*
@@ -163,24 +182,44 @@
     pg_goalcache_v1: "qwp_goalcache_v1", pg_print_v1: "qwp_print_v1", pg_xhide_v1: "qwp_xhide_v1"
   };
   var _migrated = [];   // keys copied in this session — the status line and Zelftest say so
-  function storeGet(key) {
+  // storeRead: resolves the value, or null when the key does not exist — and REJECTS when the read
+  // itself failed (chrome.runtime.lastError, a stale extension context, corrupt localStorage JSON).
+  // storeGet keeps the old contract every module relies on (null for "nothing there", never a
+  // rejection), but a failed read is no longer silent: it is noted for the Zelftest, and storeSet
+  // refuses to overwrite that key until a read of it succeeds — a module that started from empty
+  // defaults would otherwise save them over the real data.
+  var _readFailed = {};   // key → true while its last read failed
+  function storeRead(key) {
     var old = OLD_STORE_KEYS[key] || null;
-    return new Promise(function (res) {
+    return new Promise(function (res, rej) {
+      function fail(e) {
+        _readFailed[key] = true;
+        noteApiError("storage", key, 0, "lezen mislukt: " + ((e && e.message) || e));
+        rej(e || new Error("storage read failed"));
+      }
       function found(v, fromOld) {
+        delete _readFailed[key];
         if (v != null && fromOld) { storeSet(key, v); _migrated.push(key); try { console.info("[PG] instellingen overgezet: " + old + " → " + key); } catch (e) {} }
         res(v != null ? v : null);
       }
       try {
         if (chrome && chrome.storage && chrome.storage.local) {
           chrome.storage.local.get(old ? [key, old] : [key], function (o) {
-            o = o || {};
+            var le = chrome.runtime && chrome.runtime.lastError;
+            if (le || !o) { fail(new Error((le && le.message) || "geen antwoord van de opslag")); return; }
             if (o[key] != null) found(o[key], false); else found(old ? o[old] : null, true);
           });
         } else {
           var v = JSON.parse(localStorage.getItem(key) || "null");
           if (v == null && old) found(JSON.parse(localStorage.getItem(old) || "null"), true); else found(v, false);
         }
-      } catch (e) { res(null); }
+      } catch (e) { fail(e); }
+    });
+  }
+  function storeGet(key) {
+    return storeRead(key).catch(function (e) {
+      try { console.warn("[PG] lezen mislukt (" + key + "):", (e && e.message) || e); } catch (x) {}
+      return null;
     });
   }
   function migratedKeys() { return _migrated.slice(); }
@@ -188,6 +227,8 @@
   // (at most once per 10 s). The usual cause is "Extension context invalidated" — the extension was
   // reloaded or updated while this tab stayed open, so this old copy can no longer save.
   function storeSet(key, val) {
+    if (_readFailed[key]) { storageFailed(key, "eerder lezen mislukt — niet bewaard om de bewaarde gegevens niet te overschrijven"); return; }
+    noteOwnWrite(key, val);
     try {
       if (chrome && chrome.storage && chrome.storage.local) {
         var o = {}; o[key] = val;
@@ -206,6 +247,68 @@
       ? "⚠ Instellingen niet bewaard: PatchGoblin werd bijgewerkt of herladen. Herlaad deze pagina (F5) en doe de laatste wijziging opnieuw."
       : "⚠ Instellingen niet bewaard (" + msg.slice(0, 80) + "). Zie Debug → Zelftest.");
   }
+
+  // ---- Two tabs, one store ----
+  // pg_state_v6 and pg_goals_v1 are saved as whole objects, so without this the last tab to save
+  // wiped what another tab had just changed. chrome.storage.onChanged tells every tab about every
+  // save; a change from ANOTHER tab is merged into this tab's memory, so its next save carries it.
+  // Our own saves come back through the same event: they are recognised by value (the last few
+  // writes per key, so two quick saves never mistake the older echo for a foreign change).
+  var SYNC_KEYS = { pg_state_v6: true, pg_goals_v1: true };
+  var _ownWrites = {};   // key → JSON of this tab's recent writes, oldest first
+  function noteOwnWrite(key, val) {
+    if (!SYNC_KEYS[key]) return;
+    var list = _ownWrites[key] || (_ownWrites[key] = []);
+    try { list.push(JSON.stringify(val)); } catch (e) { return; }
+    if (list.length > 5) list.shift();
+  }
+  function isOwnWrite(key, val) {
+    var list = _ownWrites[key] || [], j;
+    try { j = JSON.stringify(val); } catch (e) { return false; }
+    var i = list.indexOf(j);
+    if (i < 0) return false;
+    list.splice(i, 1);
+    return true;
+  }
+  // Per-tab view state: which list filter, mode or week is open is this tab's business, not a setting.
+  var STATE_VIEW_ONLY = { panels: 1, mainMode: 1, filterOpen: 1, doelenWeek: 1, weeks: 1, sideWidth: 1, sideCollapsed: 1, splitRatio: 1, panelCount: 1, pickerView: 1 };
+  // Fields where null means something ("all vakken", "no manual pick") — mergeState skips nulls.
+  var STATE_NULLABLE = ["vakTags", "vakOrder", "workingCalendarId", "manualSchoolId", "manualSchoolyear", "manualOwnTagId"];
+  function applyForeignState(ov, nv) {
+    if (!nv || typeof nv !== "object") return false;
+    if (_stateLoadFailed) { _stateLoadFailed = false; delete _readFailed[STORE_KEY]; ov = null; }   // another tab just wrote the real state
+    var part = {}, n = 0;
+    Object.keys(nv).concat(Object.keys(ov || {})).forEach(function (k) {
+      if (STATE_VIEW_ONLY[k] || k in part) return;
+      if (ov && JSON.stringify(ov[k]) === JSON.stringify(nv[k])) return;
+      part[k] = nv[k]; n++;
+    });
+    if (!n) return false;
+    var keepWvd = state.writeVakDescription;
+    try { mergeState(part); } catch (e) { return false; }
+    if (!("writeVakDescription" in part)) state.writeVakDescription = keepWvd;   // mergeUqSettings defaults a missing field
+    STATE_NULLABLE.forEach(function (k) { if (k in part && part[k] == null) state[k] = null; });
+    return true;
+  }
+  var _goalsDirty = {};   // goal keys edited in this tab and not yet flushed (wireGoalsEditor)
+  function applyForeignGoals(nv) {
+    var next = Object.assign({}, nv || {});
+    Object.keys(_goalsDirty).forEach(function (k) { if (_goals[k]) next[k] = _goals[k]; else delete next[k]; });
+    _goals = next;
+  }
+  function onStoreChanged(changes, area) {
+    if (area !== "local" || !changes) return;
+    var ch = changes[STORE_KEY];
+    if (ch && !isOwnWrite(STORE_KEY, ch.newValue) && applyForeignState(ch.oldValue, ch.newValue)) {
+      applyTheme();
+      setStatus("Instellingen bijgewerkt vanuit een ander tabblad.");
+      if (els.root) scheduleHydratePaint();
+    }
+    ch = changes[GOALS_STORE_KEY];
+    if (ch && !isOwnWrite(GOALS_STORE_KEY, ch.newValue)) applyForeignGoals(ch.newValue);
+  }
+  // Only chrome.storage has the event; the localStorage fallback (no extension context) has no tabs to sync.
+  try { if (chrome && chrome.storage && chrome.storage.onChanged) chrome.storage.onChanged.addListener(onStoreChanged); } catch (e) {}
 
   // ---------- Runtime context detection ----------
   function safeStorage(fn) { try { return fn(); } catch (e) { return null; } }
@@ -302,19 +405,20 @@
     if (byDefault) return byDefault.id;
     return pool.length ? pool[0].id : null;
   }
-  function resolveOwnTag(tags) {
+  function resolveOwnTag(tags, c) {
+    c = c || ctx;   // the background verification resolves into its own object (detectContext)
     var sniffed = sniffOwnLessonTag();
-    if (sniffed != null) { ctx.ownDefaultTagId = sniffed; console.log("[PG] own default tag →", sniffed, "(via sniff)"); return Promise.resolve(); }
+    if (sniffed != null) { c.ownDefaultTagId = sniffed; console.log("[PG] own default tag →", sniffed, "(via sniff)"); return Promise.resolve(); }
     // Prefer the /lessons/tags?filter=own list — it cleanly carries the id-5 "Alle
     // eigen lesfiches" default tag. Fall back to possible-settings / unfiltered / manual.
     return fetchOwnTags().then(function (ownTags) {
       var fromOwn = resolveOwnDefaultTagFromTags(ownTags);
-      if (fromOwn != null) { ctx.ownDefaultTagId = fromOwn; console.log("[PG] own default tag →", fromOwn, "(via filter=own)"); return; }
+      if (fromOwn != null) { c.ownDefaultTagId = fromOwn; console.log("[PG] own default tag →", fromOwn, "(via filter=own)"); return; }
       return bootPossibleSettings().then(function (ps) {
-        if (ps != null) { ctx.ownDefaultTagId = ps; console.log("[PG] own default tag →", ps, "(via possible-settings)"); return; }
+        if (ps != null) { c.ownDefaultTagId = ps; console.log("[PG] own default tag →", ps, "(via possible-settings)"); return; }
         var fromTags = resolveOwnDefaultTagFromTags(tags);
-        if (fromTags != null) { ctx.ownDefaultTagId = fromTags; console.log("[PG] own default tag →", fromTags, "(via tags list)"); return; }
-        if (state.manualOwnTagId != null) { ctx.ownDefaultTagId = state.manualOwnTagId; console.log("[PG] own default tag →", state.manualOwnTagId, "(via manual)"); return; }
+        if (fromTags != null) { c.ownDefaultTagId = fromTags; console.log("[PG] own default tag →", fromTags, "(via tags list)"); return; }
+        if (state.manualOwnTagId != null) { c.ownDefaultTagId = state.manualOwnTagId; console.log("[PG] own default tag →", state.manualOwnTagId, "(via manual)"); return; }
         console.error("[PG] own default tag could NOT be resolved — fiches will not load. Set it manually.");
       });
     });
@@ -330,19 +434,20 @@
     }
     return null;
   }
-  function deriveFromItems(items) {
+  function deriveFromItems(items, tc) {
+    tc = tc || ctx;   // the background verification derives into its own object (detectContext)
     var calCount = {}, best = null;
     (items || []).forEach(function (it) {
       var c = it.id_calendar;
       if (c && c !== "cal_holidays") calCount[c] = (calCount[c] || 0) + 1;
       if (it.groups && it.groups.length) {
-        if (ctx.groupId == null) { var gid = firstGroupId(it.groups); if (gid != null) ctx.groupId = gid; }
+        if (tc.groupId == null) { var gid = firstGroupId(it.groups); if (gid != null) tc.groupId = gid; }
         var g0 = it.groups[0];
-        if (ctx.schoolId == null && g0 && typeof g0 === "object" && g0.schoolId != null) ctx.schoolId = g0.schoolId;
+        if (tc.schoolId == null && g0 && typeof g0 === "object" && g0.schoolId != null) tc.schoolId = g0.schoolId;
       }
     });
     Object.keys(calCount).forEach(function (c) { if (best == null || calCount[c] > calCount[best]) best = c; });
-    if (best) ctx.calendarId = best;
+    if (best) tc.calendarId = best;
   }
   function thisWeekRange() { var d = new Date(); var day = (d.getDay() + 6) % 7; var mon = new Date(d); mon.setDate(d.getDate() - day); var end = new Date(mon); end.setDate(mon.getDate() + 6); return { start: isoDate(mon), end: isoDate(end) }; }
   // Monday (ISO) of the week containing a given date string.
@@ -437,7 +542,7 @@
   var API_ROOT = "/api";
   function bootUsersMe() { return jget(API_ROOT + "/users/me").then(function (j) { var r = (j && j.result) || j; if (r) { var nm = ((r.firstname || "") + " " + (r.lastname || "")).trim(); if (nm) ctx.ownerName = nm; } return r && (r.id != null ? r.id : null); }).catch(function () { return null; }); }
   function bootSchools() { return jget(API_ROOT + "/schools").then(function (j) { var r = (j && j.result) || []; return Array.isArray(r) ? r : []; }).catch(function () { return []; }); }
-  function bootCalendars() { return jget(API + "/calendars?" + qs({ schoolId: ctx.schoolId })).then(function (j) { var r = (j && j.result) || []; return Array.isArray(r) ? r : []; }).catch(function () { return []; }); }
+  function bootCalendars(schoolId) { return jget(API + "/calendars?" + qs({ schoolId: schoolId != null ? schoolId : ctx.schoolId })).then(function (j) { var r = (j && j.result) || []; return Array.isArray(r) ? r : []; }).catch(function () { return []; }); }
   function pickSchool(schools, preferId) {
     if (!schools.length) return null;
     if (preferId != null) { for (var i = 0; i < schools.length; i++) if (String(schools[i].id) === String(preferId)) return schools[i]; }
@@ -461,8 +566,6 @@
       storeSet(CTX_KEY, all);
     });
   }
-  // The fields that change behaviour if they differ (school name/calendar list are cosmetic).
-  function ctxKey(o) { return [o.schoolId, JSON.stringify(o.schoolyear), o.calendarId, o.groupId, o.ownDefaultTagId].join("|"); }
   function detectContext() {
     return Promise.all([bootUsersMe(), storeGet(CTX_KEY)]).then(function (r) {
       var me = r[0], cached = me != null && r[1] ? r[1][String(me)] : null;
@@ -471,78 +574,110 @@
       }
       ctx.ownerId = me;
       CTX_FIELDS.forEach(function (k) { if (cached[k] !== undefined) ctx[k] = cached[k]; });
-      if (state.workingCalendarId != null && (ctx.calendars || []).some(function (c) { return String(c.id) === String(state.workingCalendarId); })) ctx.calendarId = state.workingCalendarId;
+      applyWorkingCalendar(ctx);
       ctx.ready = true;
       ctx.fromCache = true;
       console.log("[PG] context from cache (user " + me + ") — verifying in the background:", ctxSnapshot());
-      var before = ctxKey(cached);
-      detectContextFull().then(function () {
+      // The planner already runs on this context, so the verification must not touch ctx while it
+      // works: it detects into its own object (groupId included — a cached class is re-checked too)
+      // and only the finished answer is applied. Mutating ctx midway once switched the first week to
+      // Questi's sniffed calendar, and because the end result matched the cache nobody was told.
+      var before = ctxSnapshot();
+      var fresh = { ownerId: me, schoolId: null, schoolyear: null, school: null, calendars: [], calendarId: null, groupId: null, ownDefaultTagId: null };
+      detectContextFull(fresh).then(function (c) {
         ctx.fromCache = false;
+        if (!c || c.schoolId == null) { console.warn("[PG] background context check found no school — keeping the saved context"); return; }
+        var changed = applyVerifiedContext(c, before);
         saveCtxCache(ctx.ownerId);
-        if (ctxKey(ctxSnapshot()) !== before) {
-          console.warn("[PG] cached context was stale → corrected:", ctxSnapshot());
-          setStatus("Let op: je Questi-context is gewijzigd (school, agenda of klas). Herlaad de week voor je wegschrijft.");
+        if (changed.length) {
+          console.warn("[PG] cached context was stale → corrected:", changed, ctxSnapshot());
+          setStatus("Let op: je Questi-context is gewijzigd (" + changed.join(", ") + "). Herlaad de week voor je wegschrijft.");
         }
       });
       return ctx;
     });
   }
-  function detectContextFull() {
+  // Feature 5: an explicit working-calendar pick overrides the busiest-calendar heuristic — makes
+  // the tool portable (multiple own calendars / colleague calendars), not name-dependent. Applied
+  // LAST, after anything else that sets calendarId.
+  function applyWorkingCalendar(c) {
+    if (state.workingCalendarId != null && (c.calendars || []).some(function (x) { return String(x.id) === String(state.workingCalendarId); })) c.calendarId = state.workingCalendarId;
+  }
+  // Copy a background verification's answer into ctx. A field it could not find (no items in
+  // summer → no groupId, a failed tag read) keeps its saved value instead of becoming null. Returns
+  // the Dutch names of the fields that really changed, for the status line. Only the fields that
+  // change behaviour count (school name and calendar list are cosmetic).
+  var CTX_LABELS = { schoolId: "school", schoolyear: "schooljaar", calendarId: "agenda", groupId: "klas", ownDefaultTagId: "lesfiche-tag" };
+  function applyVerifiedContext(c, before) {
+    CTX_FIELDS.forEach(function (k) {
+      var v = c[k];
+      if (v == null || (k === "calendars" && !v.length)) return;
+      ctx[k] = v;
+    });
+    applyWorkingCalendar(ctx);
+    var out = [];
+    Object.keys(CTX_LABELS).forEach(function (k) { if (JSON.stringify(before[k]) !== JSON.stringify(ctx[k])) out.push(CTX_LABELS[k]); });
+    return out;
+  }
+  // target: the object to detect into — ctx itself on a first detection, a fresh object for the
+  // background verification (detectContext), which must not change ctx while the planner uses it.
+  function detectContextFull(target) {
+    var verify = !!target, c = target || ctx;
     // Fallback hints (used only if the bootstrap calls come up empty).
     var net = sniffFromRequests(), scr = scrapeContext(), cook = sniffCookies();
     var hintSchoolId = net.schoolId != null ? net.schoolId : (scr.schoolId != null ? scr.schoolId : (cook.schoolId != null ? cook.schoolId : state.manualSchoolId));
-    if (net.calendarId) ctx.calendarId = net.calendarId;
+    // Questi's own calendar is only a hint for a FIRST detection. In a verification it would replace
+    // the calendar the planner is already showing (and the working-calendar pick) for no reason.
+    if (net.calendarId && !verify) c.calendarId = net.calendarId;
 
     return Promise.all([bootUsersMe(), bootSchools()]).then(function (r) {
       var me = r[0], schools = r[1];
-      if (me != null) ctx.ownerId = me;
+      if (me != null) c.ownerId = me;
       var school = pickSchool(schools, hintSchoolId);
-      if (school) { ctx.schoolId = school.id; ctx.school = { name: school.name || "", address: school.address || "", zip: school.zip || "", city: school.city || "" }; var sy = extractSchoolyear(school.current_schoolyear); if (sy) ctx.schoolyear = sy; console.log("[PG] current_schoolyear raw:", school.current_schoolyear, "→", sy); }
-      else if (hintSchoolId != null) ctx.schoolId = hintSchoolId;
-      if (!ctx.schoolyear) ctx.schoolyear = net.schoolyear || scr.schoolyear || cook.schoolyear || state.manualSchoolyear || defaultSchoolyear();
-      console.log("[PG] bootstrap → users/me id:", me, "| schools:", schools.length, "chosen schoolId:", ctx.schoolId, "schoolyear:", ctx.schoolyear);
-      if (ctx.schoolId == null) { console.error("[PG] schoolId null after /api/schools — use manual field."); return null; }
-      return bootCalendars();
+      if (school) { c.schoolId = school.id; c.school = { name: school.name || "", address: school.address || "", zip: school.zip || "", city: school.city || "" }; var sy = extractSchoolyear(school.current_schoolyear); if (sy) c.schoolyear = sy; console.log("[PG] current_schoolyear raw:", school.current_schoolyear, "→", sy); }
+      else if (hintSchoolId != null) c.schoolId = hintSchoolId;
+      if (!c.schoolyear) c.schoolyear = net.schoolyear || scr.schoolyear || cook.schoolyear || state.manualSchoolyear || defaultSchoolyear();
+      console.log("[PG] bootstrap → users/me id:", me, "| schools:", schools.length, "chosen schoolId:", c.schoolId, "schoolyear:", c.schoolyear);
+      if (c.schoolId == null) { console.error("[PG] schoolId null after /api/schools — use manual field."); return null; }
+      return bootCalendars(c.schoolId);
     }).then(function (cals) {
       if (!cals) return null;
       var ids = cals.map(calIdOf).filter(function (x) { return x && x !== "cal_holidays"; });
       // Retain full calendar objects (id + name + colour) for the print picker (Feature 4) and the
       // working-calendar picker (Feature 5). Field names are best-effort — read defensively.
-      ctx.calendars = (cals || []).map(function (c) { return { id: calIdOf(c), name: c.name || c.title || String(calIdOf(c)), color: c.color || c.colour || c.hex || null }; })
+      c.calendars = (cals || []).map(function (c) { return { id: calIdOf(c), name: c.name || c.title || String(calIdOf(c)), color: safeHex(c.color || c.colour || c.hex) }; })
         .filter(function (c) { return c.id && c.id !== "cal_holidays"; });
       console.log("[PG] /cal/calendars →", ids);
-      if (!ctx.calendarId && ids.length) ctx.calendarId = ids[0];
+      if (!c.calendarId && ids.length) c.calendarId = ids[0];
       var wr = thisWeekRange();
-      var calList = (ids.length ? ids : (ctx.calendarId ? [ctx.calendarId] : [])).concat(["cal_holidays"]);
+      var calList = (ids.length ? ids : (c.calendarId ? [c.calendarId] : [])).concat(["cal_holidays"]);
       return apiItems(wr.start, wr.end, calList.length ? calList : null);
     }).then(function (items) {
       if (items == null) return;
-      deriveFromItems(items || []);
-      // Feature 5: an explicit working-calendar pick overrides the busiest-calendar heuristic —
-      // makes the tool portable (multiple own calendars / colleague calendars), not name-dependent.
-      if (state.workingCalendarId != null && (ctx.calendars || []).some(function (c) { return String(c.id) === String(state.workingCalendarId); })) {
-        ctx.calendarId = state.workingCalendarId;
-        console.log("[PG] working calendar override →", ctx.calendarId);
-      }
-      console.log("[PG] derived from " + ((items || []).length) + " agenda items →", { schoolId: ctx.schoolId, calendarId: ctx.calendarId, groupId: ctx.groupId });
+      deriveFromItems(items || [], c);
+      applyWorkingCalendar(c);
+      console.log("[PG] derived from " + ((items || []).length) + " agenda items →", { schoolId: c.schoolId, calendarId: c.calendarId, groupId: c.groupId });
       // List items carry empty groups; the real group id lives in item DETAIL. If not
       // yet known, fetch one editable item's detail to resolve it (writes need it).
       var groupProm = Promise.resolve();
-      if (ctx.groupId == null) {
-        var sample = (items || []).filter(function (x) { return x && x.id_calendar !== "cal_holidays" && x.is_editable !== false; })[0] || (items || [])[0];
-        if (sample) groupProm = fetchItemDetail(sample.id).then(function (d) { if (d && d.groups && d.groups.length) { ctx.groupId = firstGroupId(d.groups); console.log("[PG] groupId resolved from detail →", ctx.groupId); } }).catch(function () {});
+      if (c.groupId == null) {
+        // Prefer an item of the working calendar: another class's agenda carries another group.
+        var editable = (items || []).filter(function (x) { return x && x.id_calendar !== "cal_holidays" && x.is_editable !== false; });
+        var sample = editable.filter(function (x) { return String(x.id_calendar) === String(c.calendarId); })[0] || editable[0] || (items || [])[0];
+        if (sample) groupProm = fetchItemDetail(sample.id).then(function (d) { if (d && d.groups && d.groups.length) { c.groupId = firstGroupId(d.groups); console.log("[PG] groupId resolved from detail →", c.groupId); } }).catch(function () {});
       }
       return groupProm.then(function () {
         return fetchTags().then(function (tags) {
-          if (ctx.ownerId == null) ctx.ownerId = detectOwnerFromTags(tags);
-          return resolveOwnTag(tags);
+          if (c.ownerId == null) c.ownerId = detectOwnerFromTags(tags);
+          return resolveOwnTag(tags, c);
         });
       });
     }).then(function () {
-      ctx.ready = !!ctx.schoolId;
-      console.log("[PG] DETECTED CONTEXT:", { schoolId: ctx.schoolId, schoolyear: ctx.schoolyear, ownerId: ctx.ownerId, calendarId: ctx.calendarId, groupId: ctx.groupId });
-      return ctx;
-    }).catch(function (e) { console.error("[PG] detectContext error:", e); return ctx; });
+      applyWorkingCalendar(c);
+      c.ready = !!c.schoolId;
+      console.log("[PG] DETECTED CONTEXT:", { schoolId: c.schoolId, schoolyear: c.schoolyear, ownerId: c.ownerId, calendarId: c.calendarId, groupId: c.groupId });
+      return c;
+    }).catch(function (e) { console.error("[PG] detectContext error:", e); return c; });
   }
 
   // ---------- API ----------
@@ -1162,8 +1297,16 @@
     if (d === "" && !s.isFullday) return s.origDescription || "";
     return toHtmlDesc(d);
   }
-  function toHtmlDesc(t) { if (t == null) return ""; return String(t).replace(/\n/g, "<br />"); }
+  // The description is published HTML (Enderklas renders it), and a vak name can be a colleague's
+  // tag title: escape it as text first, only then turn newlines into <br />.
+  function toHtmlDesc(t) { if (t == null) return ""; return esc(t).replace(/\n/g, "<br />"); }
   function stripHtml(s) { return String(s == null ? "" : s).replace(/<br \/>/g, "").replace(/<[^>]*>/g, "").trim(); }
+  // Stored descriptions may hold "&amp;" (ours since escaping) or a raw "&" (written before it):
+  // compare them entity-decoded, or every such lesuur would look changed.
+  var ENT = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#039": "'", nbsp: " " };
+  function decodeEnt(s) { return String(s == null ? "" : s).replace(/&(amp|lt|gt|quot|#0?39|nbsp);/g, function (m, e) { return ENT[e]; }); }
+  function descSame(a, b) { return decodeEnt(a) === decodeEnt(b); }
+  function descText(s) { return decodeEnt(stripHtml(s)).trim(); }
   function weekdayIdx(iso) { if (!iso) return -1; var d = new Date(iso); if (isNaN(d.getTime())) return -1; return (d.getDay() + 6) % 7; }
   function timeFromISO(iso) { if (!iso) return ""; var m = String(iso).match(/[T ](\d{2}:\d{2})/); return m ? m[1] : ""; }
   function isoDate(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -1175,9 +1318,12 @@
     // Its stored title/description/fiche are not known yet (or could not be read): never a change.
     if (isUnhydrated(s)) return false;
     // "Vak als beschrijving schrijven" off → a description difference is never a reason to write.
-    var descChanged = writesDescriptions() && descHtml(s) !== (s.origDescription || "");
+    var descChanged = writesDescriptions() && !descSame(descHtml(s), s.origDescription || "");
     var titleChanged = (s.title || "") !== (s.origTitle || "");
-    var ficheChanged = (s.ficheContentId || null) !== (s.origFicheContentId || null);
+    // _attachedId: a fiche this planner already POSTed to the item while the rest of that row's
+    // write failed. Taking it back off (or swapping it) is a change too.
+    var ficheChanged = (s.ficheContentId || null) !== (s.origFicheContentId || null) ||
+      (s._attachedId != null && String(s._attachedId) !== String(s.ficheContentId || ""));
     return descChanged || titleChanged || ficheChanged;
   }
 
@@ -1286,7 +1432,11 @@
     // the next commit would write the decoration into the stored title.
     if (typeof d.title === "string" && d.title) { s.origTitle = d.title; s.title = d.title; }
     var att = ficheAttachment(d.attachments);
-    if (att && att.content) { s.origFicheContentId = att.content.id; s.ficheContentId = att.content.id; s.origFicheTitle = att.content.subject || ""; s.ficheTitle = s.origFicheTitle; }
+    if (att && att.content) {
+      s.origFicheContentId = att.content.id; s.ficheContentId = att.content.id; s.origFicheTitle = att.content.subject || ""; s.ficheTitle = s.origFicheTitle;
+      // The detail does not say whether this is a methode fiche: null = not known yet (ficheKindOf).
+      s.ficheIsMethod = view.methodFicheIds[String(att.content.id)] ? true : null;
+    }
     // The authoritative group id lives here (list groups are always empty); keep it.
     if (d.groups && d.groups.length) { s.groups = d.groups; if (ctx.groupId == null) ctx.groupId = firstGroupId(d.groups); }
     if (stripHtml(s.origDescription) === "Zie themafiche.") s.themaFiche = true;
@@ -1340,6 +1490,14 @@
         if (s._hydrated) body.description = s.origDescription || "";
         else { body.description = ""; descEcho = true; }
       }
+      // Descriptions on, but the slot was never read (a "Lesuur N" placeholder without fiche) and no
+      // vak is known: descHtml fell back to the unread origDescription "". Echo what Questi stores
+      // instead of blanking it. Gym clears on purpose and keeps its "".
+      else if (!s._hydrated && !s.isGym && body.description === "") descEcho = true;
+      // The fiche the item holds on Questi: the loaded one, or one this planner already POSTed while
+      // the rest of that row failed (_attachedId) — a retry must not POST it a second time.
+      var storedFiche = s._attachedId != null ? s._attachedId : s.origFicheContentId;
+      var known = s.ficheIsMethod === true ? true : (s.ficheIsMethod === false ? false : null);
       return {
         itemId: s.itemId, key: slotKey(s), label: (s.title || "lesuur") + " (" + DAY_ABBR[s.dayIdx] + " " + (s.time || "") + ", wk " + (s.weekIdx + 1) + ")",
         old: { title: s.origTitle, desc: s.origDescription, fiche: s.origFicheTitle || "(geen)" },
@@ -1350,8 +1508,13 @@
         // Only re-POST the attachment when the fiche actually CHANGED. A description- or title-only
         // edit is a plain PATCH: omitting `attachments` keeps the existing one. Re-POSTing an
         // unchanged fiche once rewrote every old lesuur's title to Questi's "* … (1)".
-        fiche: (hasFiche && String(s.ficheContentId) !== String(s.origFicheContentId || "")) ? { contentId: s.ficheContentId, groups: grps, isMethod: !!s.ficheIsMethod } : null,
-        keepsFiche: hasFiche && String(s.ficheContentId) === String(s.origFicheContentId || "")
+        // isMethod null = fiche type not known (a fiche read from an item, e.g. moved): doCommit asks.
+        fiche: (hasFiche && String(s.ficheContentId) !== String(storedFiche || "")) ? { contentId: s.ficheContentId, groups: grps, isMethod: known } : null,
+        keepsFiche: hasFiche && String(s.ficheContentId) === String(storedFiche || ""),
+        ficheAlready: hasFiche && s._attachedId != null && String(s._attachedId) === String(s.ficheContentId),
+        // The fiche this row takes OFF the item (detach or replace). doCommit holds such a row back
+        // when the row that should receive that fiche failed, so a move never leaves it nowhere.
+        dropsFiche: (storedFiche && String(storedFiche) !== String(hasFiche ? s.ficheContentId : "")) ? String(storedFiche) : null
       };
     });
   }
@@ -1858,6 +2021,14 @@
   }
   // ---------- Custom print: a branded, time-aligned week (own window) ----------
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  // A colour from Questi (tags, also colleagues'), a calendar or an imported settings file goes into
+  // style attributes and the print HTML; esc() stops neither ";" nor url(). Only a plain hex colour
+  // passes: "#rgb" / "#rrggbb" (a missing "#" is added), anything else → null (callers keep their
+  // own grey fallback). Shared as S().safeHex.
+  function safeHex(c) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(c == null ? "" : c).trim());
+    return m ? "#" + m[1].toLowerCase() : null;
+  }
   function isLesuurPlaceholder(t) { return /^Lesuur\s*\d+$/i.test((t || "").trim()); }
   // ---- All print rendering runs on an explicit print-view (pv), never the global `view`,
   //      so print works headless (no planner overlay) and never disturbs the live grid.
@@ -2668,7 +2839,7 @@
     if (!doc || !doc.body) return;
     function isTxt(t) { return t && t.classList && t.classList.contains("gl-txt"); }
     function cardOf(el) { return el && el.closest ? el.closest(".gc-in[data-gk]") : null; }
-    function flush() { clearTimeout(_goalsSaveT); _goalsSaveT = null; storeSet(GOALS_STORE_KEY, _goals); }
+    function flush() { clearTimeout(_goalsSaveT); _goalsSaveT = null; _goalsDirty = {}; storeSet(GOALS_STORE_KEY, _goals); }
     function later() { clearTimeout(_goalsSaveT); _goalsSaveT = setTimeout(flush, 300); }
     function markOver(t) { t.classList.toggle("gl-over", t.scrollHeight > t.clientHeight + 1); }
     // Keep typed line breaks; tidy spaces inside each line and drop empty lines at either end.
@@ -2685,6 +2856,7 @@
     function store(gk, rec) {
       var keep = GOALS_KINDS.some(function (k) { return rec[k.key]; }) || (rec.hide && Object.keys(rec.hide).length);
       if (keep) _goals[gk] = rec; else delete _goals[gk];
+      _goalsDirty[gk] = true;   // a foreign save arriving before the flush must not undo this
     }
     // Re-apply the layout + controls (and, on twin cards, the text) to every card of `gk`.
     function relayout(gk, except) {
@@ -2901,9 +3073,9 @@
   }
   // Readable text on a vak-coloured header bar: dark ink on light colours (taal yellow), white on dark.
   function goalsInkOn(color) {
-    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color || "").trim());
-    if (!m) return "#1E1F27";
-    var hx = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+    var hex = safeHex(color);
+    if (!hex) return "#1E1F27";
+    var hx = hex.length === 4 ? hex.slice(1).replace(/./g, function (d) { return d + d; }) : hex.slice(1);
     var r = parseInt(hx.slice(0, 2), 16), g = parseInt(hx.slice(2, 4), 16), b = parseInt(hx.slice(4, 6), 16);
     return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? "#1E1F27" : "#fff";
   }
@@ -3120,7 +3292,7 @@
     var startISO = pv.weekStart;
     var endD = addDays(pv.weekStart, 7 * pv.weeks - 1);
     var endISO = endD ? isoDate(endD) : pv.weekStart;
-    var colorById = {}; (ctx.calendars || []).forEach(function (c) { colorById[c.id] = c.color || "#888"; });
+    var colorById = {}; (ctx.calendars || []).forEach(function (c) { colorById[c.id] = safeHex(c.color) || "#888"; });
     var fb = commonDurationMin(pv);
     return apiItems(startISO, endISO, calIds).then(function (items) {
       var out = {}, base = addDays(pv.weekStart, 0);
@@ -3220,7 +3392,7 @@
       var target = slotVakOverride(s2);
       if (target == null && s2.ficheContentId) target = _ficheVakCache[s2.ficheContentId];
       if (target == null) {
-        var d = stripHtml(s2.origDescription).toLowerCase(); if (!d) return;
+        var d = descText(s2.origDescription).toLowerCase(); if (!d) return;
         if (!tops) tops = topTagsForOwner(ownTagsList(), ctx.ownerId) || [];
         var hit = tops.filter(function (t) { return (t.title || "").trim().toLowerCase() === d; })[0];
         if (!hit) return;
@@ -3259,10 +3431,25 @@
   // Memoised per fiche id: an id is one immutable version, and the vak check and the print colours
   // both ask for the same fiches — one read each, not two. Failures are not remembered.
   var _ficheTagsP = {};
+  // Methode or ordinary fiche, per content id. An item's detail does not say, and the two attach
+  // through different endpoints (a methode fiche on the normal one answers 1235), so a fiche read
+  // from an item (moved, copied) has to be known before it is POSTed elsewhere. /lessons/{id}
+  // answers 1235 for a methode fiche and a result for a fiche we may read.
+  var _ficheKind = {};   // contentId → "lesson" (read fine); methode ids live in view.methodFicheIds
+  function noteFicheKind(id, j) {
+    if (j && /^\s*1235\b/.test(String(j.error_msg || ""))) view.methodFicheIds[String(id)] = true;
+    else if (j && j.result) _ficheKind[String(id)] = "lesson";
+  }
+  // "method" | "lesson" | null (not known). isMethod: the slot's own flag (true/false/null).
+  function ficheKindOf(id, isMethod) {
+    if (isMethod === true || view.methodFicheIds[String(id)]) return "method";
+    if (isMethod === false || _ficheKind[String(id)] === "lesson") return "lesson";
+    return null;
+  }
   function ficheEditTags(id) {
     if (_ficheTagsP[id]) return _ficheTagsP[id];
     var p = jget(API + "/lessons/" + id + "?" + qs({ schoolId: ctx.schoolId, return_format: "edit" }))
-      .then(function (j) { var r = (j && j.result) || j; return (r && r.tags) || []; });
+      .then(function (j) { noteFicheKind(id, j); var r = (j && j.result) || j; return (r && r.tags) || []; });
     _ficheTagsP[id] = p;
     return p.catch(function () { delete _ficheTagsP[id]; return []; });
   }
@@ -3593,7 +3780,7 @@
       cb.checked = !!was[String(c.id)];
       cb.addEventListener("change", refreshPrintExtras);
       P.calBoxes.push({ cb: cb, id: c.id });
-      P.cals.appendChild(h("label", { class: "qpp-check" }, [cb, h("span", { class: "qpp-cal-dot", style: "background:" + (c.color || "#888") }), h("span", { text: c.name })]));
+      P.cals.appendChild(h("label", { class: "qpp-check" }, [cb, h("span", { class: "qpp-cal-dot", style: "background:" + (safeHex(c.color) || "#888") }), h("span", { text: c.name })]));
     });
     syncPrintCalsShown();
   }
@@ -4313,14 +4500,14 @@
   }
   function tagTitle(source, tagId) { var p = tagPoolFor(source); for (var i = 0; i < p.length; i++) if (String(p[i].id) === String(tagId)) return p[i].title; return ""; }
   // Questi tag color (hex) — used for drawer accent, pill dots, modal subject dots.
-  function tagColor(source, tagId) { var p = tagPoolFor(source); for (var i = 0; i < p.length; i++) if (String(p[i].id) === String(tagId)) return p[i].color || null; return null; }
+  function tagColor(source, tagId) { var p = tagPoolFor(source); for (var i = 0; i < p.length; i++) if (String(p[i].id) === String(tagId)) return safeHex(p[i].color); return null; }
   // Owner-agnostic tag lookups over the COMBINED pool (own + all colleagues). Used where a slot's
   // vak may be a colleague's tag id (a colleague fiche planned into your agenda) — the written
   // description must still name the vak. Tag ids are globally unique DB keys, so concat is safe.
   function anyTagsList() { return ownTagsList().concat(sharedTagsList()); }
   function anyTagById(id) { var p = anyTagsList(); for (var i = 0; i < p.length; i++) if (String(p[i].id) === String(id)) return p[i]; return null; }
   function anyTagTitle(id) { var t = anyTagById(id); return t ? (t.title || "") : ""; }
-  function anyTagColor(id) { var t = anyTagById(id); return t ? (t.color || null) : null; }
+  function anyTagColor(id) { var t = anyTagById(id); return t ? safeHex(t.color) : null; }
   function defaultTopTagId(source) { var t = panelTopTags(source); return t.length ? t[0].id : null; }
 
   // ---------- Global cross-owner search bar ----------
@@ -4842,11 +5029,17 @@
     }
     return 0;
   }
+  // Same rule as background.js: only our own GitHub repo or guide, else the repo page.
+  var UPDATE_URL_DEFAULT = "https://github.com/RareGoudvis/PatchGoblin";
+  function safeUpdateUrl(u) {
+    u = typeof u === "string" ? u.trim() : "";
+    return (u.indexOf("https://github.com/RareGoudvis/") === 0 || u.indexOf("https://raregoudvis.github.io/PatchGoblin") === 0) ? u : UPDATE_URL_DEFAULT;
+  }
   function showUpdateBanner(url) {
     if (elId("pg-banner")) return;
     var banner = h("div", { class: "pg-banner", id: "pg-banner" }, [
       h("span", { text: "Nieuwe versie van de Questi Weekplanner beschikbaar — " }),
-      h("a", { class: "pg-banner-link", href: url || "#", target: "_blank", rel: "noopener", text: "download hier" }),
+      h("a", { class: "pg-banner-link", href: safeUpdateUrl(url), target: "_blank", rel: "noopener", text: "download hier" }),
       h("button", { class: "pg-banner-x", title: "Verbergen", text: "×", onclick: function () { banner.remove(); } })
     ]);
     els.page.insertBefore(banner, els.page.firstChild);
@@ -5395,8 +5588,13 @@
                 if (!chosen.length) { setStatus("Niets aangevinkt."); return; }
                 pushUndo("kopieer vorige week");
                 chosen.forEach(function (r) {
-                  if (r.ps.isGym) { r.target.isGym = true; r.target.ficheContentId = null; r.target.ficheTitle = ""; r.target.themaFiche = false; }
-                  else { assignFiche(r.target, { id: r.ps.ficheContentId, subject: r.ps.ficheTitle, isMethod: r.ps.ficheIsMethod }); }
+                  // Gym needs one of LO_TITLES as its title, or GYM_RE does not see it on reload.
+                  if (r.ps.isGym) { r.target.isGym = true; r.target.ficheContentId = null; r.target.ficheTitle = ""; r.target.ficheIsMethod = false; r.target.themaFiche = false; r.target.title = LO_TITLES.indexOf(r.ps.title || "") > -1 ? r.ps.title : LO_TITLES[0]; }
+                  else {
+                    assignFiche(r.target, { id: r.ps.ficheContentId, subject: r.ps.ficheTitle, isMethod: r.ps.ficheIsMethod });
+                    // A fiche read from last week's item has no known type: keep it unknown (doCommit asks).
+                    if (typeof r.ps.ficheIsMethod !== "boolean" && !view.methodFicheIds[String(r.ps.ficheContentId)]) r.target.ficheIsMethod = null;
+                  }
                   if (r.ps.vak) r.target.vak = r.ps.vak;
                 });
                 modal.remove(); renderTimetable();
@@ -5615,7 +5813,7 @@
     var secs = [];
     if (lp.tags.length) secs.push(section("1", "Tags", lp.tags.length + (lp.tags.length === 1 ? " nieuwe tag" : " nieuwe tags"), lp.tags.map(function (t) {
       return row("tag", t.key, "Nieuwe tag", t.parentTitle ? "onder " + t.parentTitle : "hoofdtag", ["—"],
-        [h("span", { class: "pg-cr-tag" }, [h("span", { class: "pg-cr-dot", style: "background:" + (t.color || "#c9d2d7") }), h("span", { text: t.title })])]);
+        [h("span", { class: "pg-cr-tag" }, [h("span", { class: "pg-cr-dot", style: "background:" + (safeHex(t.color) || "#c9d2d7") }), h("span", { text: t.title })])]);
     })));
     var nNew = lp.fiches.filter(function (f) { return f.isNew; }).length, nEdit = lp.fiches.length - nNew;
     if (lp.fiches.length) secs.push(section("2", "Lesfiches", (nEdit ? nEdit + " fiche(s) · elke fiche krijgt een nieuwe versie" : "") + (nEdit && nNew ? " · " : "") + (nNew ? nNew + " nieuwe fiche(s)" : ""), lp.fiches.map(function (f) {
@@ -5633,14 +5831,16 @@
       var s = slotByKey(p.key), what = [];
       if (p.old.fiche !== p.neu.fiche || p.fiche) what.push(s && s.isGym ? "Gym" : "Fiche");
       if ((p.old.title || "") !== (p.neu.title || "")) what.push("Titel");
-      if (stripHtml(p.old.desc) !== stripHtml(p.neu.desc)) what.push("Vak");
+      if (!descSame(p.old.desc, p.neu.desc)) what.push("Vak");
       if (!what.length) what.push("Lesuur");
       if (s) { var wn = slotWeekNo(s); weekCount[wn] = (weekCount[wn] || 0) + 1; }
       var pf = follows[p.key];
       return row("cal", p.key, what.join(" · "), s ? slotWhere(s) : p.label,
-        [p.old.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.old.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (stripHtml(p.old.desc) || "—") : null],
-        [p.neu.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.neu.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (stripHtml(p.neu.desc) || "—") : null],
-        pf ? "krijgt de nieuwe versie van deze fiche" : (p.descEcho ? "beschrijving wordt eerst gelezen en ongewijzigd teruggeschreven" : null));
+        // The description exactly as stored / as it will be sent (shown as text, markup included):
+        // a stripped version could hide what really gets published.
+        [p.old.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.old.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (p.old.desc || "—") : null],
+        [p.neu.title || "(leeg)", p.old.fiche !== p.neu.fiche ? "fiche: " + p.neu.fiche : null, what.indexOf("Vak") >= 0 ? "vak: " + (p.neu.desc || "—") : null],
+        pf ? "krijgt de nieuwe versie van deze fiche" : (p.ficheAlready ? "fiche staat al gekoppeld in Questi — enkel titel en vak worden nog geschreven" : (p.descEcho ? "beschrijving wordt eerst gelezen en ongewijzigd teruggeschreven" : null)));
     }).concat(bumps.map(function (b) {
       var s = b.slot, wn = slotWeekNo(s); weekCount[wn] = (weekCount[wn] || 0) + 1;
       return row("bump", slotKey(s), "Fiche-versie", slotWhere(s), [(s.ficheTitle || b.fiche.title) + " (oud)"], [b.fiche.title + " (nieuw)"], "lesuur blijft verder ongewijzigd");
@@ -5816,7 +6016,7 @@
       if (!p.done) return;
       var s = slotByKey(p.key); if (!s) return;
       s.origTitle = s.title; s.origDescription = p.patchBody.description || "";
-      s.origFicheContentId = s.ficheContentId; s.origFicheTitle = s.ficheTitle;
+      s.origFicheContentId = s.ficheContentId; s.origFicheTitle = s.ficheTitle; s._attachedId = null;
     });
     var tagFails = (rep.tags && rep.tags.fails) || [], ficheFails = (rep.fiches && rep.fiches.fails) || [];
     var trial = (rep.fiches && rep.fiches.trialMisses) || [];
@@ -5824,6 +6024,9 @@
     var problems = tagFails.length + ficheFails.length + calFails.length + rep.held.length + trial.length + unverified.length + (rep.backup && !rep.backup.downloaded ? 1 : 0);
     var wrote = tagsOk + fichesOk + ok;
     var leftover = totalStagedCount();
+    // Undo snapshots predate what just landed: undoing one now would stage a revert of a written
+    // lesuur as if nothing had been written. Start the history fresh after any landed write.
+    if (wrote && view.undoStack.length) { view.undoStack = []; refreshUndoBtn(); }
     try { if (L && L.afterSharedWrite) L.afterSharedWrite(); } catch (e) {}
     refreshStaged();
     if (!problems && !leftover) {
@@ -5881,6 +6084,12 @@
     if (!_approvedPlan || !_approvedPlan.length) { _commitAfter = null; setStatus("Niets goedgekeurd."); return; }
     var plan = _approvedPlan, i = 0, ok = 0, fails = [], unverified = [];
     markSharedItems(plan);
+    // A moved fiche must land at its new lesuur BEFORE it is taken off the old one: rows that only
+    // gain a fiche first, then swaps, then the rest (detaches). failedGain = content ids whose
+    // receiving row did not get them; the row that would drop such a fiche is held back.
+    var order = plan.filter(function (p) { return p.fiche && !p.dropsFiche; })
+      .concat(plan.filter(function (p) { return p.fiche && p.dropsFiche; }), plan.filter(function (p) { return !p.fiche; }));
+    var failedGain = {};
     setStatus("Bezig met wegschrijven…");
     showCommitOverlay(plan.length);
     function finish() {
@@ -5906,11 +6115,18 @@
       setTimeout(function () { try { reloadAndReopen(); } catch (e) { hideCommitOverlay(); reloadAndRender(); } }, 1200);
     }
     function next() {
-      if (i >= plan.length) { finish(); return; }
-      var p = plan[i++];
+      if (i >= order.length) { finish(); return; }
+      var p = order[i++];
       // Guard: never PATCH a lesuur without a real group (would 500 on id_groep null).
       if (!p.patchBody.groups || !p.patchBody.groups.length) {
         fails.push({ label: p.label, error: "geen groep gevonden — vernieuw context" });
+        if (p.fiche) failedGain[String(p.fiche.contentId)] = p.label;
+        updateCommitOverlay(ok + fails.length, plan.length); setTimeout(next, 0); return;
+      }
+      // The other half of a move whose receiving lesuur did not get the fiche: leave the fiche
+      // where it is (still staged) rather than detach it and have it linked nowhere.
+      if (p.dropsFiche && failedGain[p.dropsFiche]) {
+        fails.push({ label: p.label, error: "niet weggeschreven: de fiche blijft hier staan, want koppelen aan " + failedGain[p.dropsFiche] + " lukte niet — opnieuw proberen is veilig" });
         updateCommitOverlay(ok + fails.length, plan.length); setTimeout(next, 0); return;
       }
       // POST the fiche first (Questi then retitles the item "* <fiche> (1)"), THEN PATCH title +
@@ -5927,7 +6143,18 @@
           var before = (slot && slot._uncertain) ? fetchItemDetail(p.itemId).then(function (d) { return attachedContentId(d) === String(p.fiche.contentId); }) : Promise.resolve(false);
           return before.then(function (already) {
             if (already) return null;
-            return (p.fiche.isMethod || view.methodFicheIds[String(p.fiche.contentId)]) ? postMethodAttachment(p.itemId, p.fiche.contentId, p.fiche.groups) : postAttachment(p.itemId, p.fiche.contentId, p.fiche.groups);
+            // Methode fiches attach through their own endpoint. A fiche read from an item (moved or
+            // copied) has no known type: ask /lessons/{id} once (1235 = methode); still unknown →
+            // refuse this row, never guess an endpoint.
+            var cid = p.fiche.contentId, kind = ficheKindOf(cid, p.fiche.isMethod);
+            return (kind ? Promise.resolve(kind) : ficheEditTags(cid).then(function () { return ficheKindOf(cid, null); })).then(function (k) {
+              if (!k) throw new Error("fichetype onbekend (methodefiche of gewone fiche?) — niet gekoppeld; probeer opnieuw");
+              return k === "method" ? postMethodAttachment(p.itemId, cid, p.fiche.groups) : postAttachment(p.itemId, cid, p.fiche.groups);
+            });
+          }).then(function () {
+            // The fiche is on the item now. Should the PATCH below fail, a retry must only PATCH:
+            // a stashed slot is not re-read, so without this it would POST the fiche again.
+            p._posted = true; if (slot) slot._attachedId = String(p.fiche.contentId);
           });
         })
         .then(function () { return patchItem(p.itemId, p.patchBody, p.range); })
@@ -5952,19 +6179,24 @@
         // still have landed → read the item back: done, finished (title PATCH redone), not written,
         // or — when even the read fails — uncertain, which the next write checks first.
         .catch(function (e) {
+          // The read-back did not find the fiche: the POST did not stick after all.
+          if (e && e.readBack) { p._posted = false; var rs = slotByKey(p.key); if (rs) rs._attachedId = null; }
           if (isGatewayError(e) && !e.readBack) return verifyLanded(p).then(function (v) {
             if (v === "landed") {
               ok++; p.done = true; markUncertain(p, false);
               if (p.sharedItem && p.fiche) unverified.push({ label: p.label, why: "shared" });
               return;
             }
+            if (v === "not" && p.fiche) { p._posted = false; var ns = slotByKey(p.key); if (ns) ns._attachedId = null; }
             if (v === "not") { fails.push({ label: p.label, error: "niet weggeschreven (" + (e.message || "geen antwoord") + ") — opnieuw proberen is veilig" }); markUncertain(p, false); return; }
             fails.push({ label: p.label, error: UNSURE + " — Questi antwoordde niet en nalezen lukte niet", uncertain: true }); markUncertain(p, true);
           });
           fails.push({ label: p.label, error: String(e && e.message || e) });
         })
         // Small delay between slots — sequential PATCH→POST, avoid rate-limiting (no bulk endpoint exists).
-        .then(function () { var done = ok + fails.length; setStatus("Wegschrijven " + done + "/" + plan.length + "…"); updateCommitOverlay(done, plan.length); setTimeout(next, commitDelay()); });
+        .then(function () {
+          if (p.fiche && !p.done && !p._posted) failedGain[String(p.fiche.contentId)] = p.label;
+          var done = ok + fails.length; setStatus("Wegschrijven " + done + "/" + plan.length + "…"); updateCommitOverlay(done, plan.length); setTimeout(next, commitDelay()); });
     }
     next();
   }
@@ -5998,7 +6230,10 @@
         var titleOk = String(d.title || "") === String(p.patchBody.title || "");
         var attached = attachedContentId(d), has = !!(d.has_attachments || attached);
         var ficheOk = p.fiche ? attached === String(p.fiche.contentId) : (p.keepsFiche ? has : !has);
-        if (ficheOk && titleOk) return "landed";
+        // The description too: a lost vak-only PATCH must not count as written. An echoed one
+        // (descEcho) only repeats what was stored, so it proves nothing either way.
+        var descOk = p.descEcho || descText(d.description) === descText(p.patchBody.description);
+        if (ficheOk && titleOk && descOk) return "landed";
         // A shared item id: the read may show the series' other occurrence, so a missing fiche
         // proves nothing — stay uncertain rather than call a second POST safe.
         if (p.fiche && attached !== String(p.fiche.contentId)) return p.sharedItem ? "unknown" : "not";   // the attachment never landed: a retry is safe
@@ -6471,7 +6706,7 @@
     // the teacher can look at a previous school year.
     detectContext: detectContext,
     fetchMethods: fetchMethods, fetchMethodLessons: fetchMethodLessons,
-    fetchAllFichesByTag: fetchAllFichesByTag, storeGet: storeGet, storeSet: storeSet, goalsInkOn: goalsInkOn, applyTheme: applyTheme,
+    fetchAllFichesByTag: fetchAllFichesByTag, fetchFicheEdit: fetchFicheEdit, storeGet: storeGet, storeSet: storeSet, goalsInkOn: goalsInkOn, safeHex: safeHex, applyTheme: applyTheme,
     // Lesdoelen in the fiche (lessons.js goals mode, print)
     ficheGoalFields: ficheGoalFields, goalText: goalText, noteFicheThread: noteFicheThread, vakAbbr: vakAbbr, refreshVakPicker: function () { renderVakToggle(0); renderSubcats(0); },
     mapLimit: mapLimit,

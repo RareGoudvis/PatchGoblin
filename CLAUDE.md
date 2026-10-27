@@ -50,13 +50,14 @@ Flat repo. `icons/`, `reference/`, `tests/` (`run.js`, see rule 1) and `docs/img
 | File | Lines | Role |
 |---|---|---|
 | `manifest.json` | | MV3. Permissions `storage, activeTab, scripting`. Hosts `*://*.questi.com/*` + `raw.githubusercontent.com` (self-update check). |
-| `background.js` | 53 | Service worker. Relays the toolbar/Alt+P toggle to the tab; serves `PG_CHECK_VERSION`. |
+| `background.js` | 59 | Service worker. Relays the toolbar/Alt+P toggle to the tab; serves `PG_CHECK_VERSION`. |
 | `content.js` | 287 | Boot/relay. Injects the one PatchGoblin launcher (button + quick menu) into Questi's calendar header; reopens the planner after our own write. |
-| `planner.js` / `planner.css` | 6081 / 808 | Week planner `#pg-overlay`. Also holds context detection, the API layer, print, and the Zelftest. Exports `__PG_SHARED`. |
-| `lessons.js` / `lessons.css` | 2366 / 322 | Lesfiche-manager. Mounted as the planner's **Lesfiches** tab; standalone `#pgl-overlay` for pick mode. Fiche + tag CRUD. |
-| `methodes.js` / `methodes.css` | 803 / 190 | Methodevoortgang `#pgm-overlay`. Read-only progress tracker. |
-| `settings.js` / `settings.css` | 1272 / 267 | Instellingen + first-run setup wizard `#pgs-overlay`. Settings export/import, Zelftest `.json`. |
-| `version.json`, `update.bat` | | Self-update: `.bat` pulls the repo ZIP into temp, refuses it unless core files exist and `manifest.json` = `version.json` version, backs the folder up to `%LOCALAPPDATA%\PatchGoblin-backups` (last 3), replaces, re-checks, rolls back on failure. Its PowerShell sits after a `#=PS=` marker and runs from ONE launch line, because the file overwrites itself mid-run. The in-app banner compares `manifest.json` against the GitHub `version.json`. Bump **both** on release. |
+| `planner.js` / `planner.css` | 6727 / 815 | Week planner `#pg-overlay`. Also holds context detection, the API layer, print, and the Zelftest. Exports `__PG_SHARED`. |
+| `lessons.js` / `lessons.css` | 2639 / 322 | Lesfiche-manager. Mounted as the planner's **Lesfiches** tab; standalone `#pgl-overlay` for pick mode. Fiche + tag CRUD. |
+| `methodes.js` / `methodes.css` | 919 / 190 | Methodevoortgang `#pgm-overlay`. Read-only progress tracker. |
+| `settings.js` / `settings.css` | 1323 / 267 | Instellingen + first-run setup wizard `#pgs-overlay`. Settings export/import, Zelftest `.json`. |
+| `version.json`, `update.bat` | | Self-update: `.bat` pulls the repo ZIP into temp, refuses it unless core files exist and `manifest.json` = `version.json` version, backs the folder up to `%LOCALAPPDATA%\PatchGoblin-backups` (last 3), replaces, re-checks, rolls back on failure. Its PowerShell sits after a `#=PS=` marker and runs from ONE launch line, because the file overwrites itself mid-run. The in-app banner compares `manifest.json` against the GitHub `version.json` (its `url` is only followed to GitHub). Bump **both** on release; `version_name` carries a label ("2.1.0 LTS") and is display-only. |
+| `install.ps1`, `install.bat` | | Installer for a PC where .bat is blocked: `irm https://raw.githubusercontent.com/RareGoudvis/PatchGoblin/main/install.ps1 \| iex` in PowerShell. Installs into `%LOCALAPPDATA%\PatchGoblin`, or updates an existing install with update.bat's checks/backup/rollback (keep the two in step). `install.bat` only fetches and runs it. Both scripts stay Constrained-Language-Mode safe: cmdlets only, .NET calls inside `try`, `tar.exe` when `Expand-Archive` won't load. |
 
 Docs: `README.md` and `Questi_unofficial_api.md` are tracked; the rest is local (gitignored): `brief.md` (API/build reference), `featues.md` (sic —
 Zelftest spec), `planned.md` (planner polish log), `plannedfeature.md` (Lesfiche CRUD / import
@@ -91,7 +92,7 @@ consumer that planner already has is a bug — export the existing one instead.
 `__PG_SHARED` currently exposes: `ctx, API, API_ROOT, jget, qs, xsrfToken, writeHeaders,
 fetchTags, fetchOwnTags, fetchSharedTags, invalidateOwnTags, topTagsForOwner, childTags, tagTitle,
 tagColor, ownerName, h, detectContext, fetchMethods, fetchMethodLessons, fetchAllFichesByTag,
-storeGet, storeSet, goalsInkOn, ficheGoalFields, goalText, noteFicheThread, mapLimit`, and for settings.js:
+fetchFicheEdit, storeGet, storeSet, goalsInkOn, safeHex, ficheGoalFields, goalText, noteFicheThread, mapLimit`, and for settings.js:
 `state, view, loadState, saveState, setStatus, ownTagsList, anyTagById, topTagIdOf, panelTopTags,
 computeTimeRows, isNoSchool, renderTimetable, reloadSlotVakLabels, reloadAndRender, isThemaSlot,
 themaIdentity, setThemaVakOverride, ensureThemaKeys, normTitle, stripQuestiDecoration, fetchPeople,
@@ -132,7 +133,7 @@ how many parts were carried over (`migratedKeys()`). Every read must go through 
 | Key | Owner | Contents |
 |---|---|---|
 | `pg_state_v6` | planner (+ settings UI) | colleagues, `settings` (slot→tag map keyed `"<dayIdx>\|<HH:MM>"`), `weeks` (legacy: ignored since v2.0.1 — print is always ONE week, Plannen always shows 2), `panels[0]` (sidebar list filter), `mainMode` (`plan`/`doelen`), `filterOpen`, `doelenWeek`, manual overrides, `saveThrottleMs`; settings fields `vakTags` (top-tag ids that are vakken, `null` = all), `vakOrder` (legend order, `null` = A→Z), `setupDone`, `writeVakDescription` (missing in stored state ⇒ `true`, brand-new install ⇒ `false`). `panelCount`, `pickerView`, `splitRatio`, `sideCollapsed` are legacy and unused |
-| `pg_ctx_v1` | planner | detected context per Questi user id (`schoolId, schoolyear, school, calendars, calendarId, groupId, ownDefaultTagId`) — boot starts from it after one `/users/me`, full detection re-verifies in the background and the status says when it changed |
+| `pg_ctx_v1` | planner | detected context per Questi user id (`schoolId, schoolyear, school, calendars, calendarId, groupId, ownDefaultTagId`) — boot starts from it after one `/users/me`, full detection re-verifies in the background into its own object (never touching `ctx` midway; Questi's sniffed calendar is a first-detection hint only; groupId re-derived), applies it at the end (working calendar last) and the status names what changed |
 | `pg_lessons_v1` | lessons | last tag, page size, columns, sort |
 | `pg_methodes_v1` | methodes | methode definitions, order, manual overrides |
 | `pg_goals_v1` | planner (print) | local lesdoelen `{ "f:<fiche id>" \| "i:<item id>": {weet, ken, kan, hide} }` — hide flags, fiche-less/methode cards, and goals typed before v1.2.0 (own fiches now keep goals in the fiche) |
@@ -147,6 +148,18 @@ sidebar width, Passend/Ruim). Add every new field to the restore list.
 
 Generic `storeGet(key)` / `storeSet(key, val)` live in `planner.js` and are shared — use them
 rather than a fourth copy of the pattern.
+
+**A failed read is not "no data".** `storeRead` rejects on a failed read (`lastError`, stale context,
+corrupt JSON); `storeGet` keeps the shared contract (null, never a rejection) but notes it
+(`noteApiError("storage", key)`) and `storeSet` then refuses to write that key until a read of it
+succeeds (`_readFailed`), so defaults are never saved over real data. `loadState` blocks `saveState`
+the same way (`_stateLoadFailed`) and says so in the status line.
+
+**Two tabs.** `pg_state_v6` and `pg_goals_v1` are written whole, so `chrome.storage.onChanged`
+(`onStoreChanged`) merges another tab's save into memory: state through `mergeState` (only the
+changed fields; per-tab view fields in `STATE_VIEW_ONLY` stay), goals into `_goals` (unflushed local
+edits in `_goalsDirty` win). This tab's own saves are recognised by value (`_ownWrites`, last 5).
+A new whole-object key shared between tabs needs the same treatment (`SYNC_KEYS`).
 
 ## The Questi API
 
@@ -327,7 +340,13 @@ detail (v1.1.11 had neither and rewrote every opened week's titles). Methode fic
 **Commit never re-POSTs an unchanged fiche, and never adopts Questi's title.** The attachment POST
 retitles the item `"* <fiche> (1)"`; `doCommit` PATCHes our plain title afterwards, and
 `buildCommitPlan` only sends `fiche` when it differs from `origFicheContentId` (else `keepsFiche`,
-plain PATCH). "Titels opschonen" (`cleanDecoratedTitles`) stages the repair for already-decorated items, bars included.
+plain PATCH). Once a row's attachment POST resolved, the slot keeps `_attachedId`, so a retry after a
+failed title PATCH only PATCHes. `verifyLanded` checks the description too (`descSame`, entity-insensitive;
+not for `descEcho` rows) and re-PATCHes a miss. `toHtmlDesc` escapes (a colleague's tag title is published).
+A dirty lesuur never read (`!_hydrated`) commits through `descEcho`, so its stored description is never blanked.
+**Methode fiches in a move:** `ficheEditTags` learns the kind (`noteFicheKind`: a 1235 = methode), `doCommit` asks
+once (`ficheKindOf`) when still unknown and refuses the row if it stays unknown; rows that gain a fiche run before
+rows that drop one (`dropsFiche`), and a drop whose receiving row failed is held back. "Titels opschonen" (`cleanDecoratedTitles`) stages the repair for already-decorated items, bars included.
 "Vakken herstellen" (`resetVakkenToDefault`) is the escape hatch for that stored-description rule:
 for the loaded week(s) it drops `state.slotVak` and sets every lesuur back to fiche vak / Instellingen,
 marking `s.vakReset` so `applyStoredVakken` leaves it alone until reload. A lesuur that loses its
@@ -472,7 +491,7 @@ Compares live responses against captured shapes and emits OK/WARN/FAIL/SKIP rows
 `expected`/`found`/`next`, copyable as plain text. **When you add a feature that depends on an API
 shape, add a check here.**
 
-**Writes have three outcomes: done, refused, onzeker.** Every write has a 30 s timeout (`timedFetch` in planner, `wfetch` in lessons). No answer, a dropped connection or a gateway status (502/503/504/408/524) is NOT "failed" — Questi may have committed it. Planner: `doCommit` → `verifyLanded` reads the item back → `"landed"` (a missing title PATCH is redone; PATCH is idempotent) / `"not"` (attachment absent by content id → retry is safe) / `"unknown"` (sets `slot._uncertain`; the next commit reads the item first and skips the attachment POST if that fiche is already there). Lessons: `createUserTag` (baseline = cached own tags), `renameUserTag` (title, colour and parent), `writeNewFiche` (baseline = 10 newest own fiches, read before the POST; `findCreatedFiche`) and fiche PATCHes in `writeFiches` (one baseline per run; `findNewVersion` looks for a version with the same `thread`) settle it by reading back. When even that read fails the fiche keeps a marker (`p.createUnsure` / `p.unsure`) and the next attempt checks before it writes — a fiche write is never repeated blindly. Without a baseline, `findNewVersion` checks the fiches titled as sent. A fiche changed again while its marker is set (`editedSinceUnsure`, set in `stagePending`) gets that newer state written on top of the landed version (fresh edit view first). After a successful POST the new id is kept (`p.createdId`): a failed read-back or WEET/KEN/KAN PATCH re-stages the goals as an edit on that id (`restageNewFicheGoals`), never a second POST. A fiche DELETE stays `onzeker` (`err.uncertain`, message starts with `UNSURE`); a delete whose backup download or reads failed needs a confirm (`deleteBackupProblem`). `finishSharedWrite` lists uncertain writes in their own warning. **Read-back:** a newly linked fiche is re-read once per lesuur (a failed read = "niet nagelezen" in the result, `unverifiedLines`, and no auto-reload), a fiche edit that touched goals/tags/grades/visibility is re-read and mismatches go to `trialMisses` — plain PATCHes are not, to keep traffic light. **Saves:** `storeSet` is the only storage writer (lessons/methodes/settings go through it); a throw or `chrome.runtime.lastError` goes to `noteApiError("storage", key)` and the status line ("Extension context invalidated" = stale tab, reload). **Zelftest** `checkRequestFormats` (lessons) builds the PATCH / new-fiche / tag-rename bodies from fixed samples offline and checks the captured rules, and fires a test `OpStapSelectionChanged` to prove `opstap-bridge.js` runs. Change a body builder → keep those checks passing.
+**Writes have three outcomes: done, refused, onzeker.** Every write has a 30 s timeout (`timedFetch` in planner, `wfetch` in lessons). No answer, a dropped connection or a gateway status (502/503/504/408/524) is NOT "failed" — Questi may have committed it. Planner: `doCommit` → `verifyLanded` reads the item back → `"landed"` (a missing title PATCH is redone; PATCH is idempotent) / `"not"` (attachment absent by content id → retry is safe) / `"unknown"` (sets `slot._uncertain`; the next commit reads the item first and skips the attachment POST if that fiche is already there). Lessons: `createUserTag` (baseline = cached own tags), `renameUserTag` (title, colour and parent), `writeNewFiche` (baseline = 10 newest own fiches, read before the POST — no baseline, no POST; `findCreatedFiche`) and fiche PATCHes in `writeFiches` (one baseline per run; `findNewVersion` looks for a version with the same `thread`) settle it by reading back: `scanOwnFiches` pages the list down to the first baseline fiche (max 4×25; running out = still uncertain), and a 2xx without an `id` counts as uncertain (`needId`). `createUserTag` refuses to POST when the own tags cannot be read. When that read fails, or finds nothing right after the write (a slow Questi may still commit it after the 30 s timeout; a dropped request looks the same as a lost answer), the fiche keeps a marker (`p.createUnsure` / `p.unsure`, `settleEarlier*(…, fresh)`) and says onzeker; the next attempt checks first and only writes when it again finds nothing — a fiche write is never repeated blindly. A tag create left onzeker marks its staged tag (`p.unsure`) the same way. One write run at a time: `writeFiches`/`writeTags` answer a second concurrent call with "Er loopt al een schrijfbeurt" and write nothing (`writeBusy`). An entry re-staged while its write ran (`p.rev`) stays staged on the new version with only the newer parts (`keepRestaged`); `p.origId` (the version staged on) is the `oldId` slots are remapped from. Without a baseline, `findNewVersion` checks the fiches titled as sent. A fiche changed again while its marker is set (`editedSinceUnsure`, set in `stagePending`) gets that newer state written on top of the landed version (fresh edit view first). After a successful POST the new id is kept (`p.createdId`): a failed read-back or WEET/KEN/KAN PATCH re-stages the goals as an edit on that id (`restageNewFicheGoals`), never a second POST. A fiche DELETE stays `onzeker` (`err.uncertain`, message starts with `UNSURE`); a delete whose backup download or reads failed needs a confirm (`deleteBackupProblem`). `finishSharedWrite` lists uncertain writes in their own warning. **Read-back:** a newly linked fiche is re-read once per lesuur (a failed read = "niet nagelezen" in the result, `unverifiedLines`, and no auto-reload), a fiche edit that touched goals/tags/grades/visibility is re-read and mismatches go to `trialMisses` — plain PATCHes are not, to keep traffic light. **Saves:** `storeSet` is the only storage writer (lessons/methodes/settings go through it); a throw or `chrome.runtime.lastError` goes to `noteApiError("storage", key)` and the status line ("Extension context invalidated" = stale tab, reload). **Zelftest** `checkRequestFormats` (lessons) builds the PATCH / new-fiche / tag-rename bodies from fixed samples offline and checks the captured rules, and fires a test `OpStapSelectionChanged` to prove `opstap-bridge.js` runs. Change a body builder → keep those checks passing.
 
 **Methode fiche content.** Only `GET /cal/methods/{KEY}/lessons/{id}` returns it (captured
 2026-08-16; `/cal/lessons/{id}` answers `1235` for a methode fiche). `probeMethodLesson` in `lessons.js`
@@ -531,8 +550,10 @@ AND tags), parallel reads go through `mapLimit(…, 4)`, `ficheEditTags` is memo
   scripts alive in already-open tabs. Each module logs its version on load; a missing line means a
   stale script.
 - Syntax check with `node --check <file>` (node is available; it is not a dependency of the addon).
-- `node tests/run.js` after touching a write path in `lessons.js` (fake Questi, no network). It reaches
-  internals through `__PG_LESSONS_TEST`, which only exists when the test sets `__PG_TEST_HOOKS`.
+- `node tests/run.js` after touching a write path (lessons.js, the planner commit path, storage/context,
+  methodes import). Fake Questi, no network. Lessons/methodes internals come through `__PG_LESSONS_TEST` /
+  `__PG_METHODES_TEST`, which only exist when the test sets `__PG_TEST_HOOKS`; the planner sections lift
+  real functions out of planner.js by name, so a renamed function breaks its test loudly.
 - Verification is manual: load unpacked on a `…/calendar` page and drive the UI. In summer there
   are no lesson items, so `groupId` stays null and several Zelftest rows WARN — that is expected.
 - Bump `manifest.json` **and** `version.json` together on release.
