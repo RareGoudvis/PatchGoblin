@@ -12,8 +12,10 @@ names and ids — never copy values from it into a tracked file).
 ## Golden rules
 
 1. **No build step.** Plain ES5-style IIFEs (`var`, `function`, no modules, no `import`).
-   No npm, no bundler, no transpiler, no tests. Files are loaded directly by the manifest.
-   Do not introduce a toolchain.
+   No npm, no bundler, no transpiler. Files are loaded directly by the manifest.
+   Do not introduce a toolchain. The one exception is `tests/run.js`: a small write-safety test,
+   Node built-ins only (`node tests/run.js`), never loaded by the manifest. Keep it small — one test
+   per failure scenario that could lose or duplicate data, not a test suite.
 2. **Nothing hardcoded per account.** `schoolId`, `schoolyear`, `calendarId`, `groupId`,
    `ownerId`, `ownDefaultTagId` are all runtime-detected into `ctx` by `detectContext()`.
    Never hardcode an id, a tag id, or a user id.
@@ -43,7 +45,7 @@ names and ids — never copy values from it into a tracked file).
 
 ## Layout
 
-Flat repo. `icons/`, `reference/` and `docs/img/` (screenshots rendered from the real code against a fake API with invented data, plus `docs/index.html`: the user guide — features, install incl. a manual route without install.bat, illustrated manual — served by GitHub Pages at https://raregoudvis.github.io/PatchGoblin/; README, Instellingen → Over and the guide link there) are the only folders.
+Flat repo. `icons/`, `reference/`, `tests/` (`run.js`, see rule 1) and `docs/img/` (screenshots rendered from the real code against a fake API with invented data, plus `docs/index.html`: the user guide — features, install incl. a manual route without install.bat, illustrated manual — served by GitHub Pages at https://raregoudvis.github.io/PatchGoblin/; README, Instellingen → Over and the guide link there) are the only folders.
 
 | File | Lines | Role |
 |---|---|---|
@@ -215,9 +217,11 @@ slot goes into `view.stash` (memory only), keyed `itemId|date` (`slotKey`) becau
 share an id. On reload a stashed slot replaces the fresh one (weekIdx re-seated, detail read skipped);
 others stay "offscreen". Every slot carries `_range` (the week window it was read in) and
 `buildCommitPlan` PATCHes with `s._range`, so each change hits its own occurrence. Review/commit go
-through `commitSlots()` (loaded + offscreen); review rows are matched by item id, so an offscreen slot
-whose id is also loaded is **held back** with a visible note. New per-slot loops over staged work must
-use `commitSlots().slots`, not `view.slots`.
+through `commitSlots()` (loaded + offscreen) and key every row by `slotKey` (plan `p.key`, `slotByKey`),
+never by bare item id, so two occurrences sharing an id are both written. Their fiche link can only be
+read back per item (the attachment POST and item GET carry no date): `markSharedItems` flags them
+(`p.sharedItem`), a read-back never fails them and the result card says "per item nagelezen, niet per
+week". New per-slot loops over staged work must use `commitSlots().slots`, not `view.slots`.
 
 **Holiday weeks are skipped.** `view.schoolWeeks` (2) is the target; `view.weeks` is how many calendar
 weeks are actually loaded. A week with no non-fullday, non-`cal_holidays` item (`isHolidayWeek`)
@@ -466,7 +470,7 @@ Compares live responses against captured shapes and emits OK/WARN/FAIL/SKIP rows
 `expected`/`found`/`next`, copyable as plain text. **When you add a feature that depends on an API
 shape, add a check here.**
 
-**Writes have three outcomes: done, refused, onzeker.** Every write has a 30 s timeout (`timedFetch` in planner, `wfetch` in lessons). No answer, a dropped connection or a gateway status (502/503/504/408/524) is NOT "failed" — Questi may have committed it. Planner: `doCommit` → `verifyLanded` reads the item back → `"landed"` (a missing title PATCH is redone; PATCH is idempotent) / `"not"` (attachment absent by content id → retry is safe) / `"unknown"` (sets `slot._uncertain`; the next commit reads the item first and skips the attachment POST if that fiche is already there). Lessons: `createUserTag` (baseline = cached own tags), `renameUserTag` and `writeNewFiche` (baseline = 10 newest own fiches, read before the POST) settle it by reading back; a fiche PATCH or DELETE stays `onzeker` (`err.uncertain`, message starts with `UNSURE`). `finishSharedWrite` lists uncertain writes in their own warning. **Read-back:** a newly linked fiche is re-read once per lesuur, a fiche edit that touched goals/tags/grades/visibility is re-read and mismatches go to `trialMisses` — plain PATCHes are not, to keep traffic light. **Saves:** `storeSet` is the only storage writer (lessons/methodes/settings go through it); a throw or `chrome.runtime.lastError` goes to `noteApiError("storage", key)` and the status line ("Extension context invalidated" = stale tab, reload). **Zelftest** `checkRequestFormats` (lessons) builds the PATCH / new-fiche / tag-rename bodies from fixed samples offline and checks the captured rules, and fires a test `OpStapSelectionChanged` to prove `opstap-bridge.js` runs. Change a body builder → keep those checks passing.
+**Writes have three outcomes: done, refused, onzeker.** Every write has a 30 s timeout (`timedFetch` in planner, `wfetch` in lessons). No answer, a dropped connection or a gateway status (502/503/504/408/524) is NOT "failed" — Questi may have committed it. Planner: `doCommit` → `verifyLanded` reads the item back → `"landed"` (a missing title PATCH is redone; PATCH is idempotent) / `"not"` (attachment absent by content id → retry is safe) / `"unknown"` (sets `slot._uncertain`; the next commit reads the item first and skips the attachment POST if that fiche is already there). Lessons: `createUserTag` (baseline = cached own tags), `renameUserTag` (title, colour and parent), `writeNewFiche` (baseline = 10 newest own fiches, read before the POST; `findCreatedFiche`) and fiche PATCHes in `writeFiches` (one baseline per run; `findNewVersion` looks for a version with the same `thread`) settle it by reading back. When even that read fails the fiche keeps a marker (`p.createUnsure` / `p.unsure`) and the next attempt checks before it writes — a fiche write is never repeated blindly. After a successful POST the new id is kept (`p.createdId`): a failed read-back or WEET/KEN/KAN PATCH re-stages the goals as an edit on that id (`restageNewFicheGoals`), never a second POST. A fiche DELETE stays `onzeker` (`err.uncertain`, message starts with `UNSURE`); a delete whose backup download or reads failed needs a confirm (`deleteBackupProblem`). `finishSharedWrite` lists uncertain writes in their own warning. **Read-back:** a newly linked fiche is re-read once per lesuur (a failed read = "niet nagelezen" in the result, `unverifiedLines`, and no auto-reload), a fiche edit that touched goals/tags/grades/visibility is re-read and mismatches go to `trialMisses` — plain PATCHes are not, to keep traffic light. **Saves:** `storeSet` is the only storage writer (lessons/methodes/settings go through it); a throw or `chrome.runtime.lastError` goes to `noteApiError("storage", key)` and the status line ("Extension context invalidated" = stale tab, reload). **Zelftest** `checkRequestFormats` (lessons) builds the PATCH / new-fiche / tag-rename bodies from fixed samples offline and checks the captured rules, and fires a test `OpStapSelectionChanged` to prove `opstap-bridge.js` runs. Change a body builder → keep those checks passing.
 
 **Methode fiche content.** Only `GET /cal/methods/{KEY}/lessons/{id}` returns it (captured
 2026-08-16; `/cal/lessons/{id}` answers `1235` for a methode fiche). `probeMethodLesson` in `lessons.js`
@@ -520,6 +524,8 @@ AND tags), parallel reads go through `mapLimit(…, 4)`, `ficheEditTags` is memo
   scripts alive in already-open tabs. Each module logs its version on load; a missing line means a
   stale script.
 - Syntax check with `node --check <file>` (node is available; it is not a dependency of the addon).
+- `node tests/run.js` after touching a write path in `lessons.js` (fake Questi, no network). It reaches
+  internals through `__PG_LESSONS_TEST`, which only exists when the test sets `__PG_TEST_HOOKS`.
 - Verification is manual: load unpacked on a `…/calendar` page and drive the UI. In summer there
   are no lesson items, so `groupId` stays null and several Zelftest rows WARN — that is expected.
 - Bump `manifest.json` **and** `version.json` together on release.

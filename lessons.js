@@ -88,8 +88,9 @@
   // Three outcomes for a write: done, refused (Questi said no: nothing changed, retry is safe), or
   // ONZEKER — no answer within WRITE_TIMEOUT_MS, a dropped connection or a gateway error, after which
   // Questi may well have committed it. An uncertain error carries .uncertain and its message starts
-  // with UNSURE; creates and tag renames read back to settle it (verifyCreatedFiche, createUserTag,
-  // renameUserTag) before anything says "retry".
+  // with UNSURE; fiche creates and edits (findCreatedFiche, findNewVersion), createUserTag and
+  // renameUserTag read back to settle it before anything says "retry". A fiche write that stays
+  // uncertain keeps a marker (p.createUnsure / p.unsure) so the next attempt checks before writing.
   var WRITE_TIMEOUT_MS = 30000, UNSURE = "onzeker";
   function isUnclearStatus(st) { return st === 502 || st === 503 || st === 504 || st === 408 || st === 524 || st === 0; }
   function unsureError(why) { var e = new Error(UNSURE + " (" + why + ") — Questi gaf geen duidelijk antwoord, mogelijk toch weggeschreven"); e.uncertain = true; return e; }
@@ -221,7 +222,8 @@
         // No clear answer: the stored tag says whether it landed.
         return pause(1500).then(readOwnTagsFresh).then(function (list) {
           var t = list.filter(function (x) { return String(x.id) === String(id); })[0];
-          if (t && String(t.title || "").trim().toLowerCase() === title.trim().toLowerCase() && (Number(t.parent) || 0) === body.parent) return t;
+          if (t && String(t.title || "").trim().toLowerCase() === title.trim().toLowerCase() && (Number(t.parent) || 0) === body.parent &&
+              String(t.color || "").trim().toLowerCase() === String(color || "").trim().toLowerCase()) return t;
           throw new Error("niet weggeschreven (geen antwoord van Questi) — opnieuw proberen is veilig");
         }, function () { throw e; });
       });
@@ -1344,13 +1346,19 @@
   // uses it to point agenda slots at the newest version. A failed key stays staged.
   // → Promise<{ map: { key: {oldId,newId,subject} }, fails: [{ key, title, error }], trialMisses: [] }>
   function writeFiches(keys, onProgress) {
-    var trialMisses = [], map = {};
+    var trialMisses = [], map = {}, baseP = null;
+    // One baseline of the newest own fiches per run, taken lazily before the first edit PATCH. A PATCH
+    // without a clear answer is settled against it (findNewVersion); every id this run mints joins it.
+    function baseline() { if (!baseP) baseP = ownFicheBaseline().catch(function () { return null; }); return baseP; }
+    function learn(newId) { if (baseP) baseP.then(function (k) { if (k) k[newId] = true; }); }
     return runSequential(keys, function (id) {
       var p = mgr.pending[id]; if (!p) return Promise.resolve();
       if (p.isNew) return writeNewFiche(p).then(function (res) {
         map[id] = { oldId: null, newId: res.newId, subject: res.subject, created: true };
-        res.missing.forEach(function (m) { trialMisses.push(res.subject + ": " + m + " niet overgenomen"); });
+        learn(res.newId);
+        res.missing.forEach(function (m) { trialMisses.push(res.subject + ": " + m); });
         delete mgr.pending[id]; mgr.createdAny = true;
+        if (res.restage) restageNewFicheGoals(res);
       });
       var opts = {}; if (p.subject != null) opts.subject = p.subject; if (p.text) opts.text = p.text; if (p.tags != null) opts.tags = p.tags; if (p.createTags && p.createTags.length) opts.create_tags = p.createTags;
       if (p.goals && Object.keys(p.goals).length) opts.goals = p.goals;
@@ -1359,7 +1367,25 @@
       if (p.newFields && p.newFields.length) opts.newFields = p.newFields;
       // Inline title edits carry no edit snapshot — fetch it now (for field ids + current tags).
       var editP = p.edit ? Promise.resolve(p.edit) : readFicheEdit(p.fiche.id);
-      return editP.then(function (edit) { p.edit = edit; return writePatch(p.fiche.id, buildPatch(p.fiche.id, edit, opts)); }).then(function (result) {
+      return editP.then(function (edit) {
+        p.edit = edit;
+        // An earlier attempt got no clear answer: find out whether it landed before writing again.
+        // A PATCH mints a new version, so repeating one that did land would leave a second version.
+        return (p.unsure ? settleEarlierPatch(p) : Promise.resolve(null)).then(function (landed) {
+          if (landed) return landed;
+          return baseline().then(function (known) {
+            return writePatch(p.fiche.id, buildPatch(p.fiche.id, edit, opts)).catch(function (e) {
+              if (!e || !e.uncertain) throw e;
+              p.unsure = { known: known, thread: edit.thread, oldId: p.fiche.id };
+              return settleEarlierPatch(p, e);
+            }).then(function (r) {
+              if (r === null) throw new Error("niet weggeschreven (geen duidelijk antwoord van Questi, nagelezen) — opnieuw proberen is veilig");
+              return r;
+            });
+          });
+        });
+      }).then(function (result) {
+        if (result && result.id != null) learn(result.id);
         var newId = result && result.id != null ? result.id : p.fiche.id, oldId = p.fiche.id;
         map[id] = { oldId: oldId, newId: newId, subject: (result && result.subject != null) ? result.subject : (p.subject != null ? p.subject : ficheName(p.fiche)) };
         if (p.edit && S().noteFicheThread) S().noteFicheThread({ thread: p.edit.thread, id: newId });
@@ -1574,46 +1600,123 @@
     notifyPending();
   }
   function plainText(v) { return String(v == null ? "" : v).replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim(); }
-  // Create one staged new fiche. → { newId, subject, missing: [] } — `missing` names what Questi did not keep.
+  // Create one staged new fiche. → { newId, subject, missing: [], restage? } — `missing` lists, in
+  // Dutch, what Questi did not keep or what could not be checked.
+  // Once the POST has an id the fiche EXISTS: p.createdId keeps it, so nothing after that point can
+  // lead to a second POST. A later step that fails (read-back, WEET/KEN/KAN PATCH) is reported and
+  // its goals come back as an ordinary staged edit on the new id (`restage`), not as a new fiche.
+  // A POST without a clear answer keeps its baseline on p.createUnsure; the next attempt looks for
+  // the fiche first and only POSTs when it is certainly not there.
   function writeNewFiche(p) {
     var body = buildNewFicheBody(p.draft, p.template), wantGoals = {};
     GOAL_KINDS.forEach(function (k) { if (String(p.draft.goals[k] || "").trim()) wantGoals[k] = p.draft.goals[k]; });
     var wantSel = 0; Object.keys(p.draft.selected || {}).forEach(function (k) { wantSel += (p.draft.selected[k] || []).length; });
     var known = null;
-    return newestOwnFiches().then(function (l) { known = {}; l.forEach(function (f) { known[f.id] = true; }); }, function () {})
-      .then(function () { return createFiche(body); })
-      .catch(function (e) { return (e && e.uncertain && known) ? verifyCreatedFiche(body.subject, known, e) : Promise.reject(e); })
-      .then(function (res) {
+    var created = p.createdId != null ? Promise.resolve({ id: p.createdId })
+      : (p.createUnsure ? settleEarlierCreate(p) : Promise.resolve(null)).then(function (hit) {
+        if (hit) return hit;
+        return ownFicheBaseline().then(function (k) { known = k; }, function () {}).then(function () {
+          return createFiche(body).catch(function (e) {
+            if (!e || !e.uncertain || !known) throw e;
+            p.createUnsure = { known: known, subject: body.subject };
+            return settleEarlierCreate(p, e).then(function (r) {
+              if (r === null) throw new Error("niet aangemaakt (geen duidelijk antwoord van Questi, nagelezen) — opnieuw proberen is veilig");
+              return r;
+            });
+          });
+        });
+      });
+    return created.then(function (res) {
       var newId = res && res.id; if (newId == null) throw new Error("Questi gaf geen id terug");
+      p.createdId = newId; p.fiche.id = newId;
+      var subject = body.subject;
       return readFicheEdit(newId).then(function (edit) {
         var missing = [], gf = S().ficheGoalFields(edit), lost = {};
+        subject = edit.subject || body.subject;
         GOAL_KINDS.forEach(function (k) { if (wantGoals[k] && !gf[k]) lost[k] = wantGoals[k]; });
         var gotSel = 0; (edit.fields || []).forEach(function (f) { if (f.type === "goals") gotSel += (f.selected_goals || []).length || ((f.content && f.content.goals) || []).length; });
-        if (wantSel && !gotSel) missing.push("leerplandoelen");
-        if (!Object.keys(lost).length) return { newId: newId, subject: edit.subject || body.subject, missing: missing };
+        if (wantSel && !gotSel) missing.push("leerplandoelen niet overgenomen");
+        if (!Object.keys(lost).length) return { newId: newId, subject: subject, missing: missing };
         // Questi dropped the WEET/KEN/KAN extras from the create: add them the way the editor does.
+        if (known) known[newId] = true;
         return writePatch(newId, buildPatch(newId, edit, { goals: lost })).then(function (r2) {
-          return { newId: (r2 && r2.id != null) ? r2.id : newId, subject: edit.subject || body.subject, missing: missing, goalsPatched: true };
+          return { newId: (r2 && r2.id != null) ? r2.id : newId, subject: subject, missing: missing, goalsPatched: true };
+        }, function (e) {
+          var unsure = !!(e && e.uncertain);
+          missing.push("aangemaakt, maar WEET/KEN/KAN " + (unsure ? "onzeker (geen antwoord)" : "niet toegevoegd") + " — staan klaar als wijziging");
+          return { newId: newId, subject: subject, missing: missing,
+            restage: { goals: lost, edit: edit, unsure: unsure ? { known: known, thread: edit.thread, oldId: newId } : null } };
         });
+      }, function () {
+        // Created, but the new fiche could not be read: say so, keep the goals staged on its id.
+        var hasGoals = Object.keys(wantGoals).length > 0;
+        return { newId: newId, subject: subject, unverified: true,
+          missing: ["aangemaakt, maar niet nagelezen" + (hasGoals ? " — WEET/KEN/KAN staan klaar als wijziging" : "")],
+          restage: hasGoals ? { goals: wantGoals, edit: null, unsure: null } : null };
       });
     });
   }
-  // The newest own fiches (list sorted new_items) — the baseline a create without a clear answer
-  // is checked against. One small read per NEW fiche only.
+  // A created fiche whose WEET/KEN/KAN did not (surely) land: stage them as a normal edit on its id.
+  function restageNewFicheGoals(res) {
+    var id = res.newId, r = res.restage;
+    mgr.pending[id] = {
+      fiche: { id: id, subject: res.subject }, edit: r.edit || null, goals: r.goals,
+      unsure: r.unsure || undefined,
+      changes: GOAL_KINDS.filter(function (k) { return r.goals[k]; }).map(function (k) { return { label: k.toUpperCase(), old: "", nw: r.goals[k] }; })
+    };
+  }
+  // The newest own fiches (list sorted new_items) — the baseline a create or PATCH without a clear
+  // answer is checked against. One small read per new fiche / per write run only.
   function newestOwnFiches() {
     return jget(lessonsUrl(allOwnTagId(), 10, 0)).then(function (j) {
       var r = j && j.result, list = Array.isArray(r) ? r : ((r && (r.lessons || r.items)) || []);
       if (!Array.isArray(list)) throw new Error("geen lijst"); return list;
     });
   }
-  // A fiche with this exact title that was not in the baseline = created after all → carry on with
-  // it (no second POST). None → not created, a retry is safe. Read fails → stays uncertain.
-  function verifyCreatedFiche(subject, known, err) {
+  function ownFicheBaseline() { return newestOwnFiches().then(function (l) { var k = {}; l.forEach(function (f) { k[f.id] = true; }); return k; }); }
+  // A fiche with this exact title that was not in the baseline = created after all → { id }.
+  // None → null (not created, a POST is safe). A failed read rejects: still uncertain.
+  function findCreatedFiche(subject, known) {
     return pause(1500).then(newestOwnFiches).then(function (list) {
       var hit = list.filter(function (f) { return !known[f.id] && String(f.subject || "") === String(subject || ""); })[0];
-      if (hit) return { id: hit.id };
-      throw new Error("niet aangemaakt (geen duidelijk antwoord van Questi) — opnieuw proberen is veilig");
-    }, function () { throw err; });
+      return hit ? { id: hit.id } : null;
+    });
+  }
+  // A version of `thread` minted after the baseline (not in it, not the old id) = the PATCH landed →
+  // { id, subject }. None → null. Any failed read rejects: then it cannot be told.
+  function findNewVersion(thread, oldId, known) {
+    return pause(1500).then(newestOwnFiches).then(function (list) {
+      var cands = list.filter(function (f) { return !known[f.id] && String(f.id) !== String(oldId); });
+      return cands.reduce(function (chain, f) {
+        return chain.then(function (found) {
+          if (found) return found;
+          return readFicheEdit(f.id).then(function (e) {
+            return (e && e.thread != null && String(e.thread) === String(thread)) ? { id: e.id != null ? e.id : f.id, subject: e.subject } : null;
+          });
+        });
+      }, Promise.resolve(null));
+    });
+  }
+  // Settle p.createUnsure / p.unsure. → the landed result, or null (certainly not written: write now).
+  // When it still cannot be told, rejects with an uncertain error and keeps the marker, so the
+  // next attempt checks again instead of writing.
+  function stillUnsure(err, why) {
+    var e = err && err.uncertain ? err : unsureError(why);
+    e.message = UNSURE + " (" + why + ") — Questi gaf geen duidelijk antwoord en nalezen lukte niet. Er is niets opnieuw geschreven; " +
+      (why === "geen vergelijkingslijst" ? "kijk de fiche na in Questi en verwerp deze wijziging als ze er al staat." : "probeer later opnieuw of kijk de fiche na in Questi.");
+    e.uncertain = true; return e;
+  }
+  function settleEarlierCreate(p, err) {
+    var u = p.createUnsure;
+    if (!u || !u.known) return Promise.reject(stillUnsure(err, "geen vergelijkingslijst"));
+    return findCreatedFiche(u.subject, u.known).then(function (hit) { delete p.createUnsure; return hit; },
+      function () { throw stillUnsure(err, "nalezen mislukt"); });
+  }
+  function settleEarlierPatch(p, err) {
+    var u = p.unsure;
+    if (!u || !u.known || u.thread == null) return Promise.reject(stillUnsure(err, "geen vergelijkingslijst"));
+    return findNewVersion(u.thread, u.oldId, u.known).then(function (hit) { delete p.unsure; return hit; },
+      function () { throw stillUnsure(err, "nalezen mislukt"); });
   }
 
   // ---- Leerplandoelen: Katholiek Onderwijs Vlaanderen's own Op.Stap picker ----
@@ -1983,6 +2086,12 @@
     ft.appendChild(h("button", { class: "pgl-btn pgl-ghost", onclick: m.close, text: "Annuleer" }));
     ft.appendChild(btnTest); ft.appendChild(btnAll);
   }
+  // Why the backup is not a full safety net ("" = it is). Deleting then needs an explicit confirm.
+  function deleteBackupProblem(backup, n) {
+    if (!backup || !backup.downloaded) return "De back-up kon niet gedownload worden.";
+    if (backup.failed && backup.failed.length) return "Back-up mislukt voor " + backup.failed.length + " van " + n + " fiche(s).";
+    return "";
+  }
   function doDelete(m, ids, testOnly) {
     var batch = testOnly ? ids.slice(0, 1) : ids;
     m.close();
@@ -1992,7 +2101,8 @@
     // Irreversible: back up FULL content first, then delete. If the backup couldn't be fully
     // captured, make the user explicitly confirm deleting without a complete safety net.
     backupBeforeDelete(batch, prog).then(function (backup) {
-      if (backup.failed.length && !window.confirm("Back-up mislukt voor " + backup.failed.length + " van " + batch.length + " fiche(s). Toch definitief verwijderen zonder volledige back-up?")) {
+      var why = deleteBackupProblem(backup, batch.length);
+      if (why && !window.confirm(why + " Toch definitief verwijderen zonder volledige back-up?")) {
         prog.done([{ error: "Geannuleerd — geen volledige back-up." }], batch.length);
         return;
       }
@@ -2004,7 +2114,8 @@
         notifyPending();
         mgr.fiches = mgr.fiches.filter(function (f) { return !gone[f.id]; });
         prog.done([], batch.length); applyFilter();
-        setStatus(testOnly ? "1 verwijderd (back-up gedownload) — controleer in Questi, verwijder daarna de rest." : (batch.length + " verwijderd — back-up gedownload."));
+        var bk = (backup.downloaded && !backup.failed.length) ? "back-up gedownload" : "zonder volledige back-up";
+        setStatus(testOnly ? "1 verwijderd (" + bk + ") — controleer in Questi, verwijder daarna de rest." : (batch.length + " verwijderd — " + bk + "."));
       });
     }).catch(function (e) { prog.done([{ error: (e && e.message) || String(e) }], batch.length); });
   }
@@ -2363,4 +2474,6 @@
     pendingCount: pendingCount, pendingSummary: pendingSummary, backupPending: backupPending,
     writeTags: writeTags, writeFiches: writeFiches, afterSharedWrite: afterSharedWrite, discardPending: discardPending
   };
+  // tests/run.js only: it sets __PG_TEST_HOOKS before loading this file. Never set in the extension.
+  if (window.__PG_TEST_HOOKS) window.__PG_LESSONS_TEST = { mgr: mgr, renameUserTag: renameUserTag, deleteBackupProblem: deleteBackupProblem };
 })();
