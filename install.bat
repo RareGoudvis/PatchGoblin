@@ -8,7 +8,7 @@ REM  Geen Git of installatie nodig - gebruikt alleen Windows PowerShell.
 REM ============================================================================
 setlocal
 REM Welke versie: "main" = stabiel. Testers van een beta zetten hier de naam van die branch.
-set "PG_BRANCH=main"
+set "PG_BRANCH=beta"
 echo === PatchGoblin installeren (versie: %PG_BRANCH%) ===
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^

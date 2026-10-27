@@ -15,9 +15,9 @@ set "PG_DEST=%~dp0" & set "PG_SELF=%~f0" & powershell -NoProfile -ExecutionPolic
 
 #=PS=
 $ErrorActionPreference = 'Stop'
-$repo = 'https://github.com/RareGoudvis/PatchGoblin/archive/refs/heads/main.zip'
+$repo = 'https://github.com/RareGoudvis/PatchGoblin/archive/refs/heads/beta.zip'
 $dest = $env:PG_DEST.TrimEnd('\')
-Write-Host '=== PatchGoblin bijwerken ==='
+Write-Host '=== PatchGoblin BETA bijwerken (branch beta) ==='
 Write-Host ('Map: ' + $dest)
 Write-Host ''
 $work = Join-Path $env:TEMP ('pg-update-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))

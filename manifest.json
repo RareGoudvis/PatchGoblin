@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PatchGoblin for Questi",
-  "version": "2.0.2",
-  "description": "PatchGoblin — plan je lesweken in Questi: lesfiches slepen, lesdoelen, afdrukken en één controle voor alles naar Questi gaat.",
+  "name": "PatchGoblin for Questi BETA",
+  "version": "2.0.3",
+  "description": "BETA — PatchGoblin, testversie. Naast de stabiele versie te installeren; gebruik er niet beide tegelijk.",
   "permissions": [
     "storage",
     "activeTab",
@@ -17,7 +17,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "PatchGoblin (Alt+P)",
+    "default_title": "PatchGoblin BETA (Alt+Shift+P)",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -32,9 +32,9 @@
   "commands": {
     "toggle-planner": {
       "suggested_key": {
-        "default": "Alt+P"
+        "default": "Alt+Shift+P"
       },
-      "description": "PatchGoblin openen of sluiten"
+      "description": "PatchGoblin BETA openen of sluiten"
     }
   },
   "web_accessible_resources": [
@@ -56,12 +56,6 @@
         "settings.js",
         "content.js"
       ],
-      "css": [
-        "planner.css",
-        "lessons.css",
-        "methodes.css",
-        "settings.css"
-      ],
       "run_at": "document_idle"
     },
     {
@@ -75,5 +69,6 @@
       "world": "MAIN",
       "run_at": "document_start"
     }
-  ]
+  ],
+  "version_name": "2.0.3 beta 1"
 }
