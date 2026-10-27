@@ -2180,13 +2180,14 @@
   }
   // ---- Te doen (mode "todo"): two pages per week, front and back of one sheet ----
   // Front: a timeline — one lane per school day, every lesson a block as long as the lesson itself (the
-  // same lesson in consecutive lesuren is one block, never across the lunch break), breaks as faint
-  // labels, a free afternoon as a dashed box (the goblin, pref `goblin`, else notes lines), and a lined
-  // Notities box at the end of every lane. The axis runs from the week's first start to its last end,
-  // labelled with the real start times; a break that is empty on EVERY day is drawn short.
+  // same lesson in consecutive lesuren is one block, never across the lunch break), white with a thick
+  // vak-coloured outline (little ink), its start time inside; speeltijd/middag as grey strips, a free
+  // afternoon as a dashed box (the goblin, pref `goblin`, else notes lines), and a lined Notities box at
+  // the end of every lane. The timeline runs from the week's first start to its last end; a break that
+  // is empty on EVERY day is drawn short.
   // Back: per day the lessons as a checklist with their WEET / KEN / KAN (goalsRecFor — the fiche, else
-  // the local record) in three equal columns; an empty goal gets a writing line, a kind hidden for that
-  // fiche gets nothing. The same lesuren as the Weekplanning grid (the planner's own lesson
+  // the local record) in three ruled columns, every lesuur row equally high; an empty goal gets a
+  // writing line, a kind hidden for that fiche gets nothing. The same lesuren as the Weekplanning grid (the planner's own lesson
   // calendar(s)); other agendas stay out. A toets is a GUESS from the word "toets" in the shown title.
   var TODO_TOETS_RE = /\btoets/i;
   var TODO_LUNCH_MIN = 30;   // a gap this long or longer is "middag" (and never merged across)
@@ -2204,8 +2205,7 @@
     if (fa || fb) return String(fa || "") === String(fb || "");
     return !!a.key && a.key === b.key && String(a.top) === String(b.top) && !!a.slot.isGym === !!b.slot.isGym;
   }
-  // A day's lessons, sorted, consecutive lesuren of the same lesson merged. n = lesuren in the block,
-  // st = their start times (the axis labels).
+  // A day's lessons, sorted, consecutive lesuren of the same lesson merged. n = lesuren in the block.
   function todoDayBlocks(pv, weekIdx, day, fb) {
     var les = pv.slots.filter(function (s) {
       return s.weekIdx === weekIdx && s.dayIdx === day && s.idCalendar !== "cal_holidays" && !s.isFullday && (s.time || s.starttime);
@@ -2213,14 +2213,14 @@
       var st = hhmmToMin(s.time || String(s.starttime).slice(0, 5));
       var p = printCellParts(pv, s) || { vak: "", main: "", color: "" };
       var col = p.color || "#3E424D";
-      return { slot: s, s: st, e: st == null ? null : todoSlotEnd(pv, s, st, fb), p: p, key: normTitle(p.main || ""), top: topTagIdOf(s.vak), n: 1, st: [st],
+      return { slot: s, s: st, e: st == null ? null : todoSlotEnd(pv, s, st, fb), p: p, key: normTitle(p.main || ""), top: topTagIdOf(s.vak), n: 1,
         col: col, ink: goalsInkOn(col), lbl: p.vak || (s.isGym ? "beweging" : ""), toets: TODO_TOETS_RE.test(p.main || "") };
     }).filter(function (x) { return x.s != null; }).sort(function (a, b) { return a.s - b.s; });
     var out = [];
     les.forEach(function (L) {
       var prev = out[out.length - 1];
       if (prev && L.s >= prev.e - 1 && L.s - prev.e < TODO_LUNCH_MIN && todoSameLesson(prev, L)) {
-        prev.e = Math.max(prev.e, L.e); prev.n++; prev.st.push(L.s); prev.toets = prev.toets || L.toets; return;
+        prev.e = Math.max(prev.e, L.e); prev.n++; prev.toets = prev.toets || L.toets; return;
       }
       out.push(L);
     });
@@ -2228,7 +2228,7 @@
   }
   // Everything both pages need for one week.
   function todoWeekData(pv, weekIdx) {
-    var fb = commonDurationMin(pv), days = [], t0 = null, t1 = null, aft = null, nLes = 0, busy = [], starts = {};
+    var fb = commonDurationMin(pv), days = [], t0 = null, t1 = null, aft = null, nLes = 0, busy = [];
     for (var d = 0; d < 5; d++) {
       var bl = todoDayBlocks(pv, weekIdx, d, fb);
       bl.forEach(function (L) {
@@ -2237,7 +2237,6 @@
         if (t1 == null || L.e > t1) t1 = L.e;
         if (L.s >= 720 && (aft == null || L.s < aft)) aft = L.s;   // the week's first afternoon lesson
         busy.push([L.s, L.e]);
-        L.st.forEach(function (m) { starts[m] = true; });
       });
       days.push({ info: printDayInfo(pv, weekIdx * 7 + d), blocks: bl });
     }
@@ -2261,8 +2260,26 @@
     var span = t0 == null ? 1 : Math.max(1, drawn(t1));
     return { days: days, nLes: nLes, t0: t0 == null ? 0 : t0, t1: t1 == null ? 0 : t1,
       frac: function (m) { return drawn(m) / span; },
-      ticks: Object.keys(starts).map(Number).sort(function (a, b) { return a - b; }),
       wk: isoWeekNo(isoDate(addDays(pv.weekStart, weekIdx * 7))), rng: weekTitleFor(pv, weekIdx), themas: printThemaList(pv, weekIdx) };
+  }
+  // Outline colour for a lesson block: the vak colour, darkened when it is too pale to show as a line
+  // on white paper (taal yellow, gym beige).
+  function todoEdge(col) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(col || "").trim());
+    if (!m) return "#3E424D";
+    var hx = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+    var c = [0, 2, 4].map(function (i) { return parseInt(hx.slice(i, i + 2), 16); });
+    var lum = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    if (lum <= 190) return "#" + hx;
+    var f = 190 / lum;
+    return "#" + c.map(function (v) { var x = Math.round(v * f).toString(16); return x.length < 2 ? "0" + x : x; }).join("");
+  }
+  // Checkbox fill on the back: the vak colour, light, so a tick stays clearly visible on it.
+  function todoTint(col) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(col || "").trim());
+    if (!m) return "transparent";
+    var hx = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+    return "rgba(" + [0, 2, 4].map(function (i) { return parseInt(hx.slice(i, i + 2), 16); }).join(",") + ",.35)";
   }
   function todoFrontHtml(W, opts, prefs) {
     function pct(m) { return (W.frac(m) * 100).toFixed(3) + "%"; }
@@ -2273,54 +2290,52 @@
       '</div></div><span class="tsp"></span><div class="tpills">' +
       W.themas.map(function (b) { return '<span class="tpill">' + (b.label ? printChipHtml("tpchip", b.label, b.color) : "") + "<span>" + esc(b.txt) + "</span></span>"; }).join("") +
       "</div></div>";
-    // Axis: every real start time plus the end; a label too close to the previous one is left out.
-    h += '<div class="tax"><div class="taxis">';
-    var lastF = -1;
-    W.ticks.concat([W.t1]).forEach(function (m, i, all) {
-      var f = W.frac(m), end = i === all.length - 1;
-      if (lastF >= 0 && f - lastF < 0.045) return;
-      lastF = f;
-      h += '<span' + (end ? ' class="tend"' : "") + ' style="left:' + pct(m) + '">' + minToHHMM(m) + "</span>";
-    });
-    h += '</div><div class="tbh">Notities</div></div><div class="tlanes">';
+    // No time axis: every block carries its own start time, which is exact per day.
+    h += '<div class="tlanes">';
     var gob = prefs.goblin ? printGoblinHtml("tfgob") : "", gobUsed = false;
+    function brk(a, b) { return '<div class="tbrk" style="' + lr(a, b, 2) + '"><span>' + (b - a < TODO_LUNCH_MIN ? "speeltijd" : "middag") + "</span></div>"; }
     W.days.forEach(function (D) {
       h += '<div class="tlane"><div class="tday"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="ttrack">';
       if (!D.blocks.length) h += '<div class="tnone">geen lessen</div>';
       D.blocks.forEach(function (L, i) {
         var nx = D.blocks[i + 1];
-        if (nx && nx.s - L.e >= 10) h += '<div class="tbrk" style="' + lr(L.e, nx.s, 0) + '"><span>' + (nx.s - L.e < TODO_LUNCH_MIN ? "speeltijd" : "middag") + "</span></div>";
-        h += '<div class="tblk' + (L.toets ? " toets" : "") + '" style="' + lr(L.s, L.e, 2) + "background:" + esc(L.col) + ";color:" + L.ink + '"><div class="tk"><span>' + esc(L.lbl) + "</span><em>" + minToHHMM(L.s) + '</em></div><div class="tt">' + esc(L.p.main) + "</div>" +
+        if (nx && nx.s - L.e >= 10) h += brk(L.e, nx.s);
+        h += '<div class="tblk' + (L.toets ? " toets" : "") + '" style="' + lr(L.s, L.e, 2) + "border-color:" + esc(todoEdge(L.col)) + '"><div class="tk"><span>' + esc(L.lbl) + "</span><em>" + minToHHMM(L.s) + '</em></div><div class="tt">' + esc(L.p.main) + "</div>" +
           (L.toets ? '<span class="tst">TOETS</span>' : "") + "</div>";
       });
       if (D.free) {
         var last = D.blocks[D.blocks.length - 1].e;
-        if (D.free.s - last >= 10) h += '<div class="tbrk" style="' + lr(last, D.free.s, 0) + '"><span>' + (D.free.s - last < TODO_LUNCH_MIN ? "speeltijd" : "middag") + "</span></div>";
+        if (D.free.s - last >= 10) h += brk(last, D.free.s);
         // The goblin in the first free afternoon (pref `goblin`); otherwise that box is room for notes.
         if (gob && !gobUsed) { gobUsed = true; h += '<div class="tfree" style="' + lr(D.free.s, D.free.e, 2) + '">' + gob + "<span>vrije namiddag</span></div>"; }
         else h += '<div class="tfree tfnote" style="' + lr(D.free.s, D.free.e, 2) + '"><span>vrije namiddag</span></div>';
       }
-      h += '</div><div class="twr"></div></div>';
+      h += '</div><div class="twr"><span>Notities</span></div></div>';
     });
     return h + "</div>";
   }
   function todoBackHtml(W, opts) {
-    var h = '<div class="tc"><div class="tbh twk">' + (opts.showMeta ? "wk " + W.wk : "") + '</div><div class="tbh">Lessen</div>' +
+    // Every lesuur row is equally high across the whole page: a day's share of the height is its row
+    // count, so a short Wednesday is a short block. A crowded week gets smaller type and fewer goal
+    // lines per cell instead of clipping mid-line.
+    var rows = W.days.map(function (D) { return Math.max(1, D.blocks.length); }), R = rows.reduce(function (a, b) { return a + b; }, 0);
+    var rowH = 650 / R, fs = rowH >= 22 ? 8.5 : Math.max(6.5, Math.round(rowH / 2.6 * 10) / 10);
+    var lines = Math.max(1, Math.min(4, Math.floor((rowH - 4) / (fs * 1.2))));
+    var h = '<div class="tc" style="grid-template-rows:14px ' + rows.map(function (n) { return "minmax(0, " + n + "fr)"; }).join(" ") +
+      ";--gfs:" + fs + "px;--gl:" + lines + '"><div class="tbh twk">' + (opts.showMeta ? "wk " + W.wk : "") + '</div><div class="tbh tlh">Lessen</div>' +
       GOALS_KINDS.map(function (k) { return '<div class="tbh tgh">' + k.ico + esc(k.label) + "</div>"; }).join("");
     W.days.forEach(function (D) {
-      var n = Math.max(1, D.blocks.length);
-      // A crowded day gets smaller type and fewer goal lines instead of clipping mid-line.
-      var fs = n <= 6 ? 8.5 : Math.max(6.5, Math.round(51 / n * 10) / 10), lines = Math.max(1, Math.min(4, Math.floor(118 / n / (fs * 1.2))));
-      h += '<div class="tbd tbv"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="tcl" style="--gfs:' + fs + "px;--gl:" + lines + '">';
+      h += '<div class="tbd tbv"><b>' + esc(D.info.ab) + "</b><span>" + esc(D.info.dm) + '</span></div><div class="tcl">';
       if (!D.blocks.length) h += '<div class="tcr"><div class="tli tmut">geen lessen</div></div>';
       D.blocks.forEach(function (L) {
         var rec = goalsRecFor(goalsKeyFor(L.slot)), hide = rec.hide || {};
-        h += '<div class="tcr"><div class="tli"><span class="tcb"></span><i style="background:' + esc(L.col) + '"></i><span class="tlt' + (L.p.main ? "" : " tmut") + '">' + esc(L.p.main || L.lbl) + "</span>" +
+        h += '<div class="tcr"><div class="tli"><span class="tcb" style="background:' + todoTint(L.col) + '"></span><span class="tlt' + (L.p.main ? "" : " tmut") + '">' + esc(L.p.main || L.lbl) + "</span>" +
           (L.toets ? '<span class="ttg">TOETS</span>' : "") + "</div>" +
           GOALS_KINDS.map(function (k) {
             if (hide[k.key]) return '<div class="tcg"></div>';
             var t = String(rec[k.key] || "").trim();
-            return t ? '<div class="tcg">' + esc(t) + "</div>" : '<div class="tcg twl"></div>';
+            // The writing line is a border, not a 1px box: the preview's zoom can round a 1px box away.
+            return t ? '<div class="tcg"><div class="tgt">' + esc(t) + "</div></div>" : '<div class="tcg twl"></div>';
           }).join("") + "</div>";
       });
       h += "</div>";
@@ -2337,7 +2352,7 @@
     return sheet(todoFrontHtml(W, opts, prefs)) + sheet(todoBackHtml(W, opts));
   }
   var PRINT_TODO_CSS =
-    '.tdhd { flex: none; display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }' +
+    '.tdhd { flex: none; display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }' +
     '.tlogo { width: 46px; height: 46px; object-fit: contain; }' +
     '.tlogo.full { width: auto; height: 64px; margin: -8px 0 -6px; }' +
     '.tbig { font-size: 24px; font-weight: 900; letter-spacing: -.02em; line-height: 1; }' +
@@ -2348,56 +2363,49 @@
     '.tpill > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
     '.tpill:not(:has(.tpchip)) { padding-left: 11px; }' +
     '.tpchip { flex: none; border-radius: 999px; padding: 2px 8px; font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase; background: #EEF0F3; color: #5B5F6B; }' +
-    '.tbh { font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #8A8E99; align-self: end; padding-left: 2px; white-space: nowrap; }' +
-    // front: axis + one lane per day (day | timeline | Notities)
-    '.tax { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 6px; }' +
-    '.taxis { position: relative; height: 16px; margin-left: 64px; }' +
-    '.taxis span { position: absolute; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: #8A8E99; }' +
-    '.taxis span:first-child { transform: none; }' +
-    '.taxis span.tend { transform: translateX(-100%); }' +
-    '.tax .tbh { padding-left: 4px; }' +
+    '.tbh { font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #8A8E99; align-self: end; white-space: nowrap; }' +
+    // front: one lane per day (day | timeline | Notities); white paper, vak colour only as the outline
     '.tlanes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 6px; }' +
     '.tlane { display: grid; grid-template-columns: 58px minmax(0, 1fr) 170px; gap: 6px; min-height: 0; }' +
     '.tday, .tbd { border-radius: 10px; background: #1E1F27; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }' +
     '.tday b { font-size: 17px; font-weight: 900; }' +
     '.tday span, .tbd span { font-size: 10px; opacity: .75; margin-top: 4px; }' +
-    '.ttrack { position: relative; border-radius: 10px; background: #F5F6F8; }' +
-    '.tblk { position: absolute; top: 4px; bottom: 4px; border-radius: 8px; padding: 5px 7px; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }' +
-    '.tk { display: flex; gap: 6px; font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; opacity: .85; white-space: nowrap; }' +
+    '.ttrack { position: relative; }' +
+    '.tblk { position: absolute; top: 2px; bottom: 2px; border: 3px solid #3E424D; border-radius: 9px; background: #fff; color: #1E1F27; padding: 4px 6px; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }' +
+    '.tk { display: flex; gap: 6px; font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: #5B5F6B; white-space: nowrap; }' +
     '.tk span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }' +
-    '.tk em { font-style: normal; margin-left: auto; letter-spacing: 0; font-weight: 700; }' +
+    '.tk em { font-style: normal; margin-left: auto; letter-spacing: 0; font-weight: 700; color: #1E1F27; }' +
     '.tblk .tt { font-size: 11px; font-weight: 700; line-height: 1.22; overflow: hidden; overflow-wrap: anywhere; }' +
-    '.tblk.toets { box-shadow: inset 0 0 0 2px #1E1F27; }' +
-    '.tst { position: absolute; right: 5px; bottom: 4px; transform: rotate(-6deg); background: #fff; color: #1E1F27; font-size: 8px; font-weight: 900; letter-spacing: .1em; padding: 1px 5px; border-radius: 3px; box-shadow: 0 0 0 1px #1E1F27; }' +
-    '.tbrk { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }' +
-    '.tbrk span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #A0A4AE; white-space: nowrap; }' +
-    '.tfree { position: absolute; top: 4px; bottom: 4px; border-radius: 8px; border: 2px dashed #7ED957; background: #F3FBEF; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 800; color: #3B7A22; font-size: 13px; overflow: hidden; white-space: nowrap; }' +
+    '.tblk.toets { box-shadow: inset 0 0 0 1.5px #1E1F27; }' +
+    '.tst { position: absolute; right: 4px; bottom: 3px; transform: rotate(-6deg); background: #fff; color: #1E1F27; font-size: 8px; font-weight: 900; letter-spacing: .1em; padding: 1px 5px; border-radius: 3px; box-shadow: 0 0 0 1px #1E1F27; }' +
+    '.tbrk { position: absolute; top: 2px; bottom: 2px; border-radius: 6px; background: #F1F2F4; display: flex; align-items: center; justify-content: center; overflow: hidden; }' +
+    '.tbrk span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #8A8E99; white-space: nowrap; }' +
+    '.tfree { position: absolute; top: 2px; bottom: 2px; border-radius: 9px; border: 2px dashed #7ED957; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 800; color: #3B7A22; font-size: 13px; overflow: hidden; white-space: nowrap; }' +
     '.tfgob { height: 92%; width: auto; }' +
-    '.tfree.tfnote { align-items: flex-start; justify-content: flex-start; padding: 3px 8px; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; background-color: #fff; background-image: repeating-linear-gradient(transparent, transparent 19px, #E3E6EB 19px, #E3E6EB 20px); background-position: 0 4px; }' +
+    '.tfree.tfnote { align-items: flex-start; justify-content: flex-start; padding: 3px 8px; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; background-image: repeating-linear-gradient(transparent, transparent 19px, #E3E6EB 19px, #E3E6EB 20px); background-position: 0 4px; }' +
     '.tnone { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #A0A4AE; font-weight: 700; font-size: 12px; }' +
-    '.twr { min-height: 0; border: 1px solid #EDE4C8; border-radius: 8px; background-color: #FBF8EE; background-image: repeating-linear-gradient(transparent, transparent 19px, #E9DFC2 19px, #E9DFC2 20px); background-position: 0 6px; }' +
+    '.twr { min-height: 0; border: 1px solid #D5D8DE; border-radius: 9px; padding: 3px 8px; font-size: 8.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #8A8E99; background-image: repeating-linear-gradient(transparent, transparent 19px, #E3E6EB 19px, #E3E6EB 20px); background-position: 0 6px; }' +
     // back: day | lessons | weet | ken | kan; each day and each row a subgrid, so every row lines up with the header
-    '.tc { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 26px minmax(0, 1.15fr) repeat(3, minmax(0, 1fr)); grid-template-rows: 14px repeat(5, minmax(0, 1fr)); gap: 4px 0; }' +
+    '.tc { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 26px minmax(0, 1.15fr) repeat(3, minmax(0, 1fr)); gap: 4px 0; }' +
     '.tc .tbh { font-size: 8.5px; }' +
-    '.tc .twk { color: #1E1F27; font-size: 7.5px; letter-spacing: .02em; padding: 0; text-align: center; }' +
-    '.tc .tgh { display: flex; gap: 4px; align-items: center; padding-left: 24px; }' +
-    '.tc .tbh:nth-child(2) { padding-left: 13px; }' +
+    '.tc .twk { color: #1E1F27; font-size: 7.5px; letter-spacing: .02em; text-align: center; }' +
+    '.tc .tlh { padding-left: 13px; }' +
+    '.tc .tgh { display: flex; gap: 4px; align-items: center; padding-left: 9px; }' +
     '.tbd { border-radius: 8px; }' +
     '.tbd b { font-size: 13px; font-weight: 900; }' +
     '.tbv { flex-direction: row; gap: 6px; writing-mode: vertical-rl; transform: rotate(180deg); }' +
     '.tbv span { margin-top: 0; }' +
-    '.tcl { grid-column: span 4; margin-left: 6px; display: grid; grid-template-columns: subgrid; grid-auto-rows: minmax(0, 1fr); border: 1px solid #E2E4E9; border-radius: 8px; padding: 0 10px 0 7px; min-height: 0; overflow: hidden; font-size: calc(var(--gfs) + 1px); }' +
-    '.tcr { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; min-height: 0; }' +
-    '.tcr + .tcr { border-top: 1px solid #F0F1F4; }' +
-    '.tcr > * + * { padding-left: 18px; }' +
-    '.tli { display: flex; align-items: center; gap: 5px; min-width: 0; }' +
+    '.tcl { grid-column: span 4; margin-left: 6px; display: grid; grid-template-columns: subgrid; grid-auto-rows: minmax(0, 1fr); border: 1px solid #D5D8DE; border-radius: 8px; padding-left: 7px; min-height: 0; overflow: hidden; font-size: calc(var(--gfs) + 1px); }' +
+    '.tcr { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; min-height: 0; }' +
+    '.tcr + .tcr { border-top: 1px solid #E6E8EC; }' +
+    '.tli { display: flex; align-items: center; gap: 5px; min-width: 0; padding-right: 8px; }' +
     '.tcb { width: 11px; height: 11px; border: 1.5px solid #1E1F27; border-radius: 3px; flex: 0 0 auto; }' +
-    '.tli i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }' +
     '.tlt { font-weight: 600; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.15; }' +
     '.tmut { color: #8A8E99; font-weight: 500; font-style: italic; }' +
     '.ttg { margin-left: auto; background: #F59E0B; color: #1E1F27; border-radius: 3px; padding: 0 4px; font-size: 7.5px; font-weight: 900; letter-spacing: .08em; flex: 0 0 auto; }' +
-    '.tcg { font-size: var(--gfs); line-height: 1.2; color: #3E424D; min-height: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: var(--gl); -webkit-box-orient: vertical; }' +
-    '.tcg.twl { display: block; align-self: end; height: 1px; margin-bottom: 4px; background: #C9CDD4; background-clip: content-box; }';
+    '.tcg { position: relative; min-height: 0; overflow: hidden; border-left: 1px solid #E6E8EC; padding: 0 8px; display: flex; align-items: center; }' +
+    '.tgt { font-size: var(--gfs); line-height: 1.2; color: #3E424D; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: var(--gl); -webkit-box-orient: vertical; }' +
+    '.tcg.twl::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 5px; border-bottom: 1px solid #B9BDC6; }';
   function printTodoDocHtml(pv, opts, prefs) {
     prefs = prefs || {};
     var body = "";

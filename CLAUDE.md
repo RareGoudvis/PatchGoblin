@@ -402,14 +402,16 @@ the app's card look: logo · "Week N" · dates · meta, one-line charcoal day he
 cards with a vak-coloured top bar (`goalsInkOn` ink; no colour → grey bar), breaks as 3px gaps, lesuur rows
 weighted by duration (`fr`) so the week fills one page; each day's trailing free rows (no lesuur, no other-agenda
 item, `printFreeRuns`) merge into one hatched box; footer = note + legend. Other-agenda chips sit in the card, an
-uncovered time gets its own `auto` row. Te doen: front = timeline (axis from the week's first start to its last end, labelled with the real start
-times; a break ≥ 30 min empty on EVERY day is drawn `TODO_GAP_DRAW` minutes wide; a block per lesson at its real time, consecutive lesuren of the same lesson merged — same fiche content id, else same vak + shown title,
+uncovered time gets its own `auto` row. Te doen: front = timeline (no axis — each block shows its own start time; it runs from the week's first start to
+its last end, a break ≥ 30 min empty on EVERY day drawn `TODO_GAP_DRAW` minutes wide; white blocks with a 3px vak-coloured
+outline, `todoEdge` darkening pale colours; grey only for speeltijd/middag strips; a block per lesson at its real time, consecutive lesuren of the same lesson merged — same fiche content id, else same vak + shown title,
 never across a gap ≥ 30 min, `todoDayBlocks`; gaps labelled speeltijd/middag; a day ending before the week's first
 afternoon lesson gets "vrije namiddag": the goblin in the first one when `goblin`, else notes lines) plus a lined
-Notities box per day (prep and homework); no footer. Back = no header, `wk N` + Lessen | weet | ken | kan, each day
-and row a CSS subgrid so rows line up; vertical day labels, no times; goals from `goalsRecFor` (fiche, else local),
+Notities box per day (prep and homework); no footer. Back = no header, `wk N` + Lessen | weet | ken | kan with column rules, each day
+and row a CSS subgrid so rows line up, every lesuur row equally high (a day's height ∝ its row count); vertical day labels, no times; goals from `goalsRecFor` (fiche, else local),
 an empty goal gets a writing line, a kind hidden for that fiche (`rec.hide`) gets nothing; a crowded day shrinks
-its type and goal line clamp (`--gfs`/`--gl`).
+its type and goal line clamp (`--gfs`/`--gl`, from the week's row count). Writing lines are a
+`border-bottom` on `::after`, never a 1px-high box: the preview's zoom rounded those away on some rows.
 Only the planner's own lesuren (`pv.slots`), never other agendas. **A toets is a guess**: the word "toets" in the
 shown title (`TODO_TOETS_RE`); the page no longer says so (the user dropped the footer). **Images:** `icons/head96.png` / `goblin-full.png`
 (web-accessible) by `chrome.runtime.getURL` — the preview iframe is about:blank on questi.com's origin, where the
